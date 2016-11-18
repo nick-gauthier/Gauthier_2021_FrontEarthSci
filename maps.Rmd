@@ -4,6 +4,7 @@ output:
   html_document: default
   html_notebook: default
   pdf_document: default
+  keep_md: yes
 ---
 
 ```{r message = F}
@@ -64,32 +65,26 @@ watercolor <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, t
 # Plotting
 ```{r fig.width = 10, fig.width = 10}
 ggmap(terrain.background) +
-  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
 ggmap(terrain.labels) +
-  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
 ggmap(toner.background) +
-  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
 ggmap(toner.background) +
-  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
 ggmap(toner.hybrid) +
-  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
 ggmap(watercolor) +
-  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
