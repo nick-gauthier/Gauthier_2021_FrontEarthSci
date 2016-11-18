@@ -17,14 +17,14 @@ library(ggmap)
 
 Import SWSN data.
 ```{r message = F}
-swsn <- read_csv('attributes_orig.csv')
+swsn <- read_csv('Data/attributes_orig.csv')
 swsn
 ```
 
 Pull the coordinates from the attribute map, reproject from UTM to Lat Lon.
 
 ```{r message = F}
-swsn.pts <- read_csv('attributes_orig.csv') %>% 
+swsn.pts <- read_csv('Data/attributes_orig.csv') %>% 
   select(easting = EASTING, northing = NORTHING) %>%
   SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=WGS84")) %>%
   spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
@@ -35,27 +35,69 @@ swsn.pts <- read_csv('attributes_orig.csv') %>%
 Download Stamen terrain basemap.
 
 ```{r message = F, cache = T}
-terrain.background <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+bbox <- c(left = -113.5, right = -106.5, bottom = 31, top = 37.5)
+
+terrain <- get_map(location = bbox,
+  color = "color",
+  source = "stamen",
+  maptype = "terrain")
+
+terrain.background <- get_map(location = bbox,
   color = "color",
   source = "stamen",
   maptype = "terrain-background")
 
-terrain.labels <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+terrain.labels <- get_map(location = bbox,
   color = "color",
   source = "stamen",
   maptype = "terrain-labels")
 
-toner.background <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+terrain.lines <- get_map(location = bbox,
+  color = "color",
+  source = "stamen",
+  maptype = "terrain-lines")
+
+toner <- get_map(location = bbox,
+  color = "color",
+  source = "stamen",
+  maptype = "toner")
+
+toner.2010 <- get_map(location = bbox,
+  color = "color",
+  source = "stamen",
+  maptype = "toner-2010")
+
+toner.2011 <- get_map(location = bbox,
+  color = "color",
+  source = "stamen",
+  maptype = "toner-2011")
+
+toner.background <- get_map(location = bbox,
   color = "color",
   source = "stamen",
   maptype = "toner-background")
 
-toner.hybrid <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+toner.hybrid <- get_map(location = bbox,
   color = "color",
   source = "stamen",
   maptype = "toner-hybrid")
 
-watercolor <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+toner.labels <- get_map(location = bbox,
+  color = "color",
+  source = "stamen",
+  maptype = "toner-labels")
+
+toner.lines <- get_map(location = bbox,
+  color = "color",
+  source = "stamen",
+  maptype = "toner-lines")
+
+toner.lite <- get_map(location = bbox,
+  color = "color",
+  source = "stamen",
+  maptype = "toner-lite")
+
+watercolor <- get_map(location = bbox,
   color = "color",
   source = "stamen",
   maptype = "watercolor")
@@ -64,6 +106,10 @@ watercolor <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, t
 
 # Plotting
 ```{r fig.width = 10, fig.width = 10}
+ggmap(terrain) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
 ggmap(terrain.background) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
@@ -72,7 +118,19 @@ ggmap(terrain.labels) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
-ggmap(toner.background) +
+ggmap(terrain.lines) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner.2010) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner.2011) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
@@ -81,6 +139,18 @@ ggmap(toner.background) +
   labs(x = "Longitude", y = "Latitude")
 
 ggmap(toner.hybrid) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner.labels) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner.lines) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner.lite) +
   geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
   labs(x = "Longitude", y = "Latitude")
 
