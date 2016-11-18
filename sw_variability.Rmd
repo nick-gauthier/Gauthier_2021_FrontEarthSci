@@ -1,0 +1,77 @@
+---
+title: "Southwest Climate Variability"
+author: "Nicolas Gauthier"
+date: "August 26, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(magrittr)
+library(stringr)
+library(raster)
+library(SPEI)
+library(spacetime)
+library(rasterVis)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure}
+elev <- getData('alt', country = 'USA') %>% extract2(1) %>% crop(extent(c(-113, -106, 31, 38)))
+levelplot(elev)
+```
+
+
+
+```{r}
+prec <- brick('b40.lm850-1850.1deg.001.cam2.h0.PRECT.085001-185012.nc') %>% 
+  extract2(1:4800) %>% 
+  rotate %>%
+  crop(elev)
+
+trefmnav <- brick('b40.lm850-1850.1deg.001.cam2.h0.TREFMNAV.085001-185012.nc') %>%
+  extract2(1:1200) %>%
+  rotate
+  
+trefmxav <- brick('b40.lm850-1850.1deg.001.cam2.h0.TREFMXAV.085001-185012.nc') %>%
+  extract2(1:1200) %>%
+  rotate
+```
+
+```{r}
+times <- prec %>% 
+  names %>% 
+  str_sub(2) %>% 
+  str_replace_all('\\.','-') %>% 
+  as.yearmon # use \\ to escape period
+```
+
+```{r}
+stfdf <- prec %>% resample(elev) %>% setZ(times) %>% as('STFDF')
+```
+
+
+```{r}
+## attempt to compute EOFs
+#eof_time <- eof(stfdf, 'temporal')
+eof_space <- eof(stfdf, 'spatial') %>% brick
+eof(stfdf, 'spatial', returnEOFs = F) %>% screeplot()
+```
+
+```{r}
+levelplot(eof_space[[1:6]] %>% resample(elev), par.settings = RdBuTheme())
+```
+
+

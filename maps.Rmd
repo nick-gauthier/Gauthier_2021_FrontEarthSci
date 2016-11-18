@@ -1,0 +1,97 @@
+---
+title: "R Notebook"
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r message = F}
+library(tidyverse)
+library(rgdal)
+#devtools::install_github("dkahle/ggmap")
+library(ggmap)
+```
+# Preprocessing
+
+Import SWSN data.
+```{r message = F}
+swsn <- read_csv('attributes_orig.csv')
+swsn
+```
+
+Pull the coordinates from the attribute map, reproject from UTM to Lat Lon.
+
+```{r message = F}
+swsn.pts <- read_csv('attributes_orig.csv') %>% 
+  select(easting = EASTING, northing = NORTHING) %>%
+  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=WGS84")) %>%
+  spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
+  coordinates %>%
+  data.frame
+```
+
+Download Stamen terrain basemap.
+
+```{r message = F, cache = T}
+terrain.background <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+  color = "color",
+  source = "stamen",
+  maptype = "terrain-background")
+
+terrain.labels <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+  color = "color",
+  source = "stamen",
+  maptype = "terrain-labels")
+
+toner.background <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+  color = "color",
+  source = "stamen",
+  maptype = "toner-background")
+
+toner.hybrid <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+  color = "color",
+  source = "stamen",
+  maptype = "toner-hybrid")
+
+watercolor <- get_map(location = c(left = -113.5, right = -106.5, bottom = 31, top = 37.5),
+  color = "color",
+  source = "stamen",
+  maptype = "watercolor")
+```
+
+
+# Plotting
+```{r fig.width = 10, fig.width = 10}
+ggmap(terrain.background) +
+  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(terrain.labels) +
+  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner.background) +
+  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner.background) +
+  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(toner.hybrid) +
+  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggmap(watercolor) +
+  geom_point(aes(x = easting, y = northing), color = 'white', size = 3, data = swsn.pts) +
+  geom_point(aes(x = easting, y = northing), size = 2, data = swsn.pts) +
+  labs(x = "Longitude", y = "Latitude")
+
+```
+
