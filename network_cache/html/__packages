@@ -1,0 +1,16 @@
+base
+igraph
+GGally
+network
+statnet.common
+sna
+tidyverse
+ggplot2
+tibble
+tidyr
+readr
+purrr
+dplyr
+sp
+rgdal
+ggmap
