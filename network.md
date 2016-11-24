@@ -80,35 +80,35 @@ Now plot the networks.
 ```r
 library(GGally)
 
-ggnetworkmap(map, ad1200, edge.size = 'weight', edge.alpha = .1) +
+ggnetworkmap(map, ad1200) +
   guides(size = F)
 ```
 
 ![](network_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
 
 ```r
-ggnetworkmap(map, ad1250, edge.size = 'weight', edge.alpha = .1) +
+ggnetworkmap(map, ad1250) +
   guides(size = F)
 ```
 
 ![](network_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
 
 ```r
-ggnetworkmap(map, ad1300, edge.size = 'weight', edge.alpha = .1) +
+ggnetworkmap(map, ad1300) +
   guides(size = F)
 ```
 
 ![](network_files/figure-html/unnamed-chunk-6-3.png)<!-- -->
 
 ```r
-ggnetworkmap(map, ad1350, edge.size = 'weight', edge.alpha = .1) +
+ggnetworkmap(map, ad1350) +
   guides(size = F)
 ```
 
 ![](network_files/figure-html/unnamed-chunk-6-4.png)<!-- -->
 
 ```r
-ggnetworkmap(map, ad1400, edge.size = 'weight', edge.alpha = .1) +
+ggnetworkmap(map, ad1400) +
   guides(size = F)
 ```
 
