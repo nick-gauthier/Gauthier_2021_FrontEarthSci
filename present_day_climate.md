@@ -26,13 +26,62 @@ levelplot(elev, margin = F)
 
 
 ```r
-prec <- brick('~/Downloads/spei12.nc') %>%
-  crop(extent(c(-113.5, -106.5, 31, 37.5)), snap = 'out')
+box <- extent(c(-113.5, -106.5, 31, 37.5))
+
+brick('~/Downloads/spei03.nc') %>%
+  crop(box, snap = 'out') %>% 
+  as('STFDF') %>%
+  eof('spatial') %>%
+  brick %>%
+  extract2(1:6) %>% 
+  resample(elev) %>%
+  levelplot(par.settings = RdBuTheme(), contour = T)
 ```
+
+![](present_day_climate_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
+
+```r
+brick('~/Downloads/spei06.nc') %>%
+  crop(box, snap = 'out') %>% 
+  as('STFDF') %>%
+  eof('spatial') %>%
+  brick %>%
+  extract2(1:6) %>% 
+  resample(elev) %>%
+  levelplot(par.settings = RdBuTheme(), contour = T)
+```
+
+![](present_day_climate_files/figure-html/unnamed-chunk-3-2.png)<!-- -->
+
+```r
+brick('~/Downloads/spei12.nc') %>%
+  crop(box, snap = 'out') %>% 
+  as('STFDF') %>%
+  eof('spatial') %>%
+  brick %>%
+  extract2(1:6) %>% 
+  resample(elev) %>%
+  levelplot(par.settings = RdBuTheme(), contour = T)
+```
+
+![](present_day_climate_files/figure-html/unnamed-chunk-3-3.png)<!-- -->
+
+```r
+brick('~/Downloads/spei48.nc') %>%
+  crop(box, snap = 'out') %>% 
+  as('STFDF') %>%
+  eof('spatial') %>%
+  brick %>%
+  extract2(1:6) %>% 
+  resample(elev) %>%
+  levelplot(par.settings = RdBuTheme(), contour = T)
+```
+
+![](present_day_climate_files/figure-html/unnamed-chunk-3-4.png)<!-- -->
 
 
 ```r
-stfdf <- prec %>% as('STFDF')
+#stfdf <- prec 
 ```
 
 
@@ -40,23 +89,24 @@ stfdf <- prec %>% as('STFDF')
 ```r
 ## attempt to compute EOFs
 #eof_time <- eof(stfdf, 'temporal')
-eof_space <- eof(stfdf, 'spatial') %>% brick %>% extract2(1:6) %>% resample(elev)
-eof(stfdf, 'spatial', returnEOFs = F) %>% screeplot(type = 'lines')
+#eof_space <- eof(stfdf, 'spatial') %>% brick %>% extract2(1:6) %>% resample(elev)
+#eof(stfdf, 'spatial', returnEOFs = F) %>% screeplot(type = 'lines')
 ```
 
-![](present_day_climate_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
+```r
+#levelplot(par.settings = RdBuTheme(), contour = T)
+```
+
 
 
 ```r
-levelplot(eof_space, par.settings = RdBuTheme(), contour = F)
+#levelplot(eof_space, par.settings = RdBuTheme(), contour = F)
+#levelplot(eof_space, par.settings = RdBuTheme(), contour = T)
 ```
 
-![](present_day_climate_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
 
 ```r
-levelplot(eof_space, par.settings = RdBuTheme(), contour = T)
+#
+#eof_space %>% abs %>% sum %>% levelplot(margin = F)
 ```
-
-![](present_day_climate_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
-
 
