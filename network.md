@@ -87,6 +87,8 @@ ggnetworkmap(map, ad1200) +
 ![](network_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
 
 ```r
+ggsave('ad1200.png')
+
 ggnetworkmap(map, ad1250) +
   guides(size = F)
 ```
@@ -94,6 +96,8 @@ ggnetworkmap(map, ad1250) +
 ![](network_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
 
 ```r
+ggsave('ad1250.png')
+
 ggnetworkmap(map, ad1300) +
   guides(size = F)
 ```
@@ -101,6 +105,8 @@ ggnetworkmap(map, ad1300) +
 ![](network_files/figure-html/unnamed-chunk-6-3.png)<!-- -->
 
 ```r
+ggsave('ad1300.png')
+
 ggnetworkmap(map, ad1350) +
   guides(size = F)
 ```
@@ -108,9 +114,15 @@ ggnetworkmap(map, ad1350) +
 ![](network_files/figure-html/unnamed-chunk-6-4.png)<!-- -->
 
 ```r
+ggsave('ad1350.png')
+
 ggnetworkmap(map, ad1400) +
   guides(size = F)
 ```
 
 ![](network_files/figure-html/unnamed-chunk-6-5.png)<!-- -->
+
+```r
+ggsave('ad1400.png')
+```
 

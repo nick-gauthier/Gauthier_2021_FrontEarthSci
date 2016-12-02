@@ -1,0 +1,53 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+## Setup
+If you need to, use devtools to to install FedData from GitHub
+```{r install packages}
+install.packages("devtools")
+library(devtools)
+install_github("bocinsky/FedData")
+```
+
+Load FedData
+```{r}
+library(raster)
+library(rasterVis)
+library(FedData)
+library(tidyverse)
+```
+
+## Elevation
+First, get some elevation data.
+
+Define a bounding box.
+```{r}
+bbox <- c(-113.5, -106.5, 31, 37.5) %>% extent %>% polygon_from_extent(proj4string = '+proj=longlat +ellps=WGS84')
+```
+
+Get National Elevation Data.
+```{r}
+ned <- get_ned(template = bbox, label = 'swsn')
+```
+
+```{r}
+levelplot(ned, margin = F)
+```
+## Daymet
+
+```{r}
+daymet <- get_daymet(template = bbox, label = 'swsn', elements = c('prcp','tmin','tmax'), years = 1980:2015,
+                     raw.dir = '~/Data/RAW/DAYMET/', extraction.dir = 'Data/Daymet/')
+```
+
+```{r}
+plot(daymet)
+```
+
+
+## Tree rings
+```{r}
+treerings <- get_itrdb(template = bbox, label = 'swsn', makeSpatial = T)
+```
+
