@@ -103,3 +103,33 @@ ggnetworkmap(map, ad1400) +
 
 ```
 
+## More Minimal network maps
+
+```{r}
+library(maps)
+
+states <- map_data('state') %>%
+  filter(region == 'arizona' | region == 'new mexico')
+  
+base <- ggplot(data = states) +
+  geom_polygon(aes(x = long, y = lat, group = region), color = 'black', fill = 'white') +
+  coord_quickmap() +
+  theme_minimal() +
+  labs(x = "Longitude", y = "Latitude")
+
+ggnetworkmap(base, ad1200, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  guides(size = F)
+
+ggnetworkmap(base, ad1250, great.circles = T, size = .3) +
+  guides(size = F)
+
+ggnetworkmap(base, ad1300, great.circles = T, size = .3) +
+  guides(size = F)
+
+ggnetworkmap(base, ad1350, great.circles = T, size = .3) +
+  guides(size = F)
+
+ggnetworkmap(base, ad1400, great.circles = T, size = .3) +
+  guides(size = F)
+```
+

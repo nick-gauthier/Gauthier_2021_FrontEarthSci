@@ -87,7 +87,7 @@ ggnetworkmap(map, ad1200) +
 ![](network_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
 
 ```r
-ggsave('ad1200.png')
+#ggsave('ad1200.png')
 
 ggnetworkmap(map, ad1250) +
   guides(size = F)
@@ -96,7 +96,7 @@ ggnetworkmap(map, ad1250) +
 ![](network_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
 
 ```r
-ggsave('ad1250.png')
+#ggsave('ad1250.png')
 
 ggnetworkmap(map, ad1300) +
   guides(size = F)
@@ -105,7 +105,7 @@ ggnetworkmap(map, ad1300) +
 ![](network_files/figure-html/unnamed-chunk-6-3.png)<!-- -->
 
 ```r
-ggsave('ad1300.png')
+#ggsave('ad1300.png')
 
 ggnetworkmap(map, ad1350) +
   guides(size = F)
@@ -114,7 +114,7 @@ ggnetworkmap(map, ad1350) +
 ![](network_files/figure-html/unnamed-chunk-6-4.png)<!-- -->
 
 ```r
-ggsave('ad1350.png')
+#ggsave('ad1350.png')
 
 ggnetworkmap(map, ad1400) +
   guides(size = F)
@@ -123,6 +123,72 @@ ggnetworkmap(map, ad1400) +
 ![](network_files/figure-html/unnamed-chunk-6-5.png)<!-- -->
 
 ```r
-ggsave('ad1400.png')
+#ggsave('ad1400.png')
 ```
+
+## More Minimal network maps
+
+
+```r
+library(maps)
+```
+
+```
+## 
+## Attaching package: 'maps'
+```
+
+```
+## The following object is masked from 'package:purrr':
+## 
+##     map
+```
+
+```r
+states <- map_data('state') %>%
+  filter(region == 'arizona' | region == 'new mexico')
+  
+base <- ggplot(data = states) +
+  geom_polygon(aes(x = long, y = lat, group = region), color = 'black', fill = 'white') +
+  coord_quickmap() +
+  theme_minimal() +
+  labs(x = "Longitude", y = "Latitude")
+
+ggnetworkmap(base, ad1200, great.circles = T, size = .3) +
+  guides(size = F)
+```
+
+```
+## Loading required package: geosphere
+```
+
+![](network_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+
+```r
+ggnetworkmap(base, ad1250, great.circles = T, size = .3) +
+  guides(size = F)
+```
+
+![](network_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
+
+```r
+ggnetworkmap(base, ad1300, great.circles = T, size = .3) +
+  guides(size = F)
+```
+
+![](network_files/figure-html/unnamed-chunk-7-3.png)<!-- -->
+
+```r
+ggnetworkmap(base, ad1350, great.circles = T, size = .3) +
+  guides(size = F)
+```
+
+![](network_files/figure-html/unnamed-chunk-7-4.png)<!-- -->
+
+```r
+ggnetworkmap(base, ad1400, great.circles = T, size = .3) +
+  guides(size = F)
+```
+
+![](network_files/figure-html/unnamed-chunk-7-5.png)<!-- -->
 
