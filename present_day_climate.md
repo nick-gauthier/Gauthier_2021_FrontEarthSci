@@ -79,6 +79,41 @@ brick('~/Downloads/spei48.nc') %>%
 
 ![](present_day_climate_files/figure-html/unnamed-chunk-3-4.png)<!-- -->
 
+Add a shapefile to the 12 month map, showing state boundaries.
+
+```r
+library(maps)
+library(maptools)
+```
+
+```
+## Checking rgeos availability: TRUE
+```
+
+```r
+eof.map <- brick('~/Downloads/spei12.nc') %>%
+  crop(box, snap = 'out') %>% 
+  as('STFDF') %>%
+  eof('spatial') %>%
+  brick %>%
+  extract2(1:6) %>% 
+  resample(elev)
+
+#grap extent of map
+ext <- eof.map %>% extent %>% as.vector
+
+states <- map('state', fill=TRUE,
+    xlim=ext[1:2], ylim=ext[3:4],
+    plot=FALSE) 
+IDs <- sapply(strsplit(states$names, ":"), function(x) x[1])
+bPols <- map2SpatialPolygons(states, IDs=IDs,
+                              proj4string=CRS(projection(eof.map)))
+
+levelplot(eof.map, margin = F, par.settings = RdBuTheme(), at = seq(-.22,.22,.02)) + layer(sp.polygons(bPols))
+```
+
+![](present_day_climate_files/figure-html/unnamed-chunk-4-1.png)<!-- -->
+
 
 ```r
 #stfdf <- prec 
