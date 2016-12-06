@@ -77,57 +77,36 @@ map <- ggmap(terrain.background)  +
 Now plot the networks.
 
 
-```r
-library(GGally)
-
-ggnetworkmap(map, ad1200) +
-  guides(size = F)
-```
-
-![](network_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
-
-```r
-#ggsave('ad1200.png')
-
-ggnetworkmap(map, ad1250) +
-  guides(size = F)
-```
-
-![](network_files/figure-html/unnamed-chunk-6-2.png)<!-- -->
-
-```r
-#ggsave('ad1250.png')
-
-ggnetworkmap(map, ad1300) +
-  guides(size = F)
-```
-
-![](network_files/figure-html/unnamed-chunk-6-3.png)<!-- -->
-
-```r
-#ggsave('ad1300.png')
-
-ggnetworkmap(map, ad1350) +
-  guides(size = F)
-```
-
-![](network_files/figure-html/unnamed-chunk-6-4.png)<!-- -->
-
-```r
-#ggsave('ad1350.png')
-
-ggnetworkmap(map, ad1400) +
-  guides(size = F)
-```
-
-![](network_files/figure-html/unnamed-chunk-6-5.png)<!-- -->
-
-```r
-#ggsave('ad1400.png')
-```
 
 ## More Minimal network maps
 
+
+```r
+library(GGally)
+```
+
+```
+## 
+## Attaching package: 'GGally'
+```
+
+```
+## The following object is masked from 'package:dplyr':
+## 
+##     nasa
+```
+
+```r
+library(ggmap)
+```
+
+```
+## Google Maps API Terms of Service: http://developers.google.com/maps/terms.
+```
+
+```
+## Please cite ggmap if you use it: see citation("ggmap") for details.
+```
 
 ```r
 library(maps)
@@ -145,8 +124,7 @@ library(maps)
 ```
 
 ```r
-states <- map_data('state') %>%
-  filter(region == 'arizona' | region == 'new mexico')
+states <- map_data('state', region = c('arizona', 'new mexico'))
   
 base <- ggplot(data = states) +
   geom_polygon(aes(x = long, y = lat, group = region), color = 'black', fill = 'white') +
@@ -154,41 +132,454 @@ base <- ggplot(data = states) +
   theme_minimal() +
   labs(x = "Longitude", y = "Latitude")
 
-ggnetworkmap(base, ad1200, great.circles = T, size = .3) +
-  guides(size = F)
+n1 <- ggnetworkmap(base, ad1200, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1200')
+```
+
+```
+## Loading required package: network
+```
+
+```
+## network: Classes for Relational Data
+## Version 1.13.0 created on 2015-08-31.
+## copyright (c) 2005, Carter T. Butts, University of California-Irvine
+##                     Mark S. Handcock, University of California -- Los Angeles
+##                     David R. Hunter, Penn State University
+##                     Martina Morris, University of Washington
+##                     Skye Bender-deMoll, University of Washington
+##  For citation information, type citation("network").
+##  Type help("network-package") to get started.
+```
+
+```
+## 
+## Attaching package: 'network'
+```
+
+```
+## The following objects are masked from 'package:igraph':
+## 
+##     %c%, %s%, add.edges, add.vertices, delete.edges,
+##     delete.vertices, get.edge.attribute, get.edges,
+##     get.vertex.attribute, is.bipartite, is.directed,
+##     list.edge.attributes, list.vertex.attributes,
+##     set.edge.attribute, set.vertex.attribute
+```
+
+```
+## Loading required package: sna
+```
+
+```
+## Loading required package: statnet.common
+```
+
+```
+## sna: Tools for Social Network Analysis
+## Version 2.4 created on 2016-07-23.
+## copyright (c) 2005, Carter T. Butts, University of California-Irvine
+##  For citation information, type citation("sna").
+##  Type help(package="sna") to get started.
+```
+
+```
+## 
+## Attaching package: 'sna'
+```
+
+```
+## The following objects are masked from 'package:igraph':
+## 
+##     betweenness, bonpow, closeness, components, degree,
+##     dyad.census, evcent, hierarchy, is.connected, neighborhood,
+##     triad.census
 ```
 
 ```
 ## Loading required package: geosphere
 ```
 
-![](network_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+```r
+n2 <- ggnetworkmap(base, ad1250, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1250')
+
+n3 <- ggnetworkmap(base, ad1300, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1300')
+
+n4 <- ggnetworkmap(base, ad1350, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1350')
+
+n5 <- ggnetworkmap(base, ad1400, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1400')
+```
+Get basemap for elevation.
 
 ```r
-ggnetworkmap(base, ad1250, great.circles = T, size = .3) +
-  guides(size = F)
+# courtesy R Lovelace
+library(raster)
 ```
 
-![](network_files/figure-html/unnamed-chunk-7-2.png)<!-- -->
+```
+## 
+## Attaching package: 'raster'
+```
+
+```
+## The following object is masked from 'package:dplyr':
+## 
+##     select
+```
+
+```
+## The following object is masked from 'package:tidyr':
+## 
+##     extract
+```
 
 ```r
-ggnetworkmap(base, ad1300, great.circles = T, size = .3) +
-  guides(size = F)
+library(maptools)
 ```
 
-![](network_files/figure-html/unnamed-chunk-7-3.png)<!-- -->
+```
+## Checking rgeos availability: TRUE
+```
 
 ```r
-ggnetworkmap(base, ad1350, great.circles = T, size = .3) +
-  guides(size = F)
+states.ply <- map('state', region = c('arizona', 'new mexico'), fill = T, plot = F)
+IDs <- sapply(strsplit(states.ply$names, ":"), function(x) x[1])
+states.ply <- map2SpatialPolygons(states.ply, IDs=IDs)
+
+ggmap_rast <- function(map){
+  map_bbox <- attr(map, 'bb') 
+  .extent <- extent(as.numeric(map_bbox[c(2,4,1,3)]))
+  my_map <- raster(.extent, nrow= nrow(map), ncol = ncol(map))
+  rgb_cols <- setNames(as.data.frame(t(col2rgb(map))), c('red','green','blue'))
+  red <- my_map
+  values(red) <- rgb_cols[['red']]
+  green <- my_map
+  values(green) <- rgb_cols[['green']]
+  blue <- my_map
+  values(blue) <- rgb_cols[['blue']]
+  stack(red,green,blue)
+}
+
+
+ggplot_build(n1)$layout$panel_ranges[[1]]$x.range 
 ```
 
-![](network_files/figure-html/unnamed-chunk-7-4.png)<!-- -->
+```
+## [1] -115.3997 -102.4102
+```
 
 ```r
-ggnetworkmap(base, ad1400, great.circles = T, size = .3) +
-  guides(size = F)
+ggplot_build(n2)$layout$panel_ranges[[1]]$y.range
 ```
 
-![](network_files/figure-html/unnamed-chunk-7-5.png)<!-- -->
+```
+## [1] 31.06377 37.28437
+```
+
+```r
+terrain.background <- get_map(location = c(left = -115.3997, right = -102.4102, bottom = 31.06377, top = 37.28437),
+  zoom = 8,
+  color = "bw",
+  source = "stamen",
+  maptype = "terrain-background")
+```
+
+```
+## 66 tiles needed, this may take a while (try a smaller zoom).
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/45/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/46/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/47/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/48/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/49/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/50/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/51/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/52/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/53/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/54/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/55/99.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/45/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/46/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/47/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/48/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/49/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/50/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/51/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/52/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/53/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/54/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/55/100.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/45/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/46/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/47/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/48/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/49/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/50/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/51/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/52/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/53/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/54/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/55/101.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/45/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/46/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/47/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/48/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/49/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/50/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/51/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/52/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/53/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/54/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/55/102.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/45/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/46/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/47/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/48/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/49/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/50/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/51/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/52/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/53/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/54/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/55/103.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/45/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/46/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/47/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/48/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/49/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/50/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/51/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/52/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/53/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/54/104.png
+```
+
+```
+## Source : http://tile.stamen.com/terrain-background/8/55/104.png
+```
+
+```r
+terrain.rast <- ggmap_rast(map = terrain.background) # convert stamen map to raster object
+state.only <- mask(terrain.rast, states.ply) # clip to bounds of census tracts
+
+
+# prep raster as a data frame for printing with ggplot
+sw.df <- data.frame(rasterToPoints(state.only))
+m1 <- ggplot(sw.df) + 
+  geom_point(aes(x=x, y=y, col=rgb(layer.1/255, layer.2/255, layer.3/255))) + 
+  scale_color_identity() +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  geom_point(aes(x = easting, y = northing), size = 1, data = swsn.pts) +
+  theme_nothing()
+```
+
+
+
+
+
+
+```r
+multiplot(n1, n2, n3, n4, n5, m1, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
+```
+
+![](network_files/figure-html/unnamed-chunk-10-1.png)<!-- -->
 

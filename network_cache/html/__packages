@@ -14,3 +14,7 @@ dplyr
 sp
 rgdal
 ggmap
+maps
+geosphere
+raster
+maptools

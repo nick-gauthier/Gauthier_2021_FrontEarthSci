@@ -78,7 +78,7 @@ map <- ggmap(terrain.background)  +
 
 Now plot the networks.
 
-```{r message = F, warning = F}
+```{r message = F, eval=FALSE, warning=F, include=FALSE}
 library(GGally)
 
 ggnetworkmap(map, ad1200) +
@@ -106,10 +106,11 @@ ggnetworkmap(map, ad1400) +
 ## More Minimal network maps
 
 ```{r}
+library(GGally)
+library(ggmap)
 library(maps)
 
-states <- map_data('state') %>%
-  filter(region == 'arizona' | region == 'new mexico')
+states <- map_data('state', region = c('arizona', 'new mexico'))
   
 base <- ggplot(data = states) +
   geom_polygon(aes(x = long, y = lat, group = region), color = 'black', fill = 'white') +
@@ -117,19 +118,121 @@ base <- ggplot(data = states) +
   theme_minimal() +
   labs(x = "Longitude", y = "Latitude")
 
-ggnetworkmap(base, ad1200, great.circles = T, size = .5, segment.alpha = I(.5)) +
-  guides(size = F)
+n1 <- ggnetworkmap(base, ad1200, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1200')
 
-ggnetworkmap(base, ad1250, great.circles = T, size = .3) +
-  guides(size = F)
+n2 <- ggnetworkmap(base, ad1250, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1250')
 
-ggnetworkmap(base, ad1300, great.circles = T, size = .3) +
-  guides(size = F)
+n3 <- ggnetworkmap(base, ad1300, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1300')
 
-ggnetworkmap(base, ad1350, great.circles = T, size = .3) +
-  guides(size = F)
+n4 <- ggnetworkmap(base, ad1350, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1350')
 
-ggnetworkmap(base, ad1400, great.circles = T, size = .3) +
-  guides(size = F)
+n5 <- ggnetworkmap(base, ad1400, great.circles = T, size = .5, segment.alpha = I(.5)) +
+  geom_label(x = -106, y = 35, label = 'AD 1400')
+```
+Get basemap for elevation.
+```{r cache = T}
+# courtesy R Lovelace
+library(raster)
+library(maptools)
+
+states.ply <- map('state', region = c('arizona', 'new mexico'), fill = T, plot = F)
+IDs <- sapply(strsplit(states.ply$names, ":"), function(x) x[1])
+states.ply <- map2SpatialPolygons(states.ply, IDs=IDs)
+
+ggmap_rast <- function(map){
+  map_bbox <- attr(map, 'bb') 
+  .extent <- extent(as.numeric(map_bbox[c(2,4,1,3)]))
+  my_map <- raster(.extent, nrow= nrow(map), ncol = ncol(map))
+  rgb_cols <- setNames(as.data.frame(t(col2rgb(map))), c('red','green','blue'))
+  red <- my_map
+  values(red) <- rgb_cols[['red']]
+  green <- my_map
+  values(green) <- rgb_cols[['green']]
+  blue <- my_map
+  values(blue) <- rgb_cols[['blue']]
+  stack(red,green,blue)
+}
+
+
+ggplot_build(n1)$layout$panel_ranges[[1]]$x.range 
+ggplot_build(n2)$layout$panel_ranges[[1]]$y.range
+terrain.background <- get_map(location = c(left = -115.3997, right = -102.4102, bottom = 31.06377, top = 37.28437),
+  zoom = 8,
+  color = "bw",
+  source = "stamen",
+  maptype = "terrain-background")
+
+terrain.rast <- ggmap_rast(map = terrain.background) # convert stamen map to raster object
+state.only <- mask(terrain.rast, states.ply) # clip to bounds of census tracts
+
+
+# prep raster as a data frame for printing with ggplot
+sw.df <- data.frame(rasterToPoints(state.only))
+m1 <- ggplot(sw.df) + 
+  geom_point(aes(x=x, y=y, col=rgb(layer.1/255, layer.2/255, layer.3/255))) + 
+  scale_color_identity() +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  geom_point(aes(x = easting, y = northing), size = 1, data = swsn.pts) +
+  theme_nothing()
+```
+
+
+
+```{r, include=FALSE}
+#from rcookbook
+# Multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+```{r}
+multiplot(n1, n2, n3, n4, n5, m1, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
 ```
 
