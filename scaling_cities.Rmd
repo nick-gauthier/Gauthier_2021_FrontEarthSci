@@ -1,6 +1,8 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output:
+  html_document: default
+  html_notebook: default
 ---
 
 ```{r echo=F, message=F, warning=F}
@@ -29,7 +31,7 @@ netMod <- function(t, y, parameters){
 
 
 ```{r}
-y0 <- matrix(c(1, 1, .1, .1, 1, .1, .1, 1),
+y0 <- matrix(c(1, 1, .1, .1, 1.1, 1, .1, .9),
              ncol = 2, nrow = 4,
              byrow = TRUE)  
 ```
@@ -47,6 +49,6 @@ phasePlot <- function(mod, params, xmax = 1, ymax = 1){
 ```
 
 ```{r}
-phasePlot(netMod, c(.1, 1.5, 1e-6, 1, 1e-4, 4e-7, 1), xmax = 2, ymax = 100)
+phasePlot(netMod, c(.1, 1.5, 1e-6, 1, 1e-4, 4e-7, 1), xmax = 2, ymax = 2)
 ```
 
