@@ -1,0 +1,19 @@
+---
+title: "Daymet"
+output: html_notebook
+---
+
+```{r}
+library(spatialEco)
+```
+
+```{r}
+data(DAYMET_tiles)
+bbox <- c(-113.5, -106.5, 31, 37.5) %>% extent #%>% polygon_from_extent(proj4string = '+proj=longlat +ellps=WGS84')
+
+tile.ids <- daymet.tiles(coords = c(-113.5, -106.5, 31, 37.5),
+                         tiles = DAYMET_tiles, ids = 'Id')
+download.daymet(years = 1980:2012, tile = tile.ids, download.folder = '~/Data/Daymet/',
+                http = 'http://thredds.daac.ornl.gov/thredds/catalog/ornldaac/1328/tiles')
+```
+

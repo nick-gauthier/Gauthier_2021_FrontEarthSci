@@ -42,7 +42,7 @@ daymet <- get_daymet(template = bbox, label = 'swsn', elements = c('prcp','tmin'
 ```
 
 ```{r}
-plot(daymet)
+plot(daymet$prcp[[1]])
 ```
 
 
