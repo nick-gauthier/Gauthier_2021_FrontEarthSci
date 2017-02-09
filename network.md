@@ -98,17 +98,6 @@ library(GGally)
 
 ```r
 library(ggmap)
-```
-
-```
-## Google Maps API Terms of Service: http://developers.google.com/maps/terms.
-```
-
-```
-## Please cite ggmap if you use it: see citation("ggmap") for details.
-```
-
-```r
 library(maps)
 ```
 
@@ -124,8 +113,41 @@ library(maps)
 ```
 
 ```r
-states <- map_data('state', region = c('arizona', 'new mexico'))
-  
+library(raster)
+```
+
+```
+## 
+## Attaching package: 'raster'
+```
+
+```
+## The following object is masked from 'package:dplyr':
+## 
+##     select
+```
+
+```
+## The following object is masked from 'package:tidyr':
+## 
+##     extract
+```
+
+```r
+library(maptools)
+```
+
+```
+## Checking rgeos availability: TRUE
+```
+
+```r
+states <- map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
+IDs <- sapply(strsplit(states$names, ":"), function(x) x[1])
+states.ply <- map2SpatialPolygons(states, IDs=IDs)
+
+
+
 base <- ggplot(data = states) +
   geom_polygon(aes(x = long, y = lat, group = region), color = 'black', fill = 'white') +
   coord_quickmap() +
@@ -160,11 +182,11 @@ n1 <- ggnetworkmap(base, ad1200, great.circles = T, size = .5, segment.alpha = I
 ```
 ## The following objects are masked from 'package:igraph':
 ## 
-##     %c%, %s%, add.edges, add.vertices, delete.edges,
-##     delete.vertices, get.edge.attribute, get.edges,
-##     get.vertex.attribute, is.bipartite, is.directed,
-##     list.edge.attributes, list.vertex.attributes,
-##     set.edge.attribute, set.vertex.attribute
+##     add.edges, add.vertices, %c%, delete.edges, delete.vertices,
+##     get.edge.attribute, get.edges, get.vertex.attribute,
+##     is.bipartite, is.directed, list.edge.attributes,
+##     list.vertex.attributes, %s%, set.edge.attribute,
+##     set.vertex.attribute
 ```
 
 ```
@@ -212,365 +234,57 @@ n4 <- ggnetworkmap(base, ad1350, great.circles = T, size = .5, segment.alpha = I
 
 n5 <- ggnetworkmap(base, ad1400, great.circles = T, size = .5, segment.alpha = I(.5)) +
   geom_label(x = -106, y = 35, label = 'AD 1400')
+
+plotEOF <- function(x){
+  rasterVis::gplot(x) +
+  geom_raster(aes(fill = value), na.rm = T, show.legend = F) +
+  scale_fill_distiller(palette = 'RdBu', na.value = NA) +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  theme_minimal() +
+  labs(x = "Longitude", y = "Latitude")
+}
+
+eof1200 <- brick('eof1200.nc')[[3]] %>%
+  mask(states.ply) %>% 
+  plotEOF
+```
+
+```
+## Loading required namespace: ncdf4
+```
+
+```r
+e1 <- ggnetworkmap(eof1200, ad1200, great.circles = T, size = .5, segment.alpha = I(.5))# + geom_label(x = -106, y = 35, label = 'AD 1200')
+
+  
+eof1250 <- brick('eof1250.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+
+e2 <- ggnetworkmap(eof1250, ad1250, great.circles = T, size = .5, segment.alpha = I(.5)) #+  geom_label(x = -106, y = 35, label = 'AD 1250')
+
+eof1300 <- brick('eof1300.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+e3 <- ggnetworkmap(eof1300, ad1300, great.circles = T, size = .5, segment.alpha = I(.5))# + geom_label(x = -106, y = 35, label = 'AD 1300')
+
+eof1350 <- brick('eof1350.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+e4 <- ggnetworkmap(eof1350, ad1350, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1350')
+
+eof1400 <- brick('eof1400.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+e5 <- ggnetworkmap(eof1400, ad1400, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1400')
 ```
 Get basemap for elevation.
 
-```r
-# courtesy R Lovelace
-library(raster)
-```
-
-```
-## 
-## Attaching package: 'raster'
-```
-
-```
-## The following object is masked from 'package:dplyr':
-## 
-##     select
-```
-
-```
-## The following object is masked from 'package:tidyr':
-## 
-##     extract
-```
-
-```r
-library(maptools)
-```
-
-```
-## Checking rgeos availability: TRUE
-```
-
-```r
-states.ply <- map('state', region = c('arizona', 'new mexico'), fill = T, plot = F)
-IDs <- sapply(strsplit(states.ply$names, ":"), function(x) x[1])
-states.ply <- map2SpatialPolygons(states.ply, IDs=IDs)
-
-ggmap_rast <- function(map){
-  map_bbox <- attr(map, 'bb') 
-  .extent <- extent(as.numeric(map_bbox[c(2,4,1,3)]))
-  my_map <- raster(.extent, nrow= nrow(map), ncol = ncol(map))
-  rgb_cols <- setNames(as.data.frame(t(col2rgb(map))), c('red','green','blue'))
-  red <- my_map
-  values(red) <- rgb_cols[['red']]
-  green <- my_map
-  values(green) <- rgb_cols[['green']]
-  blue <- my_map
-  values(blue) <- rgb_cols[['blue']]
-  stack(red,green,blue)
-}
-
-
-ggplot_build(n1)$layout$panel_ranges[[1]]$x.range 
-```
-
-```
-## [1] -115.3997 -102.4102
-```
-
-```r
-ggplot_build(n2)$layout$panel_ranges[[1]]$y.range
-```
-
-```
-## [1] 31.06377 37.28437
-```
-
-```r
-terrain.background <- get_map(location = c(left = -115.3997, right = -102.4102, bottom = 31.06377, top = 37.28437),
-  zoom = 8,
-  color = "bw",
-  source = "stamen",
-  maptype = "terrain-background")
-```
-
-```
-## 66 tiles needed, this may take a while (try a smaller zoom).
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/45/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/46/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/47/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/48/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/49/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/50/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/51/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/52/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/53/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/54/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/55/99.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/45/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/46/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/47/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/48/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/49/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/50/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/51/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/52/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/53/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/54/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/55/100.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/45/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/46/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/47/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/48/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/49/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/50/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/51/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/52/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/53/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/54/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/55/101.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/45/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/46/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/47/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/48/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/49/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/50/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/51/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/52/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/53/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/54/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/55/102.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/45/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/46/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/47/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/48/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/49/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/50/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/51/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/52/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/53/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/54/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/55/103.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/45/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/46/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/47/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/48/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/49/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/50/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/51/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/52/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/53/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/54/104.png
-```
-
-```
-## Source : http://tile.stamen.com/terrain-background/8/55/104.png
-```
-
-```r
-terrain.rast <- ggmap_rast(map = terrain.background) # convert stamen map to raster object
-state.only <- mask(terrain.rast, states.ply) # clip to bounds of census tracts
-
-
-# prep raster as a data frame for printing with ggplot
-sw.df <- data.frame(rasterToPoints(state.only))
-m1 <- ggplot(sw.df) + 
-  geom_point(aes(x=x, y=y, col=rgb(layer.1/255, layer.2/255, layer.3/255))) + 
-  scale_color_identity() +
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  coord_quickmap() +
-  geom_point(aes(x = easting, y = northing), size = 1, data = swsn.pts) +
-  theme_nothing()
-```
 
 
 
@@ -578,7 +292,8 @@ m1 <- ggplot(sw.df) +
 
 
 ```r
-multiplot(n1, n2, n3, n4, n5, m1, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
+#multiplot(n1, n2, n3, n4, n5, m1, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
+multiplot(e1, e2, e3, e4, e5, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
 ```
 
 ![](network_files/figure-html/unnamed-chunk-10-1.png)<!-- -->

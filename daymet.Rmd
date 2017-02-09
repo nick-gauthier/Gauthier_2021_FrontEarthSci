@@ -7,16 +7,15 @@ output: html_notebook
 library(raster)
 library(rasterVis)
 library(magrittr)
+library(SPEI)
 library(stringr)
 library(zoo)
 library(spacetime)
+library(bigmemory)
 ```
 
 ```{r}
-bbox <- extent(-113.5, -106.5, 31, 37.5) #%>% projectExtent(crs = '+proj=longlat +datum=WGS84')
 bbox.rast <- raster('Data/daymet_sample_bbox.tif')
-bbox.rast
-test1 <- brick('~/daac.ornl.gov/orders/ef03a1a25dcf9b227df9e209a04e942d/Daymet_V3_Monthly_Climatology/data/daymet_v3_prcp_monttl_1980_na.nc4')[[1]] %>% projectRaster(to = bbox.rast)
 
 ```
 
@@ -30,19 +29,13 @@ getDaymet <- function(variable){
     brick(x) %>% projectRaster(bbox.rast)
   }) %>% brick #%>% stackApply(indices = 1:12, fun = mean)
 }
+```
 
+```{r}
 prcp <- getDaymet('prcp')
+tmin <- getDaymet('tmin')
+tmax <- getDaymet('tmax')
 ```
-
-
-```{r}
-prcp
-```
-
-```{r}
-levelplot(prcp[[100]], margin = F)
-```
-
 ```{r}
 times <- prcp %>% 
   names %>% 
@@ -52,9 +45,73 @@ times <- prcp %>%
 ```
 
 ```{r}
-stfdf <- prcp %>% setZ(times) %>% as('STFDF')
+#save files
+writeRaster(prcp, 'Data/swsn_daymet_prcp.nc')
+writeRaster(tmin, 'Data/swsn_daymet_tmin.nc')
+writeRaster(tmax, 'Data/swsn_daymet_tmax.nc')
+#load
+prcp <- brick('Data/swsn_daymet_prcp.nc') %>% aggregate(fact = 10)  %>% crop(extent(291000, 931000, 3420000, 4160000))
+tmin <- brick('Data/swsn_daymet_tmin.nc') %>% aggregate(fact = 10) %>% crop(extent(291000, 931000, 3420000, 4160000))
+tmax <- brick('Data/swsn_daymet_tmax.nc') %>% aggregate(fact = 10) %>% crop(extent(291000, 931000, 3420000, 4160000))
+
 ```
 
+SPEI
+```{r}
+prcp.val <- getValues(prcp) %>% t   # need to transpose, getValues has rows for space and columns for time, hargreaves wants columns for space and rows for time
+tmin.val <- getValues(tmin) %>% t
+tmax.val <- getValues(tmax) %>% t
+
+#tmax.val <- as.big.matrix(tmax.val)
+#tmin.val <- as.big.matrix(tmin.val)
+#prcp.val <- as.big.matrix(prcp.val)
+
+```
+
+
+
+```{r}
+dimnames(prcp.val) <- NULL
+dimnames(tmin.val) <- NULL
+dimnames(tmax.val) <- NULL
+
+rm(prcp)
+rm(tmin)
+rm(tmax)
+```
+
+```{r}
+lats <- rep(35, dim(tmax.val)[2])
+
+pet <- hargreaves(tmin.val, tmax.val, lat = lats) %>% as.data.frame#as.matrix#, Pre = prcp.val) %>% as.matrix# using one latitude for now
+pet <- thornthwaite((tmax.val + tmin.val) / 2, lat = lats)
+pet.map <- setValues(prcp, t(pet))
+levelplot(pet.map[[1]], margin = F)
+
+
+water.stress <- prcp.val - pet
+
+ws.map <- setValues(prcp, t(water.stress))
+levelplot(ws.map[[268]], margin = F)
+spei.test <- spei(water.stress, scale = 12)
+```
+
+```{r}
+spei.rast <- setValues(prcp, t(spei.test$fitted))
+
+levelplot(spei.rast[[268]], margin = F, par.settings = RdBuTheme())
+```
+
+
+
+```{r}
+levelplot(!is.finite(spei.rast[[268]]), margin = F)
+
+stfdf <- spei.rast[[which(cellStats(!is.finite(spei.rast), 'max') == 0)]] %>% setZ(times[which(cellStats(!is.finite(spei.rast), 'max') == 0)]) %>% as('STFDF')
+spei.rast[[13:432]]
+
+
+```
 
 ```{r}
 ## attempt to compute EOFs
@@ -63,7 +120,9 @@ eof_space <- eof(stfdf, 'spatial') %>% brick
 eof(stfdf, 'spatial', returnEOFs = F) %>% screeplot()
 ```
 
+
 ```{r}
-levelplot(eof_space[[1:6]] %>% resample(elev), par.settings = RdBuTheme())
+levelplot(eof_space[[1:6]], par.settings = RdBuTheme())
 ```
+
 

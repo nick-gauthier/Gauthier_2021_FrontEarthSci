@@ -109,9 +109,15 @@ ggnetworkmap(map, ad1400) +
 library(GGally)
 library(ggmap)
 library(maps)
+library(raster)
+library(maptools)
 
-states <- map_data('state', region = c('arizona', 'new mexico'))
-  
+states <- map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
+IDs <- sapply(strsplit(states$names, ":"), function(x) x[1])
+states.ply <- map2SpatialPolygons(states, IDs=IDs)
+
+
+
 base <- ggplot(data = states) +
   geom_polygon(aes(x = long, y = lat, group = region), color = 'black', fill = 'white') +
   coord_quickmap() +
@@ -132,12 +138,53 @@ n4 <- ggnetworkmap(base, ad1350, great.circles = T, size = .5, segment.alpha = I
 
 n5 <- ggnetworkmap(base, ad1400, great.circles = T, size = .5, segment.alpha = I(.5)) +
   geom_label(x = -106, y = 35, label = 'AD 1400')
+
+plotEOF <- function(x){
+  rasterVis::gplot(x) +
+  geom_raster(aes(fill = value), na.rm = T, show.legend = F) +
+  scale_fill_distiller(palette = 'RdBu', na.value = NA) +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  theme_minimal() +
+  labs(x = "Longitude", y = "Latitude")
+}
+
+eof1200 <- brick('eof1200.nc')[[3]] %>%
+  mask(states.ply) %>% 
+  plotEOF
+  
+
+e1 <- ggnetworkmap(eof1200, ad1200, great.circles = T, size = .5, segment.alpha = I(.5))# + geom_label(x = -106, y = 35, label = 'AD 1200')
+
+  
+eof1250 <- brick('eof1250.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+
+e2 <- ggnetworkmap(eof1250, ad1250, great.circles = T, size = .5, segment.alpha = I(.5)) #+  geom_label(x = -106, y = 35, label = 'AD 1250')
+
+eof1300 <- brick('eof1300.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+e3 <- ggnetworkmap(eof1300, ad1300, great.circles = T, size = .5, segment.alpha = I(.5))# + geom_label(x = -106, y = 35, label = 'AD 1300')
+
+eof1350 <- brick('eof1350.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+e4 <- ggnetworkmap(eof1350, ad1350, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1350')
+
+eof1400 <- brick('eof1400.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+e5 <- ggnetworkmap(eof1400, ad1400, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1400')
 ```
 Get basemap for elevation.
-```{r cache = T}
+```{r eval=FALSE, include=FALSE, cache=T}
 # courtesy R Lovelace
-library(raster)
-library(maptools)
 
 states.ply <- map('state', region = c('arizona', 'new mexico'), fill = T, plot = F)
 IDs <- sapply(strsplit(states.ply$names, ":"), function(x) x[1])
@@ -233,6 +280,7 @@ multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
 ```
 
 ```{r}
-multiplot(n1, n2, n3, n4, n5, m1, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
+#multiplot(n1, n2, n3, n4, n5, m1, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
+multiplot(e1, e2, e3, e4, e5, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
 ```
 
