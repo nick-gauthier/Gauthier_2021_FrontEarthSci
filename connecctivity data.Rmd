@@ -1,0 +1,164 @@
+---
+title: "Spatial Connectivity"
+author: "Nick Gauthier"
+output:
+  html_document: 
+    fig_height: 10
+    fig_width: 10
+    keep_md: yes
+---
+# Data import
+
+First import the SWSN attribute file. Use tidyverse packages for data munging.
+
+Site coordinates are in UTM, so first use rgdal to reproject to LatLon.
+```{r message = F, warning = F}
+library(tidyverse)
+library(rgdal)
+```
+
+Now reimport the attribute file, select the relevant data, and combine with the reprojected site coordinates.
+```{r message = F}
+swsn.attr <- read_csv('Data/attributes_orig.csv') %>%
+  select(ID = as.numeric(SWSN_ID), site = SWSN_Site, 
+         macro = Macro, micro = Micro, 
+         easting = as.numeric(EASTING), northing = as.numeric(NORTHING))
+```
+Use the function to import the network datasets.
+```{r}
+readSWSN <- function(net){
+  read_csv(net) %>%
+  select(site = X1) %>%
+  semi_join(swsn.attr, .) %>%
+  SpatialPointsDataFrame(.[,c(5,6)], ., proj4string=CRS("+proj=utm +zone=12 +datum=WGS84"))
+}
+```
+Use the function to import the network datasets.
+```{r}
+ad1200 <- readSWSN('Data/AD1200sim.csv')
+ad1250 <- readSWSN('Data/AD1250sim.csv')
+ad1300 <- readSWSN('Data/AD1300sim.csv')
+ad1350 <- readSWSN('Data/AD1350sim.csv')
+ad1400 <- readSWSN('Data/AD1400sim.csv')
+```
+
+Use the rgrass7 library to try doing the same thing in GRASS
+```{r}
+library(rgrass7)
+```
+
+```{r}
+# create an empty raster map to add the shortest paths to after each iteration
+execGRASS('r.mapcalc', flags = c('overwrite'), expression = 'fete = 0')
+
+
+## calculate the shortest paths to all sites from each site in turn in a for loop
+
+grassEXEC('g.region', res = '100')
+
+
+dem <- 'NED_100m'
+frict = 'friction'
+sites <- 'ad1200'
+### in the future can just get a text string for the points and feed them to r.walk, sending dem thru writeRAST
+
+getCost <- function(site){
+  execGRASS('v.extract', input = sites, where = paste0('str_1=\'', site, '\''),
+        output = 'startpoint', flags = c('overwrite'))
+  
+  execGRASS('r.walk', elevation = dem,
+                      friction = frict,
+                      output = 'walk_costs',
+                      outdir = 'walk_dir',
+                      start_points = 'startpoint',
+                      stop_points = sites,
+                      memory = '1000',
+                      flags = c('overwrite'))
+  
+  execGRASS('r.what', map = 'walk_costs', points = sites, separator = ',', intern = T) %>%
+  data_frame(x = .) %>% 
+  separate(x, c('x', 'y', 'cat','cost'), sep = ',', convert = T) %>%
+  select(cost)
+}
+
+library(parallel)
+
+test <- mclapply(ad1200$site, getCost) %>% bind_rows
+
+
+
+execGRASS('r.drain',
+                      input = 'walk_costs',
+                      direction = 'walk_dir',
+                      output = 'shortest_paths',
+                      drain = 'paths_vect',
+                      start_points = sites,
+                      flags = c('d', 'overwrite'))
+
+
+    for point in listpoints.splitlines():
+        # extract a starting point from the sites map
+        # and create a new point file with it
+        print 'starting point extracted'
+        doGRASS('v.extract',
+                          input = sites,
+                          where = 'cat = ' + point,
+                          output = 'startpoint',
+                          overwrite = 'True',
+                          quiet = 'True')
+        # calculate the anisotropic cost surface
+        # from the previously extacted point to all the sites using knight's move
+        print 'starting r.walk'
+        grass.run_command('r.walk',
+                      elevation = dem,
+                      friction = frict,
+                      output = 'walk_costs',
+                      outdir = 'walk_dir',
+                      start_points = 'startpoint',
+                      stop_points = sites,
+                      flags = 'k',
+                      overwrite = 'True')
+        # use the outputs of r.walk to create a raster of the shortest paths to each site
+        print 'starting r.drain'
+        grass.run_command('r.drain',
+                      input = 'walk_costs',
+                      direction = 'walk_dir',
+                      output = 'shortest_paths',
+                      drain = 'paths_vect',
+                      start_points = sites,
+                      flags = 'd',
+                      overwrite = 'True')
+        # r.drain creates a raster map where the all cells on the path = 1,
+
+        grass.run_command('v.to.rast',
+                          input = 'paths_vect',
+                          type = 'line',
+                          output = 'shortest_paths',
+                          use = 'val',
+                          overwrite = 'True',
+                          quiet = 'True')
+        # uses these values to make a cumulative map
+        print 'adding shortest paths to cumulative paths'
+        grass.mapcalc('fete = fete + if(isnull(shortest_paths),0,1)', overwrite='True')
+        print 'point ' + point + ' of ' + str(len(listpoints.splitlines())) + ' complete'
+        
+    # convert the cumulative fete raster to a vector and
+    # assign the number of paths through each segment to the vector's attributes.
+    grass.run_command('r.to.vect',
+                    input = 'fete',
+                    output = 'fete',
+                    type = 'line',
+                    column = 'paths_thru',
+                    overwrite = 'True')
+    # create a spatial network by combining the cumultive fete vector with the initial points vector
+    print 'converting fete to network'
+    grass.run_command('v.net',
+                    input = 'fete',
+                    points = sites,
+                    output= sites + '_net',
+                    operation = 'connect',
+                    threshold = '1',
+                    flags = 's',
+                    overwrite = 'True')
+```
+

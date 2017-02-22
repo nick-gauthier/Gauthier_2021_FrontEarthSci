@@ -61,6 +61,7 @@ ad1350 <- readSWSN('Data/AD1350sim.csv')
 ad1400 <- readSWSN('Data/AD1400sim.csv')
 ```
 
+
 # Plotting
 
 First get a terrain basemap to plot the networks over. The terrain-background basemap from Stamen is a nice choice. Download this map and store a ggmap plot of it.
