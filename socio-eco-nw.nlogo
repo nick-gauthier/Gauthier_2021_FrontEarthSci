@@ -2,7 +2,8 @@
 ;;; Setup Procedures ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;
 
-
+breed [ ecosystems ecosystem ]
+breed [ sociosystems sociosystem ]
 
 to setup
   clear-all
@@ -10,6 +11,7 @@ to setup
   ;; make the initial network of two turtles and an edge
   make-node nobody        ;; first node, unattached
   make-node turtle 0      ;; second node, attached to first node
+  ask turtle 0 [ set color red ]
   reset-ticks
 end
 
@@ -18,10 +20,10 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 to go
-  ask turtle 0 [ set size size + size * r * (1 - size / k) - size * sum [ size ] of link-neighbors]
+  ask turtle 0 [ set size size + size * r * (1 - size / k) - size * sum [ size ^ beta * harvest-rate ] of link-neighbors ]
   ;make-node find-partner         ;; find partner & use it as attachment
                                  ;; point for new node
-  ask turtle 1 [ set size size + size * sum [ size ] of link-neighbors - size * death-rate ]
+  ask turtle 1 [ set size size + size ^ beta / conversion-efficiency * sum [ size * harvest-rate ] of link-neighbors - size ^ alpha * death-rate / conversion-efficiency ]
 
   tick
 end
@@ -68,25 +70,25 @@ ticks
 30.0
 
 SLIDER
-9
-83
-181
-116
+-4
+195
+168
+228
 k
 k
 0
 100
-52.0
+1.0
 1
 1
 NIL
 HORIZONTAL
 
 BUTTON
-45
-156
-118
-189
+13
+11
+86
+44
 NIL
 setup
 NIL
@@ -100,10 +102,10 @@ NIL
 1
 
 BUTTON
-38
-227
-101
-260
+16
+47
+79
+80
 NIL
 go
 T
@@ -117,10 +119,10 @@ NIL
 1
 
 BUTTON
-64
-280
-128
-313
+18
+85
+82
+118
 step
 go
 NIL
@@ -134,40 +136,40 @@ NIL
 1
 
 SLIDER
-8
-41
-180
-74
+21
+153
+193
+186
 r
 r
 0
 1
-0.2
+0.1
 .1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-18
-332
-190
-365
+0
+243
+172
+276
 death-rate
 death-rate
 0
-1
-0.2
-.1
+1.0E-6
+7.0E-7
+1.0E-7
 1
 NIL
 HORIZONTAL
 
 PLOT
-76
-576
-276
-726
+25
+561
+225
+711
 Population Plot
 Time
 Population
@@ -181,6 +183,66 @@ false
 PENS
 "default" 1.0 0 -16777216 true "" "plot [size] of turtle 0"
 "pen-1" 1.0 0 -7500403 true "" "plot [size] of turtle 1"
+
+SLIDER
+-1
+283
+171
+316
+harvest-rate
+harvest-rate
+0
+1.0E-5
+1.0E-6
+1.0E-6
+1
+NIL
+HORIZONTAL
+
+SLIDER
+-16
+322
+190
+355
+conversion-efficiency
+conversion-efficiency
+0
+1.0E-3
+1.0E-4
+1.0E-4
+1
+NIL
+HORIZONTAL
+
+SLIDER
+18
+376
+190
+409
+alpha
+alpha
+.9
+1.1
+1.1
+.01
+1
+NIL
+HORIZONTAL
+
+SLIDER
+13
+432
+185
+465
+beta
+beta
+.9
+1.1
+1.1
+.01
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
