@@ -3,17 +3,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;
 
 breed [ ecosystems ecosystem ]
-breed [ sociosystems sociosystem ]
+breed [ social-systems social-system ]
 
 to setup
   clear-all
   set-default-shape turtles "circle"
-  ;; make the initial network of two turtles and an edge
-  make-node nobody        ;; first node, unattached
-  make-node turtle 0      ;; second node, attached to first node
-  ask turtle 0 [ set color red ]
+
+  create-social-systems n [
+    set color red
+    ask n-of ( n * connectivity-rate ) other social-systems [ create-link-with myself]
+    hatch-ecosystems 1 [
+      set color green
+      create-link-with myself
+    ]
+  ]
+
+  repeat 15 [ layout-spring social-systems links 0.2 10 5 ]
+  repeat 3 [ layout-spring turtles links 0.2 5 5 ]
   reset-ticks
 end
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Main Procedures ;;;
@@ -26,20 +35,6 @@ to go
   ask turtle 1 [ set size size + size ^ beta / conversion-efficiency * sum [ size * harvest-rate ] of link-neighbors - size ^ alpha * death-rate / conversion-efficiency ]
 
   tick
-end
-
-;; used for creating a new node
-to make-node [old-node]
-  create-turtles 1
-  [
-    set color green
-    if old-node != nobody
-      [ create-link-with old-node [ set color green ]
-        ;; position the new node near its partner
-        move-to old-node
-        fd 8
-      ]
-  ]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -56,8 +51,8 @@ GRAPHICS-WINDOW
 1
 1
 0
-1
-1
+0
+0
 1
 -16
 16
@@ -70,10 +65,10 @@ ticks
 30.0
 
 SLIDER
--4
-195
-168
-228
+9
+156
+181
+189
 k
 k
 0
@@ -103,9 +98,9 @@ NIL
 
 BUTTON
 16
-47
+50
 79
-80
+83
 NIL
 go
 T
@@ -119,10 +114,10 @@ NIL
 1
 
 BUTTON
-18
-85
-82
-118
+86
+50
+150
+83
 step
 go
 NIL
@@ -136,10 +131,10 @@ NIL
 1
 
 SLIDER
-21
-153
-193
-186
+9
+117
+181
+150
 r
 r
 0
@@ -151,10 +146,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-0
-243
-172
-276
+5
+275
+177
+308
 death-rate
 death-rate
 0
@@ -166,10 +161,10 @@ NIL
 HORIZONTAL
 
 PLOT
-25
-561
-225
-711
+3
+580
+203
+730
 Population Plot
 Time
 Population
@@ -185,10 +180,10 @@ PENS
 "pen-1" 1.0 0 -7500403 true "" "plot [size] of turtle 1"
 
 SLIDER
--1
-283
-171
-316
+8
+194
+180
+227
 harvest-rate
 harvest-rate
 0
@@ -200,10 +195,10 @@ NIL
 HORIZONTAL
 
 SLIDER
--16
-322
-190
-355
+5
+236
+211
+269
 conversion-efficiency
 conversion-efficiency
 0
@@ -215,31 +210,61 @@ NIL
 HORIZONTAL
 
 SLIDER
-18
-376
-190
-409
+3
+321
+175
+354
 alpha
 alpha
 .9
 1.1
-1.1
+1.0
 .01
 1
 NIL
 HORIZONTAL
 
 SLIDER
-13
-432
-185
-465
+3
+360
+175
+393
 beta
 beta
 .9
 1.1
-1.1
+1.0
 .01
+1
+NIL
+HORIZONTAL
+
+SLIDER
+19
+447
+191
+480
+n
+n
+0
+20
+5.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+39
+523
+216
+556
+connectivity-rate
+connectivity-rate
+0
+1
+0.1
+.1
 1
 NIL
 HORIZONTAL
