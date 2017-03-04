@@ -5,16 +5,19 @@
 breed [ ecosystems ecosystem ]
 breed [ social-systems social-system ]
 
+undirected-link-breed [ harvest-links harvest-link ]
+undirected-link-breed [ trade-links trade-link ]
+
 to setup
   clear-all
   set-default-shape turtles "circle"
 
   create-social-systems n [
     set color red
-    ask n-of ( n * connectivity-rate ) other social-systems [ create-link-with myself]
+    ask n-of ( n * connectivity-rate ) other social-systems [ create-trade-link-with myself]
     hatch-ecosystems 1 [
       set color green
-      create-link-with myself
+      create-harvest-link-with myself
     ]
   ]
 
@@ -29,12 +32,19 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 to go
-  ask turtle 0 [ set size size + size * r * (1 - size / k) - size * sum [ size ^ beta * harvest-rate ] of link-neighbors ]
-  ;make-node find-partner         ;; find partner & use it as attachment
-                                 ;; point for new node
-  ask turtle 1 [ set size size + size ^ beta / conversion-efficiency * sum [ size * harvest-rate ] of link-neighbors - size ^ alpha * death-rate / conversion-efficiency ]
+  ask ecosystems [ renew ]
+
+  ask social-systems [ consume ]
 
   tick
+end
+
+to renew
+  set size size + size * r * (1 - size / k) - size * sum [ size ^ beta * harvest-rate ] of harvest-link-neighbors
+end
+
+to consume
+  set size size + size ^ beta / conversion-efficiency * sum [ size * harvest-rate ] of harvest-link-neighbors - size ^ alpha * death-rate / conversion-efficiency
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
