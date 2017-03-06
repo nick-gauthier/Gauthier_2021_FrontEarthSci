@@ -1,0 +1,65 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: 
+    highlight: pygments
+    keep_tex: yes
+  html_notebook: default
+  html_document: default
+---
+
+Analysis of equilibrium resonse to power law scaling behaviors, single-consumer resource case.
+
+```{r warning = F, message = F}
+library(tidyverse)
+```
+
+
+```{r}
+n.dat <- read_csv('socio-eco-nw equilibrium-pop-table.csv', skip = 6) %>%
+  select(alpha, beta, pop = 12)
+
+x.dat <- read_csv('socio-eco-nw equilibrium-bio-table.csv', skip = 6) %>%
+  select(alpha, beta, biomass = 12)
+```
+
+```{r}
+ggplot(n.dat, aes(alpha, beta, fill = pop / 60000)) +
+  geom_raster(interpolate = T) +
+  labs(title = 'Equilibrium population size', subtitle = 'Sensitivity to power-law scaling', x = 'Alpha', y = 'Beta') +
+  scale_fill_distiller(name = 'Normalized \npopulation', palette = 'Spectral') +
+  coord_equal() +
+  theme_minimal()
+```
+
+
+```{r}
+n.dat %>% filter(alpha == 1 & beta == 1)
+x.dat %>% filter(alpha == 1 & beta == 1)
+```
+
+```{r}
+ggplot(x.dat, aes(alpha, beta, fill = biomass/.4)) +
+  geom_raster(interpolate = T) +
+  labs(title = 'Equilibrium population size', subtitle = 'Sensitivity to power-law scaling', x = 'Alpha', y = 'Beta') +
+  scale_fill_distiller(name = 'Normalized \nbiomass', palette = 'Spectral') +
+  coord_equal() +
+  theme_minimal()
+```
+
+```{r out.width = '1\\linewidth', fig.show = 'hold'}
+ggplot(n.dat, aes(alpha, beta, fill = pop / 60000)) +
+  geom_raster(interpolate = T) +
+  labs(title = 'Equilibrium sensitivity to power-law scaling', subtitle = 'Consumer population', x = 'Alpha', y = 'Beta') +
+  scale_fill_distiller(name = 'Normalized \npopulation', palette = 'Spectral', position = 'bottom') +
+  coord_equal() +
+  theme_minimal()
+
+ggplot(x.dat, aes(alpha, beta, fill = biomass/.4)) +
+  geom_raster(interpolate = T) +
+  labs(title = '', subtitle = 'Resource biomass', x = 'Alpha', y = 'Beta') +
+  scale_fill_distiller(name = 'Normalized \nbiomass', palette = 'Spectral', position = 'bottom') +
+  coord_equal() +
+  theme_minimal()
+```
+
