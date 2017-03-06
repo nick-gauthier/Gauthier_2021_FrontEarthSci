@@ -1,6 +1,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Setup Procedures ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;
+extensions [ nw ]
 
 breed [ ecosystems ecosystem ]
 breed [ social-systems social-system ]
@@ -8,21 +9,24 @@ breed [ social-systems social-system ]
 undirected-link-breed [ harvest-links harvest-link ]
 undirected-link-breed [ trade-links trade-link ]
 
+globals [ old-pop old-biomass pop-eq bio-eq ]
+
 to setup
   clear-all
   set-default-shape turtles "circle"
 
-  create-social-systems n [
+  set pop-eq False
+  set bio-eq False
+
+  nw:generate-random social-systems trade-links n link-prob [
     set color red
-    ask n-of ( n * connectivity-rate ) other social-systems [ create-trade-link-with myself]
     hatch-ecosystems 1 [
       set color green
       create-harvest-link-with myself
     ]
   ]
 
-  repeat 15 [ layout-spring social-systems links 0.2 10 5 ]
-  repeat 3 [ layout-spring turtles links 0.2 5 5 ]
+  repeat 15 [ layout-spring turtles links 0.2 10 5 ]
   reset-ticks
 end
 
@@ -32,10 +36,13 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 to go
+  set old-biomass [ size ] of ecosystem 1
   ask ecosystems [ renew ]
+  if old-biomass = [ size ] of ecosystem 1 [ set bio-eq True ]
 
+  set old-pop [ size ] of social-system 0
   ask social-systems [ consume ]
-
+  if old-pop = [ size ] of social-system 0 [ set pop-eq True ]
   tick
 end
 
@@ -44,7 +51,7 @@ to renew
 end
 
 to consume
-  set size size + size ^ beta / conversion-efficiency * sum [ size * harvest-rate ] of harvest-link-neighbors - size ^ alpha * death-rate / conversion-efficiency
+  set size size + size ^ beta / conversion-efficiency * sum [ size * harvest-rate ] of harvest-link-neighbors - size ^ alpha * death-rate / conversion-efficiency - size * migration-rate +
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -164,7 +171,7 @@ death-rate
 death-rate
 0
 1.0E-6
-7.0E-7
+4.0E-7
 1.0E-7
 1
 NIL
@@ -228,7 +235,7 @@ alpha
 alpha
 .9
 1.1
-1.0
+1.04
 .01
 1
 NIL
@@ -242,23 +249,23 @@ SLIDER
 beta
 beta
 .9
-1.1
-1.0
+1.2
+1.2
 .01
 1
 NIL
 HORIZONTAL
 
 SLIDER
-19
-447
-191
-480
+5
+418
+177
+451
 n
 n
 0
 20
-5.0
+1.0
 1
 1
 NIL
@@ -269,12 +276,27 @@ SLIDER
 523
 216
 556
-connectivity-rate
-connectivity-rate
+link-prob
+link-prob
 0
 1
-0.1
+0.0
 .1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+22
+487
+194
+520
+migration-rate
+migration-rate
+0
+1
+0.0
+.01
 1
 NIL
 HORIZONTAL
@@ -625,6 +647,66 @@ NetLogo 6.0
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
+<experiments>
+  <experiment name="equilibrium-pop" repetitions="1" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <exitCondition>pop-eq</exitCondition>
+    <metric>[size] of social-system 0</metric>
+    <enumeratedValueSet variable="r">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="harvest-rate">
+      <value value="1.0E-6"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="alpha" first="0.9" step="0.01" last="1.1"/>
+    <enumeratedValueSet variable="k">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="link-prob">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="beta" first="0.9" step="0.01" last="1.2"/>
+    <enumeratedValueSet variable="conversion-efficiency">
+      <value value="1.0E-4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="death-rate">
+      <value value="4.0E-7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="n">
+      <value value="1"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="equilibrium-bio" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <exitCondition>bio-eq</exitCondition>
+    <metric>[size] of ecosystem 1</metric>
+    <enumeratedValueSet variable="r">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="harvest-rate">
+      <value value="1.0E-6"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="alpha" first="0.9" step="0.01" last="1.1"/>
+    <enumeratedValueSet variable="k">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="link-prob">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="beta" first="0.9" step="0.01" last="1.2"/>
+    <enumeratedValueSet variable="conversion-efficiency">
+      <value value="1.0E-4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="death-rate">
+      <value value="4.0E-7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="n">
+      <value value="1"/>
+    </enumeratedValueSet>
+  </experiment>
+</experiments>
 @#$#@#$#@
 @#$#@#$#@
 default
