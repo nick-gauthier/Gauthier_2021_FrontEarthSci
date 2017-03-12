@@ -58,6 +58,26 @@ netMod <- function(t, y, parameters){
     list(dy)
 } 
 ```
+
+No scaling
+```{r}
+phasePlot(netMod, c(.5, .32, 1, 1, 0, 0), xmax = 1.3, ymax = 1.3)
+```
+Superlinear scaling of harvest ability
+```{r}
+phasePlot(netMod, c(.5, .32, 1, 1.2, 0, 0), xmax = 1.3, ymax = 1.3)
+```
+
+Sublinear scaling of resource conversion efficiency
+```{r}
+phasePlot(netMod, c(.5, .32, .8, 1, 0, 0), xmax = 1.3, ymax = 1.3)
+```
+
+Both scaling processes.
+```{r}
+phasePlot(netMod, c(.5, .32, .8, 1.2, 0, 0), xmax = 1.3, ymax = 1.3)
+```
+
 ## Trade
 ```{r}
 phasePlot(netMod, c(.5, .32, .8, 1.2, .08, 0), xmax = 1.3, ymax = 1.3)
