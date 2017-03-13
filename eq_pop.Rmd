@@ -15,51 +15,35 @@ library(tidyverse)
 ```
 
 
-```{r}
-n.dat <- read_csv('socio-eco-nw equilibrium-pop-table.csv', skip = 6) %>%
-  select(alpha, beta, pop = 12)
-
-x.dat <- read_csv('socio-eco-nw equilibrium-bio-table.csv', skip = 6) %>%
-  select(alpha, beta, biomass = 12)
+```{r, message = F}
+dat <- read_csv('socio-eco-nw equilibrium-pop-table.csv', skip = 6) %>%
+  select(alpha, beta, h = 3, Population = 12) %>%
+  full_join((read_csv('socio-eco-nw equilibrium-bio-table.csv', skip = 6) %>%
+  select(alpha, beta, Biomass = 12))) %>%
+  mutate(Welfare = Biomass * h * Population^(beta-1)) %>%
+  select(-h)
 ```
 
+Find equilibrium values
 ```{r}
-ggplot(n.dat, aes(alpha, beta, fill = pop / 60000)) +
-  geom_raster(interpolate = T) +
-  labs(title = 'Equilibrium population size', subtitle = 'Sensitivity to power-law scaling', x = 'Alpha', y = 'Beta') +
-  scale_fill_distiller(name = 'Normalized \npopulation', palette = 'Spectral') +
-  coord_equal() +
-  theme_minimal()
+dat %>% filter(alpha == 1 & beta == 1) %>% select(3:5)
 ```
-
-
+Normalize data using equilibrium values
 ```{r}
-n.dat %>% filter(alpha == 1 & beta == 1)
-x.dat %>% filter(alpha == 1 & beta == 1)
+dat.norm <- dat %>% 
+  mutate(Population = Population / 60000, Biomass = Biomass / .4, Welfare = Welfare / 4e-07)
 ```
 
 ```{r}
-ggplot(x.dat, aes(alpha, beta, fill = biomass/.4)) +
-  geom_raster(interpolate = T) +
-  labs(title = 'Equilibrium population size', subtitle = 'Sensitivity to power-law scaling', x = 'Alpha', y = 'Beta') +
-  scale_fill_distiller(name = 'Normalized \nbiomass', palette = 'Spectral') +
-  coord_equal() +
-  theme_minimal()
+dat.norm %>% gather(variable, value, Population:Welfare) %>%
+  ggplot(aes(alpha, beta, fill = value)) +
+    facet_wrap(~variable) +
+    geom_raster(interpolate = T) +
+    labs(title = 'Equilibrium sensitivity to power-law scaling', subtitle = 'All values normalized to alpha = beta = 1', x = 'Alpha', y = 'Beta') +
+    scale_fill_distiller(name = 'Value at \nequilibrium', palette = 'Spectral', guide = 'legend', breaks = c(.1,1,2,3),labels = c('Low', '','','High')) +
+    scale_x_continuous(breaks = c(.9, 1, 1.1)) +
+    coord_equal() +
+    theme_minimal()
 ```
-
-```{r out.width = '1\\linewidth', fig.show = 'hold'}
-ggplot(n.dat, aes(alpha, beta, fill = pop / 60000)) +
-  geom_raster(interpolate = T) +
-  labs(title = 'Equilibrium sensitivity to power-law scaling', subtitle = 'Consumer population', x = 'Alpha', y = 'Beta') +
-  scale_fill_distiller(name = 'Normalized \npopulation', palette = 'Spectral', position = 'bottom') +
-  coord_equal() +
-  theme_minimal()
-
-ggplot(x.dat, aes(alpha, beta, fill = biomass/.4)) +
-  geom_raster(interpolate = T) +
-  labs(title = '', subtitle = 'Resource biomass', x = 'Alpha', y = 'Beta') +
-  scale_fill_distiller(name = 'Normalized \nbiomass', palette = 'Spectral', position = 'bottom') +
-  coord_equal() +
-  theme_minimal()
-```
+In natural language, resource biomass is highest when higher population leads to declining marignal returns to harvest
 
