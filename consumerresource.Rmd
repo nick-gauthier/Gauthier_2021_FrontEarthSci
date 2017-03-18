@@ -1,9 +1,10 @@
 ---
 title: "Social-ecological network dynamics"
-author: "Nick Gauthier"
 output:
-  html_document: default
-  html_notebook: defaults
+  html_document:
+    keep_md: yes
+  pdf_document: 
+    keep_tex: yes
 ---
 
 An analysis of a simple dynamical model of a consumer-resource system with network effects.
@@ -27,7 +28,7 @@ phasePlot <- function(mod, params, xmax = 1, ymax = 1){
   x.lim <- c(0, xmax)
   y.lim <- c(0, ymax)
   
-  y0 <- matrix(c(.5,.5, 1,1, 0,0),
+  y0 <- matrix(c(.5,.5, 1,1, .1,.1),
              ncol = 2, nrow = 3,
              byrow = TRUE)  
   
@@ -74,6 +75,11 @@ phasePlot(netMod, c(.5, .32, .8, 1, 0, 0), xmax = 1.3, ymax = 1.3)
 ```
 
 Both scaling processes.
+lesser scaling
+```{r}
+phasePlot(netMod, c(.5, .32, .9, 1.1, 0, 0), xmax = 1.3, ymax = 1.3)
+```
+greater scaling
 ```{r}
 phasePlot(netMod, c(.5, .32, .8, 1.2, 0, 0), xmax = 1.3, ymax = 1.3)
 ```
