@@ -14,7 +14,9 @@ First import the SWSN attribute file. Use tidyverse packages for data munging.
 Site coordinates are in UTM, so first use rgdal to reproject to LatLon.
 ```{r message = F, warning = F}
 library(tidyverse)
-library(rgdal)
+library(sp) 
+library(rgrass7)
+library(pbapply)
 ```
 
 Now reimport the attribute file, select the relevant data, and combine with the reprojected site coordinates.
@@ -22,7 +24,8 @@ Now reimport the attribute file, select the relevant data, and combine with the 
 swsn.attr <- read_csv('Data/attributes_orig.csv') %>%
   select(ID = as.numeric(SWSN_ID), site = SWSN_Site, 
          macro = Macro, micro = Micro, 
-         easting = as.numeric(EASTING), northing = as.numeric(NORTHING))
+         easting = as.numeric(EASTING), northing = as.numeric(NORTHING)) %>%
+  unite(coors, easting, northing, sep = ',', remove = F) ## also add column of both easting and northing
 ```
 Use the function to import the network datasets.
 ```{r}
@@ -30,7 +33,7 @@ readSWSN <- function(net){
   read_csv(net) %>%
   select(site = X1) %>%
   semi_join(swsn.attr, .) %>%
-  SpatialPointsDataFrame(.[,c(5,6)], ., proj4string=CRS("+proj=utm +zone=12 +datum=WGS84"))
+  SpatialPointsDataFrame(.[,c(6,7)], ., proj4string=CRS("+proj=utm +zone=12 +datum=WGS84"))
 }
 ```
 Use the function to import the network datasets.
@@ -43,48 +46,51 @@ ad1400 <- readSWSN('Data/AD1400sim.csv')
 ```
 
 Use the rgrass7 library to try doing the same thing in GRASS
-```{r}
-library(rgrass7)
-```
 
 ```{r}
+
+execGRASS('g.region', res = '100')
+
 # create an empty raster map to add the shortest paths to after each iteration
 execGRASS('r.mapcalc', flags = c('overwrite'), expression = 'fete = 0')
+execGRASS('r.mapcalc', flags = c('overwrite'), expression = 'friction = 1')
 
 
 ## calculate the shortest paths to all sites from each site in turn in a for loop
 
-grassEXEC('g.region', res = '100')
 
 
 dem <- 'NED_100m'
-frict = 'friction'
-sites <- 'ad1200'
 ### in the future can just get a text string for the points and feed them to r.walk, sending dem thru writeRAST
-
-getCost <- function(site){
-  execGRASS('v.extract', input = sites, where = paste0('str_1=\'', site, '\''),
-        output = 'startpoint', flags = c('overwrite'))
+getCost <- function(sites){
   
-  execGRASS('r.walk', elevation = dem,
-                      friction = frict,
+  from_sites <- sites$coors %>% c
+  to_sites <- sites$coors %>% c %>% paste(collapse=',') %>% strsplit(',') %>% unlist %>% as.numeric
+  
+  pblapply(from_sites, function(x){
+        from_site <- x %>% strsplit(',') %>% unlist %>% as.numeric
+        execGRASS('r.walk', elevation = dem,
+                      friction = 'friction',
                       output = 'walk_costs',
-                      outdir = 'walk_dir',
-                      start_points = 'startpoint',
-                      stop_points = sites,
-                      memory = '1000',
+                      start_coordinates = from_site,
+                      stop_coordinates = to_sites,
+                      memory = 1500,
                       flags = c('overwrite'))
   
-  execGRASS('r.what', map = 'walk_costs', points = sites, separator = ',', intern = T) %>%
-  data_frame(x = .) %>% 
-  separate(x, c('x', 'y', 'cat','cost'), sep = ',', convert = T) %>%
-  select(cost)
+    execGRASS('r.what', map = 'walk_costs', points = "ad1200", separator = ',', intern = T) %>%
+      data_frame(x = .) %>% 
+      separate(x, c('x', 'y', 'cat','cost'), sep = ',', convert = T) %>%
+      select(cost) %>%
+      c %>%
+      return
+  }) %>% bind_rows
 }
 
-library(parallel)
-
-test <- mclapply(ad1200$site, getCost) %>% bind_rows
-
+ad1200_costs <- getCost(ad1200)
+ad1250_costs <- getCost(ad1250)
+ad1300_costs <- getCost(ad1300)
+ad1350_costs <- getCost(ad1350)
+ad1400_costs <- getCost(ad1400)
 
 
 execGRASS('r.drain',
