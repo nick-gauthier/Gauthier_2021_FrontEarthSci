@@ -1,0 +1,203 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Integrating network data and eofs
+
+
+First import the SWSN attribute file. Use tidyverse packages for data munging.
+
+Site coordinates are in UTM, so first use rgdal to reproject to LatLon.
+```{r message = F, warning = F}
+library(tidyverse)
+library(rgdal)
+
+swsn.pts <- read_csv('Data/attributes_orig.csv') %>% 
+  select(easting = EASTING, northing = NORTHING) %>%
+  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=WGS84")) %>%
+  spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
+  coordinates %>%
+  data.frame
+```
+
+Now reimport the attribute file, select the relevant data, and combine with the reprojected site coordinates.
+```{r message = F}
+swsn.attr <- read_csv('Data/attributes_orig.csv') %>%
+  dplyr::select(ID = SWSN_ID, site = SWSN_Site, macro = Macro, micro = Micro, size = P3room) %>%
+  cbind(swsn.pts)
+```
+
+Now define a function to import the SWSN adjacency matrix for a given time step. This function imports the adjacency matrix and creates an igraph object. Then it adds attribute data from above to the graph object.
+```{r message = F}
+library(igraph)
+
+readSWSN <- function(net){
+  net.in <- read.csv(net, row.names = 1, check.names = F) %>% 
+    as.matrix %>%
+    graph_from_adjacency_matrix(mode = 'undirected', weighted = T, diag = F)
+  
+  ord <- match(V(net.in)$name, swsn.attr$site)
+
+  V(net.in)$lon <- swsn.attr[ord, 6]
+  V(net.in)$lat <- swsn.attr[ord, 7]
+  V(net.in)$size <- swsn.attr[ord, 5]
+  V(net.in)$region <- swsn.attr[ord, 3] %>% as.character
+  
+  return(net.in)
+}
+```
+
+Use the function to import the network datasets.
+```{r}
+ad1200 <- readSWSN('Data/AD1200sim.csv')
+ad1250 <- readSWSN('Data/AD1250sim.csv')
+ad1300 <- readSWSN('Data/AD1300sim.csv')
+ad1350 <- readSWSN('Data/AD1350sim.csv')
+ad1400 <- readSWSN('Data/AD1400sim.csv')
+```
+
+Import eof data
+```{r}
+library(raster)
+library(rasterVis)
+eof <- brick('Data/eof1200.nc') %>% setNames(c('eof1', 'eof2', 'eof3', 'eof4', 'eof5', 'eof6'))
+levelplot(eof)
+```
+
+```{r}
+ad1200.pts <- cbind(V(ad1200)$lon, V(ad1200)$lat)
+eof.vals <- extract(eof, ad1200.pts)
+V(ad1200)$eof1 <- eof.vals[,1]
+V(ad1200)$eof2 <- eof.vals[,2]
+V(ad1200)$eof3 <- eof.vals[,3]
+V(ad1200)$eof4 <- eof.vals[,4]
+V(ad1200)$eof5 <- eof.vals[,5]
+V(ad1200)$eof6 <- eof.vals[,6]
+
+
+
+
+el <- get.edgelist(ad1200)
+E(ad1200)$eof1 <- abs(V(ad1200)[el[, 1]]$eof1 - V(ad1200)[el[, 2]]$eof1)
+E(ad1200)$eof2 <- abs(V(ad1200)[el[, 1]]$eof2 - V(ad1200)[el[, 2]]$eof2)
+E(ad1200)$eof3 <- abs(V(ad1200)[el[, 1]]$eof3 - V(ad1200)[el[, 2]]$eof3)
+E(ad1200)$eof4 <- abs(V(ad1200)[el[, 1]]$eof4 - V(ad1200)[el[, 2]]$eof4)
+E(ad1200)$eof5 <- abs(V(ad1200)[el[, 1]]$eof5 - V(ad1200)[el[, 2]]$eof5)
+E(ad1200)$eof6 <- abs(V(ad1200)[el[, 1]]$eof6 - V(ad1200)[el[, 2]]$eof6)
+
+# now binary
+E(ad1200)$eof1.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof1) != sign(V(ad1200)[el[, 2]]$eof1))
+E(ad1200)$eof2.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof2) != sign(V(ad1200)[el[, 2]]$eof2))
+E(ad1200)$eof3.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof3) != sign(V(ad1200)[el[, 2]]$eof3))
+E(ad1200)$eof4.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof4) != sign(V(ad1200)[el[, 2]]$eof4))
+E(ad1200)$eof5.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof5) != sign(V(ad1200)[el[, 2]]$eof5))
+E(ad1200)$eof6.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof6) != sign(V(ad1200)[el[, 2]]$eof6))
+
+E(ad1200)$from_lat <- V(ad1200)[el[, 1]]$lat
+E(ad1200)$from_lon <- V(ad1200)[el[, 1]]$lon
+E(ad1200)$to_lat <- V(ad1200)[el[, 2]]$lat
+E(ad1200)$to_lon <- V(ad1200)[el[, 2]]$lon
+
+
+E(ad1200)$size.prod <- V(ad1200)[el[, 1]]$size * V(ad1200)[el[, 2]]$size
+
+dat <- as_data_frame(ad1200)
+dat
+```
+Are the data normal?
+```{r}
+hist(dat$weight)
+```
+
+
+```{r}
+qplot(eof2, weight, data = dat[dat$eof2.b==F,], alpha = I(.5), geom = 'point') +
+  geom_smooth() +
+  theme_minimal()
+
+qplot(size.prod, weight, data = dat, alpha = I(.5), geom = 'point') +
+  geom_smooth() +
+  theme_minimal()
+```
+
+
+```{r}
+library(geosphere)
+dat$dist <- distHaversine(cbind(dat$from_lon, dat$from_lat), cbind(dat$to_lon, dat$to_lat))
+```
+
+```{r}
+qplot(dist, weight, data = dat, alpha = I(.1), geom = 'point') +
+  geom_smooth() +
+  theme_minimal()
+```
+
+```{r}
+library(mgcv)
+
+mod1 <- gam(weight ~ s(dist, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+mod2 <- gam(weight ~ s(dist, bs = 'cr') +
+              s(size.prod, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+mod3 <- gam(weight ~ s(dist, bs = 'cr') +
+              s(eof2, bs = 'cr') + 
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr') + 
+              s(eof5, bs = 'cr') + 
+              s(eof6, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+mod4 <- gam(weight ~ s(dist, bs = 'cr') +
+              s(size.prod, bs = 'cr') + 
+              s(eof2, bs = 'cr') + 
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr') + 
+              s(eof5, bs = 'cr') + 
+              s(eof6, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+mod5 <- gam(weight ~ s(dist, bs = 'cr') +
+              s(eof2, bs = 'cr') + 
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr') + 
+              s(eof5, bs = 'cr') + 
+              s(eof6, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+mod6 <- gam(weight ~ s(dist, bs = 'cr') +
+              s(eof2, by = eof2.b, bs = 'cr') + 
+              s(eof3, by = eof3.b, bs = 'cr') + 
+              s(eof4, by = eof4.b, bs = 'cr') + 
+              s(eof5, by = eof5.b, bs = 'cr') + 
+              s(eof6, by = eof6.b, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = F, data = dat)
+
+```
+
+```{r}
+library(broom)
+
+
+plot(mod1)
+plot(mod2)
+plot(mod3)
+plot(mod4)
+plot(mod5)
+
+tidy(mod6)
+plot(mod5)
+
+dat$eof2.b %>% ordered
+```
+
+set
