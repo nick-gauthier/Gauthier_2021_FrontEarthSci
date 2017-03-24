@@ -62,12 +62,12 @@ execGRASS('r.mapcalc', flags = c('overwrite'), expression = 'friction = 1')
 
 dem <- 'NED_100m'
 ### in the future can just get a text string for the points and feed them to r.walk, sending dem thru writeRAST
-getCost <- function(sites){
+getCost <- function(sites, grass_pts){
   
   from_sites <- sites$coors %>% c
   to_sites <- sites$coors %>% c %>% paste(collapse=',') %>% strsplit(',') %>% unlist %>% as.numeric
   
-  pblapply(from_sites, function(x){
+  pbsapply(from_sites, function(x){
         from_site <- x %>% strsplit(',') %>% unlist %>% as.numeric
         execGRASS('r.walk', elevation = dem,
                       friction = 'friction',
@@ -75,22 +75,32 @@ getCost <- function(sites){
                       start_coordinates = from_site,
                       stop_coordinates = to_sites,
                       memory = 1500,
-                      flags = c('overwrite'))
+                      flags = c('overwrite', 'quiet'))
   
-    execGRASS('r.what', map = 'walk_costs', points = "ad1200", separator = ',', intern = T) %>%
+    execGRASS('r.what', map = 'walk_costs', points = grass_pts, separator = ',', intern = T) %>%
       data_frame(x = .) %>% 
       separate(x, c('x', 'y', 'cat','cost'), sep = ',', convert = T) %>%
       select(cost) %>%
       c %>%
       return
-  }) %>% bind_rows
+  }) %>% do.call(rbind,.)
 }
 
-ad1200_costs <- getCost(ad1200)
-ad1250_costs <- getCost(ad1250)
-ad1300_costs <- getCost(ad1300)
-ad1350_costs <- getCost(ad1350)
-ad1400_costs <- getCost(ad1400)
+ad1200_costs <- getCost(ad1200, 'ad1200')
+write.csv(ad1200_costs, 'Data/ad1200_costs.csv', row.names = F, col.names = F)
+
+ad1250_costs <- getCost(ad1250, 'ad1250')
+write.csv(ad1250_costs, 'Data/ad1250_costs.csv', row.names = F, col.names = F)
+
+ad1300_costs <- getCost(ad1300, 'ad1300')
+write.csv(ad1300_costs, 'Data/ad1300_costs.csv', row.names = F, col.names = F)
+
+
+ad1350_costs <- getCost(ad1350, 'ad1350')
+ad1400_costs <- getCost(ad1400, 'ad1400')
+
+
+
 
 
 execGRASS('r.drain',
