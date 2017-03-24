@@ -27,26 +27,57 @@ bbox <- extent(-115.3997, -102.4102, 31.06377, 37.28437)
 ```
 
 
-
+using index 4189 starts us in January 1199, so that we have a year lead for calculating spei
 ```{r import, cache = T}
 prec <- brick('Data/b40.lm850-1850.1deg.001.cam2.h0.PRECT.085001-185012.nc') %>% 
-  extract2(3901:6900) %>% 
+  extract2(4189:7200) %>% 
   rotate %>%
   crop(bbox) %>%
-  multiply_by(3.154e+10)
+  multiply_by(2.628e+9)
 
 trefmnav <- brick('Data/b40.lm850-1850.1deg.001.cam2.h0.TREFMNAV.085001-185012.nc') %>%
-  extract2(3901:6900) %>%
+  extract2(4189:7200) %>%
   rotate %>%
   crop(bbox) %>%
   subtract(273.15)
   
 trefmxav <- brick('Data/b40.lm850-1850.1deg.001.cam2.h0.TREFMXAV.085001-185012.nc') %>%
-  extract2(3901:6900) %>%
+  extract2(4189:7200) %>%
   rotate %>%
   crop(bbox) %>%
   subtract(273.15)
 ```
+
+
+Interpolate climate data using splines.
+```{r warnings = F}
+library(fields)
+
+tpsInterp <- function(rast.brick){
+  target <- disaggregate(rast.brick[[1]], fact = 10, method = 'bilinear')
+  
+  lapply(1:nlayers(rast.brick), function(rast.index){
+    rast.map <- rast.brick[[rast.index]]
+    xy <- data.frame(xyFromCell(rast.map, 1:ncell(rast.map)))
+    v <- getValues(rast.map)
+    tps <- Tps(xy, v)
+    interpolate(target, tps)
+  }) %>% unlist %>% brick
+}
+
+prec.tps <- tpsInterp(prec)
+prec.tps[prec.tps < 0] <- 0
+trefmnav.tps <- tpsInterp(trefmnav)
+trefmxav.tps <- tpsInterp(trefmxav)
+
+writeRaster(prec.tps, 'Data/prec-sw.nc', overwrite = T)
+writeRaster(trefmnav.tps, 'Data/trefmnav-sw.nc', overwrite = T)
+writeRaster(trefmxav.tps, 'Data/trefmxav-sw.nc', overwrite = T)
+
+levelplot(prec.tps[[1:4]])
+levelplot(prec[[1:4]])
+```
+
 
 ```{r times}
 times <- prec %>% 
@@ -57,36 +88,38 @@ times <- prec %>%
 ```
 
 ```{r lats}
-lats <- prec[[1]] %>%
-  coordinates %>%
-  magrittr::extract( , 2)
+lats <- init(prec.tps, 'y') %>% getValues
 ```
 
 SPEI
 ```{r }
-prcp.val <- getValues(prec) %>% t   # need to transpose, getValues has rows for space and columns for time, hargreaves wants columns for space and rows for time
-tmin.val <- getValues(trefmnav) %>% t
-tmax.val <- getValues(trefmxav) %>% t
+prcp.val <- getValues(prec.tps) %>% t   # need to transpose, getValues has rows for space and columns for time, hargreaves wants columns for space and rows for time
+tmin.val <- getValues(trefmnav.tps) %>% t
+tmax.val <- getValues(trefmxav.tps) %>% t
+tmean.val <- getValues((trefmnav.tps + trefmxav.tps)/ 2) %>% t
 ```
 
 
 ```{r}
-pet <- hargreaves(tmin.val, tmax.val, lat = lats) %>% as.data.frame#as.matrix#, Pre = prcp.val) %>% as.matrix# using one latitude for now
-pet.map <- setValues(prec, t(pet))
-levelplot(pet.map[[1]], margin = F)
+#pet <- hargreaves(tmin.val, tmax.val, lat = lats, Pre =  prcp.val, na.rm = T) %>% as.data.frame
+pet <- thornthwaite(tmean.val, lats) %>% as.data.frame
+pet.map <- setValues(prec.tps, t(pet))
+levelplot(pet.map[[2]], margin = F)
+```
 
-
+```{r}
 water.stress <- prcp.val - pet
 
-ws.map <- setValues(prec, t(water.stress))
-spei.test <- spei(water.stress, scale = 12)
-spei.rast <- setValues(prec, t(spei.test$fitted))
+ws.map <- setValues(prec.tps, t(water.stress))
+levelplot(ws.map[[1:6]])
+spei.fit <- spei(water.stress, scale = 12)
+spei.rast <- setValues(prec.tps, t(spei.fit$fitted))[[13:3013]]
 
-levelplot(spei.rast[[268]], margin = F, par.settings = RdBuTheme())
+levelplot(spei.rast[[1:6]], par.settings = RdBuTheme())
 ```
 
 ```{r}
-stfdf <- spei.rast[[13:3000]] %>% setZ(times[13:3000]) %>% as('STFDF')
+stfdf <- spei.rast %>% setZ(times[13:3013]) %>% as('STFDF')
 ```
 
 
