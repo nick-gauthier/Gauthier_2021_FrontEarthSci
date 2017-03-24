@@ -23,12 +23,15 @@ First, get some elevation data.
 
 Define a bounding box.
 ```{r}
-bbox <- c(-113.5, -106.5, 31, 37.5) %>% extent %>% polygon_from_extent(proj4string = '+proj=longlat +ellps=WGS84')
+#bbox <- c(-113.5, -106.5, 31, 37.5) %>% extent %>% polygon_from_extent(proj4string = '+proj=longlat +ellps=WGS84')
+bbox.states <- c(-116, -102, 31, 38) %>% extent %>% polygon_from_extent(proj4string = '+proj=longlat +ellps=WGS84')
 ```
 
 Get National Elevation Data.
 ```{r}
-ned <- get_ned(template = bbox, label = 'swsn')
+#ned <- get_ned(template = bbox, label = 'swsn')
+ned <- get_ned(template = bbox.states, label = 'swsn',
+                     raw.dir = '~/Data/RAW/NED/', extraction.dir = '~/Data/NED/')  # with large bounding box including NM and AZ
 ```
 
 ```{r}
@@ -48,6 +51,9 @@ plot(daymet$prcp[[1]])
 
 ## Tree rings
 ```{r}
-treerings <- get_itrdb(template = bbox, label = 'swsn', makeSpatial = T)
+treerings <- get_itrdb(template = bbox.states, label = 'swsn', makeSpatial = T)
+```
+```{r}
+treerings
 ```
 
