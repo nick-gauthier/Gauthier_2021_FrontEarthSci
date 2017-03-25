@@ -113,51 +113,58 @@ water.stress <- prcp.val - pet
 ws.map <- setValues(prec.tps, t(water.stress))
 levelplot(ws.map[[1:6]])
 spei.fit <- spei(water.stress, scale = 12)
-spei.rast <- setValues(prec.tps, t(spei.fit$fitted))[[13:3013]]
+spei.rast <- setValues(prec.tps, t(spei.fit$fitted))[[13:3012]]
 
 levelplot(spei.rast[[1:6]], par.settings = RdBuTheme())
 ```
 
 ```{r}
-stfdf <- spei.rast %>% setZ(times[13:3013]) %>% as('STFDF')
+stfdf <- spei.rast %>% setZ(times[13:3012]) %>% as('STFDF')
 ```
 
 
 ```{r message = F}
 ## attempt to compute EOFs
-#eof_time <- eof(stfdf, 'temporal')
 eof_space <- eof(stfdf, 'spatial') %>% brick
-eof(stfdf, 'spatial', returnEOFs = F) %>% screeplot()
+eof_time <- eof(stfdf, 'temporal')
+eof(stfdf, 'spatial', returnEOFs = F) %T>% screeplot()
 ```
 
 ```{r}
-levelplot(eof_space[[1:6]] %>% disaggregate(fact = 100, method = 'bilinear'), par.settings = RdBuTheme())
+levelplot(eof_space[[1:6]], par.settings = RdBuTheme())
 ```
 
 Now do it for each of the five periods.
 
 ```{r message = F}
-eof.1200 <- spei.rast %>% setZ(times) %>% extract2(1:600) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6) %>% disaggregate(fact = 100, method = 'bilinear') %T>% levelplot(par.settings = RdBuTheme())
-```
-```{r warning=F}
-eof.1250 <- spei.rast %>% setZ(times) %>% extract2(601:1200) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6) %>% disaggregate(fact = 100, method = 'bilinear') %T>% levelplot(par.settings = RdBuTheme())
+eof.1200 <- spei.rast %>% setZ(times[13:3012]) %>% extract2(1:600) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6)
+levelplot(eof.1200, par.settings = RdBuTheme())
 ```
 
 ```{r warning=F}
-eof.1300 <- spei.rast %>% setZ(times) %>% extract2(1201:1800) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6) %>% disaggregate(fact = 100, method = 'bilinear') %T>% levelplot(par.settings = RdBuTheme())
+eof.1250 <- spei.rast %>% setZ(times[13:3012]) %>% extract2(601:1200) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6)
+levelplot(eof.1250, par.setings = RdBuTheme())
 ```
 
 ```{r warning=F}
-eof.1350 <- spei.rast %>% setZ(times) %>% extract2(1801:2400) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6) %>% disaggregate(fact = 100, method = 'bilinear') %T>% levelplot(par.settings = RdBuTheme())
+eof.1300 <- spei.rast %>% setZ(times[13:3012]) %>% extract2(1201:1800) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6)
+levelplot(eof.1300, par.settings = RdBuTheme())
 ```
 
 ```{r warning=F}
-eof.1400 <- spei.rast %>% setZ(times) %>% extract2(2401:3000) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6) %>% disaggregate(fact = 100, method = 'bilinear') %T>% levelplot(par.settings = RdBuTheme())
+eof.1350 <- spei.rast %>% setZ(times[13:3012]) %>% extract2(1801:2400) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6)
+levelplot(eof.1350, par.settings = RdBuTheme())
+```
+
+```{r warning=F}
+eof.1400 <- spei.rast %>% setZ(times[13:3012]) %>% extract2(2401:3000) %>% as('STFDF') %>% eof('spatial') %>% brick %>% extract2(1:6)
+levelplot(eof.1400, par.settings = RdBuTheme())
 ```
       
       
       
 ```{r}
+writeRaster(eof_space, 'eof_all.nc')
 writeRaster(eof.1200, 'eof1200.nc')
 writeRaster(eof.1250, 'eof1250.nc')
 writeRaster(eof.1300, 'eof1300.nc')
@@ -165,3 +172,8 @@ writeRaster(eof.1350, 'eof1350.nc')
 writeRaster(eof.1400, 'eof1400.nc')
 
 ```
+
+```{r}
+
+```
+
