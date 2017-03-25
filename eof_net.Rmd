@@ -12,6 +12,8 @@ Site coordinates are in UTM, so first use rgdal to reproject to LatLon.
 ```{r message = F, warning = F}
 library(tidyverse)
 library(rgdal)
+library(raster)
+library(rasterVis)
 
 swsn.pts <- read_csv('Data/attributes_orig.csv') %>% 
   select(easting = EASTING, northing = NORTHING) %>%
@@ -24,7 +26,7 @@ swsn.pts <- read_csv('Data/attributes_orig.csv') %>%
 Now reimport the attribute file, select the relevant data, and combine with the reprojected site coordinates.
 ```{r message = F}
 swsn.attr <- read_csv('Data/attributes_orig.csv') %>%
-  dplyr::select(ID = SWSN_ID, site = SWSN_Site, macro = Macro, micro = Micro, size = P3room) %>%
+  dplyr::select(ID = SWSN_ID, site = SWSN_Site, macro = Macro, micro = Micro, size = P1room) %>%
   cbind(swsn.pts)
 ```
 
@@ -61,13 +63,30 @@ Import eof data
 ```{r}
 library(raster)
 library(rasterVis)
-eof <- brick('Data/eof1200.nc') %>% setNames(c('eof1', 'eof2', 'eof3', 'eof4', 'eof5', 'eof6'))
-levelplot(eof)
+eof <- brick('Data/eof_all.nc')[[1:6]] %>% setNames(c('eof1', 'eof2', 'eof3', 'eof4', 'eof5', 'eof6'))
+levelplot(eof, par.settings = RdBuTheme(), at = seq(-.03, .03, .003))
+```
+Import elevation too.
+```{r}
+elev <- raster('Data/swsn_NED_1.tif')
+levelplot(elev, margin = F)
+```
+Also mean climate data.
+```{r}
+prcp.mean <- brick('Data/prec-sw.nc') %>% stackApply(.,indices = rep(1: (nlayers(.)/12), each = 12), fun = sum) %>% mean
+levelplot(prcp.mean, margin = F, par.settings = PuOrTheme())
 ```
 
 ```{r}
+temp.mean <- ((brick('Data/trefmnav-sw.nc') %>% mean) + (brick('Data/trefmnav-sw.nc') %>% mean)) / 2
+levelplot(temp.mean)
+```
+
+
+
+```{r}
 ad1200.pts <- cbind(V(ad1200)$lon, V(ad1200)$lat)
-eof.vals <- extract(eof, ad1200.pts)
+eof.vals <- raster::extract(eof, ad1200.pts)
 V(ad1200)$eof1 <- eof.vals[,1]
 V(ad1200)$eof2 <- eof.vals[,2]
 V(ad1200)$eof3 <- eof.vals[,3]
@@ -75,8 +94,9 @@ V(ad1200)$eof4 <- eof.vals[,4]
 V(ad1200)$eof5 <- eof.vals[,5]
 V(ad1200)$eof6 <- eof.vals[,6]
 
-
-
+V(ad1200)$elev <- raster::extract(elev, ad1200.pts)
+V(ad1200)$prcp <- raster::extract(prcp.mean, ad1200.pts)
+V(ad1200)$temp <- raster::extract(temp.mean, ad1200.pts)
 
 el <- get.edgelist(ad1200)
 E(ad1200)$eof1 <- abs(V(ad1200)[el[, 1]]$eof1 - V(ad1200)[el[, 2]]$eof1)
@@ -102,24 +122,17 @@ E(ad1200)$to_lon <- V(ad1200)[el[, 2]]$lon
 
 E(ad1200)$size.prod <- V(ad1200)[el[, 1]]$size * V(ad1200)[el[, 2]]$size
 
-dat <- as_data_frame(ad1200)
+
+E(ad1200)$elev <- abs(V(ad1200)[el[, 1]]$elev - V(ad1200)[el[, 2]]$elev)
+E(ad1200)$prcp <- abs(V(ad1200)[el[, 1]]$prcp - V(ad1200)[el[, 2]]$prcp)
+E(ad1200)$temp <- abs(V(ad1200)[el[, 1]]$temp - V(ad1200)[el[, 2]]$temp)
+
+
+
+dat <- igraph::as_data_frame(ad1200)
 dat
 ```
-Are the data normal?
-```{r}
-hist(dat$weight)
-```
 
-
-```{r}
-qplot(eof2, weight, data = dat[dat$eof2.b==F,], alpha = I(.5), geom = 'point') +
-  geom_smooth() +
-  theme_minimal()
-
-qplot(size.prod, weight, data = dat, alpha = I(.5), geom = 'point') +
-  geom_smooth() +
-  theme_minimal()
-```
 
 
 ```{r}
@@ -127,11 +140,43 @@ library(geosphere)
 dat$dist <- distHaversine(cbind(dat$from_lon, dat$from_lat), cbind(dat$to_lon, dat$to_lat))
 ```
 
+LCP distance matrix
 ```{r}
-qplot(dist, weight, data = dat, alpha = I(.1), geom = 'point') +
+library(gdistance)
+```
+
+```{r}
+elev.agg <- raster('~/Data/NED/swsn_NED_1.tif') %>% aggregate(fact = 100)
+```
+
+```{r}
+altDiff <- function(x){x[2] - x[1]}
+hd <- transition(elev.agg, altDiff, 8, symm=FALSE)
+slope <- geoCorrection(hd, type = 'c')
+
+adj <- adjacent(elev.agg, cells=1:ncell(elev.agg), pairs=TRUE, directions=8)
+speed <- slope
+speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
+Conductance <- geoCorrection(speed, type = 'c')
+
+lcp1 <- costDistance(Conductance, cbind(dat$from_lon, dat$from_lat), cbind(dat$to_lon, dat$to_lat)) %>% diag
+lcp2 <- costDistance(Conductance, cbind(dat$to_lon, dat$to_lat), cbind(dat$from_lon, dat$from_lat)) %>% diag
+dat$lcp <- lcp1 + lcp2
+```
+
+```{r}
+qplot(lcp, weight, data = dat, alpha = I(.1), geom = 'point') +
   geom_smooth() +
   theme_minimal()
 ```
+```{r}
+qplot(x = dat$dist, geom = 'density')
+qplot(x = dat$lcp, geom = 'density')
+qplot(dist, lcp, data = dat, geom = 'point') +
+  geom_smooth() +
+  theme_minimal()
+```
+
 
 ```{r}
 library(mgcv)
