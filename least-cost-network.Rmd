@@ -1,0 +1,44 @@
+---
+title: "Untitled"
+author: "Nick Gauthier"
+date: "March 25, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(raster)
+library(gdistance)
+library(rasterVis)
+library(tidyverse)
+```
+
+```{r}
+elev <- raster('Data/swsn_NED_1.tif') %>% aggregate(fact = 100)
+levelplot(elev, margin = F)
+```
+
+```{r}
+altDiff <- function(x){x[2] - x[1]}
+hd <- transition(elev, altDiff, 8, symm=FALSE)
+slope <- geoCorrection(hd)
+```
+
+```{r}
+adj <- adjacent(elev, cells=1:ncell(elev), pairs=TRUE, directions=8)
+speed <- slope
+speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
+Conductance <- geoCorrection(speed)
+```
+
+```{r}
+ad1200.pts <- cbind(V(ad1200)$lon, V(ad1200)$lat)
+```
+
+```{r}
+costDist <- costDistance(Conductance, ad1200.pts, ad1200.pts)
+```
+
