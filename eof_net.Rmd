@@ -107,12 +107,12 @@ E(ad1200)$eof5 <- abs(V(ad1200)[el[, 1]]$eof5 - V(ad1200)[el[, 2]]$eof5)
 E(ad1200)$eof6 <- abs(V(ad1200)[el[, 1]]$eof6 - V(ad1200)[el[, 2]]$eof6)
 
 # now binary
-E(ad1200)$eof1.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof1) != sign(V(ad1200)[el[, 2]]$eof1))
-E(ad1200)$eof2.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof2) != sign(V(ad1200)[el[, 2]]$eof2))
-E(ad1200)$eof3.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof3) != sign(V(ad1200)[el[, 2]]$eof3))
-E(ad1200)$eof4.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof4) != sign(V(ad1200)[el[, 2]]$eof4))
-E(ad1200)$eof5.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof5) != sign(V(ad1200)[el[, 2]]$eof5))
-E(ad1200)$eof6.b <- as.factor(sign(V(ad1200)[el[, 1]]$eof6) != sign(V(ad1200)[el[, 2]]$eof6))
+E(ad1200)$eof1.b <- factor(sign(V(ad1200)[el[, 1]]$eof1) != sign(V(ad1200)[el[, 2]]$eof1), ordered = F)
+E(ad1200)$eof2.b <- factor(sign(V(ad1200)[el[, 1]]$eof2) != sign(V(ad1200)[el[, 2]]$eof2), ordered = F)
+E(ad1200)$eof3.b <- factor(sign(V(ad1200)[el[, 1]]$eof3) != sign(V(ad1200)[el[, 2]]$eof3), ordered = F)
+E(ad1200)$eof4.b <- factor(sign(V(ad1200)[el[, 1]]$eof4) != sign(V(ad1200)[el[, 2]]$eof4), ordered = F)
+E(ad1200)$eof5.b <- factor(sign(V(ad1200)[el[, 1]]$eof5) != sign(V(ad1200)[el[, 2]]$eof5), ordered = F)
+E(ad1200)$eof6.b <- factor(sign(V(ad1200)[el[, 1]]$eof6) != sign(V(ad1200)[el[, 2]]$eof6), ordered = F)
 
 E(ad1200)$from_lat <- V(ad1200)[el[, 1]]$lat
 E(ad1200)$from_lon <- V(ad1200)[el[, 1]]$lon
@@ -177,20 +177,60 @@ qplot(dist, lcp, data = dat, geom = 'point') +
   theme_minimal()
 ```
 
-
+Let's start with just the environmental covariates
 ```{r}
 library(mgcv)
 
-mod1 <- gam(weight ~ s(dist, bs = 'cr'),
+
+mod1 <- gam(weight ~ s(lcp, bs = 'cr'),
             family=betar(link="logit"),
             method = 'REML', select = T, data = dat)
 
-mod2 <- gam(weight ~ s(dist, bs = 'cr') +
+mod2 <- gam(weight ~ s(lcp, bs = 'cr') +
+              s(elev, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+mod3 <- gam(weight ~ s(lcp, bs = 'cr') +
+              s(prcp, bs = 'cr') +
+              s(temp, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+mod4 <- gam(weight ~ s(lcp, bs = 'cr') +
+              s(elev, bs = 'cr') +
+              s(prcp, bs = 'cr') +
+              s(temp, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+```
+
+```{r}
+library(broom)
+library(tidyverse)
+```
+
+Distance alone explains 50% of the variance
+```{r}
+summary(mod1)
+bind_rows(glance(mod1), glance(mod2), glance(mod3), glance(mod4))
+
+summary(mod1)
+gam.check(mod4)
+```
+
+
+Size doesn't matter
+```{r}
+mod5 <- gam(weight ~ s(lcp, bs = 'cr') +
               s(size.prod, bs = 'cr'),
             family=betar(link="logit"),
             method = 'REML', select = T, data = dat)
+glance(mod5)
+```
 
-mod3 <- gam(weight ~ s(dist, bs = 'cr') +
+```{r}
+mod6 <- gam(weight ~ s(lcp, bs = 'cr') +
               s(eof2, bs = 'cr') + 
               s(eof3, bs = 'cr') + 
               s(eof4, bs = 'cr') + 
@@ -199,7 +239,7 @@ mod3 <- gam(weight ~ s(dist, bs = 'cr') +
             family=betar(link="logit"),
             method = 'REML', select = T, data = dat)
 
-mod4 <- gam(weight ~ s(dist, bs = 'cr') +
+mod4 <- gam(weight ~ s(lcp, bs = 'cr') +
               s(size.prod, bs = 'cr') + 
               s(eof2, bs = 'cr') + 
               s(eof3, bs = 'cr') + 
@@ -209,7 +249,7 @@ mod4 <- gam(weight ~ s(dist, bs = 'cr') +
             family=betar(link="logit"),
             method = 'REML', select = T, data = dat)
 
-mod5 <- gam(weight ~ s(dist, bs = 'cr') +
+mod5 <- gam(weight ~ s(lcp, bs = 'cr') +
               s(eof2, bs = 'cr') + 
               s(eof3, bs = 'cr') + 
               s(eof4, bs = 'cr') + 
@@ -218,31 +258,113 @@ mod5 <- gam(weight ~ s(dist, bs = 'cr') +
             family=betar(link="logit"),
             method = 'REML', select = T, data = dat)
 
-mod6 <- gam(weight ~ s(dist, bs = 'cr') +
+
+
+```
+Should we include or exclude the factors?
+```{r}
+mod8 <- gam(weight ~ s(lcp, bs = 'cr') +
+              s(eof2, bs = 'cr') + 
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr') + 
+              s(eof5, bs = 'cr') + 
+              s(eof6, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+mod9 <- gam(weight ~ s(lcp, bs = 'cr') +
               s(eof2, by = eof2.b, bs = 'cr') + 
               s(eof3, by = eof3.b, bs = 'cr') + 
               s(eof4, by = eof4.b, bs = 'cr') + 
               s(eof5, by = eof5.b, bs = 'cr') + 
               s(eof6, by = eof6.b, bs = 'cr'),
             family=betar(link="logit"),
-            method = 'REML', select = F, data = dat)
+            method = 'REML', select = T, data = dat)
 
+mod10 <- gam(weight ~ eof2.b + eof3.b + eof4.b + eof5.b + eof6.b +
+              s(lcp, bs = 'cr') +
+              s(eof2, by = eof2.b, bs = 'cr') + 
+              s(eof3, by = eof3.b, bs = 'cr') + 
+              s(eof4, by = eof4.b, bs = 'cr') + 
+              s(eof5, by = eof5.b, bs = 'cr') + 
+              s(eof6, by = eof6.b, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+```
+
+For mod 8, aic of -33156, 58.9% deviance explain, all terms significant but eof2 the least so
+```{r}
+summary(mod8)
+glance(mod8)
+tidy(mod8)
+```
+61.5% deviance AIC -34261, again most significant were 4 and 5 eofs
+```{r}
+summary(mod9)
+glance(mod9)
+tidy(mod9)
+```
+-34263, 51.5 devienance, factors for 4 5were ignsignifcant, 6 and 3 were kinda sign
+```{r}
+summary(mod10)
+glance(mod10)
+tidy(mod10)
+plot(mod10)
+```
+
+so adding in the factor in tercepts doesnt change much because they get mostly swamped out. but interestingly 2 is kept in
+so maybe whats important for two is whether you have any tie, regardless of how strong it is, across the monsoon boundary. the others are important only if far awya
+
+
+now fit mod 11 getting rid of the insig factors
+```{r}
+mod11 <- gam(weight ~ eof2.b + eof3.b + eof6.b +
+              s(lcp, bs = 'cr') +
+              s(eof2, by = eof2.b, bs = 'cr') + 
+              s(eof3, by = eof3.b, bs = 'cr') + 
+              s(eof4, by = eof4.b, bs = 'cr') + 
+              s(eof5, by = eof5.b, bs = 'cr') + 
+              s(eof6, by = eof6.b, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+```
+
+Now a model with everything!
+```{r}
+mod11 <- gam(weight ~ eof2.b + eof3.b + eof4.b + eof5.b + eof6.b +
+              s(lcp, bs = 'cr') +
+              s(elev, bs = 'cr') +
+              s(prcp, bs = 'cr') +
+              s(temp, bs = 'cr') +
+              s(size.prod, bs = 'cr') +
+              s(eof2, by = eof2.b, bs = 'cr') + 
+              s(eof3, by = eof3.b, bs = 'cr') + 
+              s(eof4, by = eof4.b, bs = 'cr') + 
+              s(eof5, by = eof5.b, bs = 'cr') + 
+              s(eof6, by = eof6.b, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+
+gam.check(mod11)
+tidy(mod11)
+glance(mod11)
+```
+should eliminate size and elev
+
+as eof number increases, the number of across ties increase too
+```{r}
+dat$eof6.b %>% hist
 ```
 
 ```{r}
-library(broom)
-
-
-plot(mod1)
-plot(mod2)
-plot(mod3)
-plot(mod4)
-plot(mod5)
-
-tidy(mod6)
-plot(mod5)
-
-dat$eof2.b %>% ordered
+logit<-function(x) log(x/(1-x))
+hist(logit(dat$weight))
 ```
 
-set
+```{r}
+hist(dat$elev %>% log)
+hist(dat$prcp %>% log)
+hist(dat$eof2 %>% log)
+hist(dat$temp %>% log)
+```
+
