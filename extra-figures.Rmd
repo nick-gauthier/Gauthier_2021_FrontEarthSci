@@ -1,0 +1,60 @@
+---
+title: "Extra Figures"
+output:
+  pdf_document:
+    keep_tex: yes
+  html_document:
+    keep_md: yes
+---
+
+
+```{r}
+library(raster)
+library(rasterVis)
+library(magrittr)
+```
+
+```{r dpi = 300}
+brick('Data/b40.lm850-1850.1deg.001.cam2.h0.PRECT.085001-185012.nc') %>% 
+  extract2(1) %>% 
+  rotate %>%
+  multiply_by(2.628e+9) %>%
+  levelplot(margin = F, par.settings = BTCTheme(), colorkey = F, xlab=NULL, ylab=NULL, scales=list(draw=FALSE))
+
+mean((brick('Data/b40.lm850-1850.1deg.001.cam2.h0.TREFMNAV.085001-185012.nc') %>%
+  extract2(1) %>%
+  rotate %>%
+  subtract(273.15)),
+(brick('Data/b40.lm850-1850.1deg.001.cam2.h0.TREFMXAV.085001-185012.nc') %>%
+  extract2(1) %>%
+  rotate %>%
+  subtract(273.15))) %>%
+  levelplot(margin = F, par.settings = BuRdTheme(), colorkey = F,xlab=NULL, ylab=NULL, scales=list(draw=FALSE))
+```
+
+```{r water_stress}
+library(maps)
+library(maptools)
+
+states.ply <- maps::map('state', region = c('arizona', 'new mexico'), fill = T, plot = F)
+IDs <- sapply(strsplit(states.ply$names, ":"), function(x) x[1])
+states.ply <- map2SpatialPolygons(states.ply, IDs=IDs)
+#assumes you have water stress map from sw_variability scitp
+ws.map <- brick('Data/water_stress.nc')
+ws.map.plot <- disaggregate(ws.map[[1:12]],fac = 5, method = 'bilinear') %>% mask(states.ply)
+levelplot(ws.map.plot, names.attr = month.name, at = seq(-250,250, 15), xlab=NULL, ylab=NULL, scales=list(draw=FALSE), par.settings = PuOrTheme(axis.line = list(col = "transparent")), layout = c(4,3)) +
+  layer(sp.polygons(states.ply))
+
+levelplot(ws.map.plot, names.attr = month.name, at = seq(-250,250, 25), xlab=NULL, ylab=NULL, scales=list(draw=FALSE), par.settings = PuOrTheme(axis.line = list(col = "transparent"))) +
+  layer(sp.polygons(states.ply))
+
+```
+
+```{r eofs}
+eof.all <- brick('Data/eof_all.nc')[[1:6]] %>% mask(states.ply) %>% disaggregate(fac=10, method = 'bilinear')
+names(eof.all) <- c('EOF1', 'EOF2', 'EOF3', 'EOF4', 'EOF5', 'EOF6')
+levelplot(eof.all, par.settings = RdBuTheme(axis.line = list(col = "transparent")), xlab=NULL, ylab=NULL, scales=list(draw=FALSE), at = seq(-.029,.029,.0029), layout = c(3,2)) +
+  layer(sp.polygons(states.ply))
+```
+
+
