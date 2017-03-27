@@ -10,10 +10,10 @@ First import the SWSN attribute file. Use tidyverse packages for data munging.
 
 Site coordinates are in UTM, so first use rgdal to reproject to LatLon.
 ```{r message = F, warning = F}
-library(tidyverse)
-library(rgdal)
 library(raster)
 library(rasterVis)
+library(tidyverse)
+library(rgdal)
 
 swsn.pts <- read_csv('Data/attributes_orig.csv') %>% 
   select(easting = EASTING, northing = NORTHING) %>%
@@ -61,8 +61,6 @@ ad1400 <- readSWSN('Data/AD1400sim.csv')
 
 Import eof data
 ```{r}
-library(raster)
-library(rasterVis)
 eof <- brick('Data/eof_all.nc')[[1:6]] %>% setNames(c('eof1', 'eof2', 'eof3', 'eof4', 'eof5', 'eof6'))
 levelplot(eof, par.settings = RdBuTheme(), at = seq(-.03, .03, .003))
 ```
@@ -82,6 +80,11 @@ temp.mean <- ((brick('Data/trefmnav-sw.nc') %>% mean) + (brick('Data/trefmnav-sw
 levelplot(temp.mean)
 ```
 
+```{r}
+water.stress.mean <- brick('Data/water_stress.nc') %>% stackApply(.,indices = rep(1: (nlayers(.)/12), each = 12), fun = sum) %>% mean
+levelplot(water.stress.mean)
+plot(water.stress.mean, elev)
+```
 
 
 ```{r}
@@ -97,6 +100,7 @@ V(ad1200)$eof6 <- eof.vals[,6]
 V(ad1200)$elev <- raster::extract(elev, ad1200.pts)
 V(ad1200)$prcp <- raster::extract(prcp.mean, ad1200.pts)
 V(ad1200)$temp <- raster::extract(temp.mean, ad1200.pts)
+V(ad1200)$ws <- raster::extract(water.stress.mean, ad1200.pts)
 
 el <- get.edgelist(ad1200)
 E(ad1200)$eof1 <- abs(V(ad1200)[el[, 1]]$eof1 - V(ad1200)[el[, 2]]$eof1)
@@ -107,12 +111,12 @@ E(ad1200)$eof5 <- abs(V(ad1200)[el[, 1]]$eof5 - V(ad1200)[el[, 2]]$eof5)
 E(ad1200)$eof6 <- abs(V(ad1200)[el[, 1]]$eof6 - V(ad1200)[el[, 2]]$eof6)
 
 # now binary
-E(ad1200)$eof1.b <- factor(sign(V(ad1200)[el[, 1]]$eof1) != sign(V(ad1200)[el[, 2]]$eof1), ordered = F)
-E(ad1200)$eof2.b <- factor(sign(V(ad1200)[el[, 1]]$eof2) != sign(V(ad1200)[el[, 2]]$eof2), ordered = F)
-E(ad1200)$eof3.b <- factor(sign(V(ad1200)[el[, 1]]$eof3) != sign(V(ad1200)[el[, 2]]$eof3), ordered = F)
-E(ad1200)$eof4.b <- factor(sign(V(ad1200)[el[, 1]]$eof4) != sign(V(ad1200)[el[, 2]]$eof4), ordered = F)
-E(ad1200)$eof5.b <- factor(sign(V(ad1200)[el[, 1]]$eof5) != sign(V(ad1200)[el[, 2]]$eof5), ordered = F)
-E(ad1200)$eof6.b <- factor(sign(V(ad1200)[el[, 1]]$eof6) != sign(V(ad1200)[el[, 2]]$eof6), ordered = F)
+E(ad1200)$eof1.b <- factor(sign(V(ad1200)[el[, 1]]$eof1) != sign(V(ad1200)[el[, 2]]$eof1))
+E(ad1200)$eof2.b <- factor(sign(V(ad1200)[el[, 1]]$eof2) != sign(V(ad1200)[el[, 2]]$eof2))
+E(ad1200)$eof3.b <- factor(sign(V(ad1200)[el[, 1]]$eof3) != sign(V(ad1200)[el[, 2]]$eof3))
+E(ad1200)$eof4.b <- factor(sign(V(ad1200)[el[, 1]]$eof4) != sign(V(ad1200)[el[, 2]]$eof4))
+E(ad1200)$eof5.b <- factor(sign(V(ad1200)[el[, 1]]$eof5) != sign(V(ad1200)[el[, 2]]$eof5))
+E(ad1200)$eof6.b <- factor(sign(V(ad1200)[el[, 1]]$eof6) != sign(V(ad1200)[el[, 2]]$eof6))
 
 E(ad1200)$from_lat <- V(ad1200)[el[, 1]]$lat
 E(ad1200)$from_lon <- V(ad1200)[el[, 1]]$lon
@@ -126,7 +130,7 @@ E(ad1200)$size.prod <- V(ad1200)[el[, 1]]$size * V(ad1200)[el[, 2]]$size
 E(ad1200)$elev <- abs(V(ad1200)[el[, 1]]$elev - V(ad1200)[el[, 2]]$elev)
 E(ad1200)$prcp <- abs(V(ad1200)[el[, 1]]$prcp - V(ad1200)[el[, 2]]$prcp)
 E(ad1200)$temp <- abs(V(ad1200)[el[, 1]]$temp - V(ad1200)[el[, 2]]$temp)
-
+E(ad1200)$water.stress <- abs(V(ad1200)[el[, 1]]$ws - V(ad1200)[el[, 2]]$ws)
 
 
 dat <- igraph::as_data_frame(ad1200)
@@ -169,6 +173,8 @@ qplot(lcp, weight, data = dat, alpha = I(.1), geom = 'point') +
   geom_smooth() +
   theme_minimal()
 ```
+
+
 ```{r}
 qplot(x = dat$dist, geom = 'density')
 qplot(x = dat$lcp, geom = 'density')
@@ -180,8 +186,68 @@ qplot(dist, lcp, data = dat, geom = 'point') +
 Let's start with just the environmental covariates
 ```{r}
 library(mgcv)
+library(broom)
+mod1 <- gam(weight ~ s(lcp, bs = 'cr') +
+              s(ws, bs = 'cr') +
+              s(elev, bs = 'cr') +
+              s(prcp, bs = 'cr') +
+              s(temp, bs = 'cr') +
+              s(eof2, bs = 'cr') + 
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr') + 
+              s(eof5, bs = 'cr') + 
+              s(eof6, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+plot(mod1, pages = 1) 
+summary(mod1)
+gam.check(mod1)
+glance(mod1)
+```
+```{r}
+mod2 <- gam(weight ~ s(lcp, bs = 'cr') +
+              s(ws, bs = 'cr') +
+              s(elev, bs = 'cr') +
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', data = dat)
+plot(mod2, pages = 1)
+glance(mod2)
+```
+```{r}
+mod3 <- gam(weight ~ eof2.b +
+              s(lcp, bs = 'cr') +
+              s(w, bs = 'cr') +
+              s(elev, bs = 'cr') +
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', data = dat)
+plot(mod3, pages = 1)
+glance(mod3)
+summary(mod3)
+```
 
+```{r}
+mod4 <- gam(weight ~ eof2.b + eof3.b + eof4.b +
+              s(lcp, bs = 'cr') +
+              s(ws, bs = 'cr') +
+              s(elev, bs = 'cr') +
+              s(eof3, by = eof3.b) + 
+              s(eof4, by = eof4.b),
+            family=betar(link="logit"),
+            method = 'REML', data = dat)
+plot(mod4, pages = 1)
+glance(mod4)
+```
+```{r}
+dat$eof2.b %>% class
+c(T,F,T) %>% factor
+eof2.b
+```
 
+```{r}
 mod1 <- gam(weight ~ s(lcp, bs = 'cr'),
             family=betar(link="logit"),
             method = 'REML', select = T, data = dat)
@@ -203,6 +269,7 @@ mod4 <- gam(weight ~ s(lcp, bs = 'cr') +
               s(temp, bs = 'cr'),
             family=betar(link="logit"),
             method = 'REML', select = T, data = dat)
+
 ```
 
 ```{r}
@@ -348,6 +415,8 @@ mod11 <- gam(weight ~ eof2.b + eof3.b + eof4.b + eof5.b + eof6.b +
 gam.check(mod11)
 tidy(mod11)
 glance(mod11)
+plot(mod11, pages = 1, scale = -1)
+summary(mod11)
 ```
 should eliminate size and elev
 
@@ -366,5 +435,48 @@ hist(dat$elev %>% log)
 hist(dat$prcp %>% log)
 hist(dat$eof2 %>% log)
 hist(dat$temp %>% log)
+hist(dat$lcp)
 ```
 
+```{r}
+mod12 <- gam(weight ~ eof2.b +
+              s(lcp, bs = 'cr') +
+              s(elev, bs = 'cr') +
+              s(prcp, bs = 'cr') +
+              s(temp, bs = 'cr') +
+              s(eof2, bs = 'cr') + 
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr') + 
+              s(eof5, bs = 'cr') + 
+              s(eof6, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+plot(mod12, pages = 1)
+glance(mod12)
+summary(mod12)
+```
+remove factor
+```{r}
+mod13 <- gam(weight ~ s(lcp, bs = 'cr') +
+              s(elev, bs = 'cr') +
+              s(prcp, bs = 'cr') +
+              s(temp, bs = 'cr') +
+              s(eof2, bs = 'cr') + 
+              s(eof3, bs = 'cr') + 
+              s(eof4, bs = 'cr') + 
+              s(eof5, bs = 'cr') + 
+              s(eof6, bs = 'cr'),
+            family=betar(link="logit"),
+            method = 'REML', select = T, data = dat)
+```
+
+```{r}
+glance(mod13)
+plot(mod12, pages = 1)
+```
+
+
+     
+     
+     
+     
