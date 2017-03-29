@@ -421,7 +421,7 @@ Now plot the networks.
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\NormalTok{e1 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1200, ad1200, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) +}\StringTok{ }\KeywordTok{geom_label}\NormalTok{(}\DataTypeTok{x =} \NormalTok{-}\DecValTok{106}\NormalTok{, }\DataTypeTok{y =} \DecValTok{35}\NormalTok{, }\DataTypeTok{label =} \StringTok{'AD 1200'}\NormalTok{)}
+\NormalTok{e1 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1200, ad1200, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) }\CommentTok{#+ geom_label(x = -106, y = 35, label = 'AD 1200')}
 
   
 \NormalTok{eof1250 <-}\StringTok{ }\KeywordTok{brick}\NormalTok{(}\StringTok{'Data/eof1250.nc'}\NormalTok{)[[}\DecValTok{3}\NormalTok{]] %>%}
@@ -429,25 +429,25 @@ Now plot the networks.
 \StringTok{    }\NormalTok{plotEOF}
 
 
-\NormalTok{e2 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1250, ad1250, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) +}\StringTok{  }\KeywordTok{geom_label}\NormalTok{(}\DataTypeTok{x =} \NormalTok{-}\DecValTok{106}\NormalTok{, }\DataTypeTok{y =} \DecValTok{35}\NormalTok{, }\DataTypeTok{label =} \StringTok{'AD 1250'}\NormalTok{)}
+\NormalTok{e2 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1250, ad1250, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) }\CommentTok{#+  geom_label(x = -106, y = 35, label = 'AD 1250')}
 
 \NormalTok{eof1300 <-}\StringTok{ }\KeywordTok{brick}\NormalTok{(}\StringTok{'Data/eof1300.nc'}\NormalTok{)[[}\DecValTok{3}\NormalTok{]] %>%}
 \StringTok{  }\KeywordTok{mask}\NormalTok{(states.ply) %>%}
 \StringTok{    }\NormalTok{plotEOF}
 
-\NormalTok{e3 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1300, ad1300, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) +}\StringTok{ }\KeywordTok{geom_label}\NormalTok{(}\DataTypeTok{x =} \NormalTok{-}\DecValTok{106}\NormalTok{, }\DataTypeTok{y =} \DecValTok{35}\NormalTok{, }\DataTypeTok{label =} \StringTok{'AD 1300'}\NormalTok{)}
+\NormalTok{e3 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1300, ad1300, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{))}\CommentTok{# + geom_label(x = -106, y = 35, label = 'AD 1300')}
 
 \NormalTok{eof1350 <-}\StringTok{ }\KeywordTok{brick}\NormalTok{(}\StringTok{'Data/eof1350.nc'}\NormalTok{)[[}\DecValTok{3}\NormalTok{]] %>%}
 \StringTok{  }\KeywordTok{mask}\NormalTok{(states.ply) %>%}
 \StringTok{    }\NormalTok{plotEOF}
 
-\NormalTok{e4 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1350, ad1350, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) +}\StringTok{ }\KeywordTok{geom_label}\NormalTok{(}\DataTypeTok{x =} \NormalTok{-}\DecValTok{106}\NormalTok{, }\DataTypeTok{y =} \DecValTok{35}\NormalTok{, }\DataTypeTok{label =} \StringTok{'AD 1350'}\NormalTok{)}
+\NormalTok{e4 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1350, ad1350, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) }\CommentTok{#+ geom_label(x = -106, y = 35, label = 'AD 1350')}
 
 \NormalTok{eof1400 <-}\StringTok{ }\KeywordTok{brick}\NormalTok{(}\StringTok{'Data/eof1400.nc'}\NormalTok{)[[}\DecValTok{3}\NormalTok{]] %>%}
 \StringTok{  }\KeywordTok{mask}\NormalTok{(states.ply) %>%}
 \StringTok{    }\NormalTok{plotEOF}
 
-\NormalTok{e5 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1400, ad1400, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) +}\StringTok{ }\KeywordTok{geom_label}\NormalTok{(}\DataTypeTok{x =} \NormalTok{-}\DecValTok{106}\NormalTok{, }\DataTypeTok{y =} \DecValTok{35}\NormalTok{, }\DataTypeTok{label =} \StringTok{'AD 1400'}\NormalTok{)}
+\NormalTok{e5 <-}\StringTok{ }\KeywordTok{ggnetworkmap}\NormalTok{(eof1400, ad1400, }\DataTypeTok{great.circles =} \NormalTok{T, }\DataTypeTok{size =} \NormalTok{.}\DecValTok{5}\NormalTok{, }\DataTypeTok{segment.alpha =} \KeywordTok{I}\NormalTok{(.}\DecValTok{5}\NormalTok{)) }\CommentTok{#+ geom_label(x = -106, y = 35, label = 'AD 1400')}
 \end{Highlighting}
 \end{Shaded}
 
@@ -455,7 +455,8 @@ Get basemap for elevation.
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\KeywordTok{multiplot}\NormalTok{(n1, n2, n3, n4, }\DataTypeTok{layout =} \KeywordTok{matrix}\NormalTok{(}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{,}\DecValTok{2}\NormalTok{,}\DecValTok{3}\NormalTok{,}\DecValTok{4}\NormalTok{), }\DataTypeTok{byrow =} \NormalTok{T, }\DataTypeTok{nrow =} \DecValTok{2}\NormalTok{))}
+\CommentTok{#multiplot(n1, n2, n3, n4, layout = matrix(c(1,2,3,4), byrow = T, nrow = 2))}
+\KeywordTok{multiplot}\NormalTok{(e1, e2, e3, e4, }\DataTypeTok{layout =} \KeywordTok{matrix}\NormalTok{(}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{,}\DecValTok{2}\NormalTok{,}\DecValTok{3}\NormalTok{,}\DecValTok{4}\NormalTok{), }\DataTypeTok{byrow =} \NormalTok{T, }\DataTypeTok{nrow =} \DecValTok{2}\NormalTok{))}
 \end{Highlighting}
 \end{Shaded}
 
@@ -463,18 +464,37 @@ Get basemap for elevation.
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\KeywordTok{multiplot}\NormalTok{(e1, e2, e3, e4, }\DataTypeTok{layout =} \KeywordTok{matrix}\NormalTok{(}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{,}\DecValTok{2}\NormalTok{,}\DecValTok{3}\NormalTok{,}\DecValTok{4}\NormalTok{), }\DataTypeTok{byrow =} \NormalTok{T, }\DataTypeTok{nrow =} \DecValTok{2}\NormalTok{))}
-\end{Highlighting}
-\end{Shaded}
-
-\includegraphics{network_files/figure-latex/unnamed-chunk-10-2.pdf}
-
-\begin{Shaded}
-\begin{Highlighting}[]
 \CommentTok{#multiplot(n1, n2, n3, n4, n5, m1, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))}
 \CommentTok{#multiplot(e1, e2, e3, e4, e5, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))}
 \end{Highlighting}
 \end{Shaded}
+
+eof1200 \textless{}- brick(`Data/eof1200.nc'){[}{[}4{]}{]}
+\%\textgreater{}\% mask(states.ply) \%\textgreater{}\% plotEOF
+
+e1 \textless{}- ggnetworkmap(eof1200, ad1200, great.circles = T, size =
+.5, segment.alpha = I(.5)) + geom\_label(x = -106, y = 35, label = `AD
+1200')
+
+eof1250 \textless{}- brick(`Data/eof1250.nc'){[}{[}4{]}{]}
+\%\textgreater{}\% mask(states.ply) \%\textgreater{}\% plotEOF
+
+e2 \textless{}- ggnetworkmap(eof1250, ad1250, great.circles = T, size =
+.5, segment.alpha = I(.5)) + geom\_label(x = -106, y = 35, label = `AD
+1250')
+
+eof1300 \textless{}- brick(`Data/eof1300.nc'){[}{[}4{]}{]}
+\%\textgreater{}\% mask(states.ply) \%\textgreater{}\% plotEOF
+
+e3 \textless{}- ggnetworkmap(eof1300, ad1300, great.circles = T, size =
+.5, segment.alpha = I(.5)) + geom\_label(x = -106, y = 35, label = `AD
+1300')
+
+eof1350 \textless{}- brick(`Data/eof1350.nc'){[}{[}4{]}{]}
+\%\textgreater{}\% mask(states.ply) \%\textgreater{}\% plotEOF
+
+multiplot(e1, e2, e3, e4, layout = matrix(c(1,2,3,4), byrow = T, nrow =
+2))
 
 
 \end{document}
