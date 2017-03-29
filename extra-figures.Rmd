@@ -56,5 +56,146 @@ names(eof.all) <- c('EOF1', 'EOF2', 'EOF3', 'EOF4', 'EOF5', 'EOF6')
 levelplot(eof.all, par.settings = RdBuTheme(axis.line = list(col = "transparent")), xlab=NULL, ylab=NULL, scales=list(draw=FALSE), at = seq(-.029,.029,.0029), layout = c(3,2)) +
   layer(sp.polygons(states.ply))
 ```
+```{r}
+library(tidyverse)
+library(igraph)
+library(ggraph)
+
+```
+
+```{r}
+net.in <- read.csv("Data/AD1200sim.csv", row.names = 1, check.names = F) 
+net.in[net.in < .9] <- 0
+net.in <- net.in %>% 
+    as.matrix %>%
+    graph_from_adjacency_matrix(mode = 'undirected', weighted = T, diag = F)
+
+V(net.in)$deg <-igraph::degree(net.in)
+logit<-function(x) log(x/(1-x))
+E(net.in)$weight.l <- logit(E(net.in)$weight)
+```
+```{r}
+
+```
+```{r}
+library(ggraph)
+ggraph(net.in, 'circle') +
+  geom_edge_link(aes(color = log(weight, alpha = weight)) +
+  #geom_node_point(aes(size = deg)) +
+  scale_edge_color_distiller(palette = 'YlOrRd', guide = 'legend') +
+  scale_edge_alpha(guide = 'none')+
+coord_fixed()+
+theme_void()
+  
+
+ggraph(net.in, 'circle') +
+  geom_edge_link(aes(color = weight, alpha = weight)) +
+  #geom_node_point(aes(size = deg)) +
+  scale_edge_color_viridis(guide = 'legend') +
+  scale_edge_alpha(guide = 'none')+
+coord_fixed()+
+theme_void()
+```
+
+```{r}
+library(mgcv)
+dat.new <- dat %>% mutate(lcp = mean(lcp))
+preds <- predict(mod5, dat.new, type = 'response', exclude = 'lcp', newdata.guaranteed = T)
+
+```
+
+```{r}
+swsn.pts <- read_csv('Data/attributes_orig.csv') %>% 
+  select(easting = EASTING, northing = NORTHING) %>%
+  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=WGS84")) %>%
+  spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
+  coordinates %>%
+  data.frame
+
+swsn.attr <- read_csv('Data/attributes_orig.csv') %>%
+  dplyr::select(ID = SWSN_ID, site = SWSN_Site, macro = Macro, micro = Micro, size = P1room) %>%
+  cbind(swsn.pts)
+
+readSWSN <- function(net){
+  net.in <- read.csv(net, row.names = 1, check.names = F) %>% 
+    as.matrix %>%
+    graph_from_adjacency_matrix(mode = 'undirected', weighted = T, diag = F)
+  
+  ord <- match(V(net.in)$name, swsn.attr$site)
+
+  V(net.in)$lon <- swsn.attr[ord, 6]
+  V(net.in)$lat <- swsn.attr[ord, 7]
+  V(net.in)$size <- swsn.attr[ord, 5]
+  V(net.in)$region <- swsn.attr[ord, 3] %>% as.character
+  
+  return(net.in)
+}
+
+ad1200 <- readSWSN('Data/AD1200sim.csv')
+ad1250 <- readSWSN('Data/AD1250sim.csv')
+ad1300 <- readSWSN('Data/AD1300sim.csv')
+ad1350 <- readSWSN('Data/AD1350sim.csv')
+ad1400 <- readSWSN('Data/AD1400sim.csv')
+```
+
+```{r}
+ad1200.t=igraph::delete.edges(ad1200, which(E(ad1200)$weight <=.75)) %>% igraph::delete.vertices(which(degree(.)<1))
+E(ad1200)$weight <- c(preds)
+E(ad1200)$weight[E(ad1200)$weight < .5] <- 0
+ggraph(ad1200) +
+  geom_edge_link() +
+  geom_node_point(aes(color = region))
+```
+
+```{r}
+library(GGally)
+library(ggmap)
+library(maps)
+library(raster)
+library(maptools)
+
+states <- map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
+IDs <- sapply(strsplit(states$names, ":"), function(x) x[1])
+states.ply <- map2SpatialPolygons(states, IDs=IDs)
+
+plotEOF <- function(x){
+  rasterVis::gplot(x) +
+  geom_raster(aes(fill = value), na.rm = T, show.legend = F) +
+  scale_fill_distiller(palette = 'RdBu', na.value = NA, limits = c(-.3,.3)) +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  theme_minimal() +
+  labs(x = "Longitude", y = "Latitude")
+}
+
+eof1200 <- brick('Data/eof1200.nc')[[3]] %>%
+  mask(states.ply) %>% 
+  plotEOF
+  
+
+e1 <- ggnetworkmap(eof1200, ad1200.t, great.circles = T, size = .5, segment.alpha = I(.5)) + geom_label(x = -106, y = 35, label = 'AD 1200')
+e1
+  
+eof1250 <- brick('Data/eof1250.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+
+e2 <- ggnetworkmap(eof1250, ad1250, great.circles = T, size = .5, segment.alpha = I(.5)) +  geom_label(x = -106, y = 35, label = 'AD 1250')
+
+eof1300 <- brick('Data/eof1300.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+e3 <- ggnetworkmap(eof1300, ad1300, great.circles = T, size = .5, segment.alpha = I(.5)) + geom_label(x = -106, y = 35, label = 'AD 1300')
+
+eof1350 <- brick('Data/eof1350.nc')[[3]] %>%
+  mask(states.ply) %>%
+    plotEOF
+
+e4 <- ggnetworkmap(eof1350, ad1350, great.circles = T, size = .5, segment.alpha = I(.5)) + geom_label(x = -106, y = 35, label = 'AD 1350')
+
+```
+
 
 
