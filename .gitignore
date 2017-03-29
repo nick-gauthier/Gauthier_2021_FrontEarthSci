@@ -5,3 +5,7 @@
 Data/
 USA*
 *cache*
+
+*.html
+
+*.pdf
