@@ -78,6 +78,11 @@ levelplot(prec.tps[[1:4]])
 levelplot(prec[[1:4]])
 ```
 
+```{r}
+prec.tps <- brick('Data/prec-sw.nc')
+trefmnav.tps <- brick('Data/trefmnav-sw.nc')
+trefmxav.tps <- brick('Data/trefmxav-sw.nc')
+```
 
 ```{r times}
 times <- prec %>% 
@@ -104,17 +109,26 @@ tmean.val <- getValues((trefmnav.tps + trefmxav.tps)/ 2) %>% t
 #pet <- hargreaves(tmin.val, tmax.val, lat = lats, Pre =  prcp.val, na.rm = T) %>% as.data.frame
 pet <- thornthwaite(tmean.val, lats) %>% as.data.frame
 pet.map <- setValues(prec.tps, t(pet))
-levelplot(pet.map[[2]], margin = F)
+levelplot(pet.map[[1:12]], margin = F, par.settings = PuOrTheme())
 ```
 
 ```{r}
 water.stress <- prcp.val - pet
 
 ws.map <- setValues(prec.tps, t(water.stress))
-levelplot(ws.map[[1:6]])
-spei.fit <- spei(water.stress, scale = 12)
-spei.rast <- setValues(prec.tps, t(spei.fit$fitted))[[13:3012]]
+levelplot(ws.map[[1:12]], par.settings = PuOrTheme(), names.attr = month.name)
+#writeRaster(ws.map, 'Data/water_stress.nc')
 
+spei.fit <- spei(water.stress, scale = 12)
+
+spei.fit$fitted[13:313,5] %>% plot
+spei.rast <- setValues(prec.tps, t(spei.fit$fitted))[[13:3012]]
+qplot(seq(1200, 1450 - (1/12), 1/12), spei.fit$fitted[13:3012,100],color = spei.fit$fitted[13:3012,100], size = I(1.5), geom = 'line') +
+  geom_smooth(aes(color = spei.fit$fitted[13:3012,100])) +
+  scale_color_distiller(palette = 'RdBu', guide = 'legend', direction = 1, breaks = -3:3, limits = c(-3,3)) +
+  theme_minimal()
+
+length(seq(1200, 1459, 1/12))
 levelplot(spei.rast[[1:6]], par.settings = RdBuTheme())
 ```
 
@@ -127,7 +141,7 @@ stfdf <- spei.rast %>% setZ(times[13:3012]) %>% as('STFDF')
 ## attempt to compute EOFs
 eof_space <- eof(stfdf, 'spatial') %>% brick
 eof_time <- eof(stfdf, 'temporal')
-eof(stfdf, 'spatial', returnEOFs = F) %T>% screeplot()
+scree <- eof(stfdf, 'spatial', returnEOFs = F) %T>% screeplot()
 ```
 
 ```{r}
