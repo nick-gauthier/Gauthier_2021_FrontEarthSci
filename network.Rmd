@@ -19,6 +19,10 @@ library(tidyverse)
 library(rgdal)
 library(igraph)
 library(ggraph)
+library(maps)
+library(maptools)
+library(raster)
+library(rasterVis)
 ```
 
 Import the SWSN attribute file and reproject the UTM coordinates to Lat-Lon.
@@ -26,21 +30,17 @@ Import the SWSN attribute file and reproject the UTM coordinates to Lat-Lon.
 swsn.attr <- read_csv('Data/attributes_orig.csv') %>%
   select(-1) # drop ID column
 
-swsn.attr <-  swsn.attr %>% 
+swsn.pts <-  swsn.attr %>% 
   select(x = EASTING, y = NORTHING) %>%
   SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=WGS84")) %>%
   spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
   coordinates %>%
-  data.frame %>%
-  cbind(swsn.attr, .)
-
-glimpse(swsn.attr)
+  data.frame
 ```
 
 
 Now define a function to import the SWSN adjacency matrix for a given time step. This function imports the adjacency matrix, keeps only those connections with >= 75% similarity, and creates an igraph object. Then it adds attribute data from above to the graph object.
 ```{r message = F}
-  # we use a hack here to set the vertex attributes. need to find if there's another way to easily add a whole dataframe of vertex attributes using something other than graph_from_data_frame's vertices arguement
 readSWSN <- function(net){
   read.csv(net, row.names = 1, check.names = F)  %>%
     as.matrix %>%
@@ -53,21 +53,54 @@ readSWSN <- function(net){
 Use the function to import the network datasets.
 ```{r}
 ad1200 <- readSWSN('Data/AD1200sim.csv')
-ad1250 <- readSWSN('Data/AD1250sim.csv')
-ad1300 <- readSWSN('Data/AD1300sim.csv')
-ad1350 <- readSWSN('Data/AD1350sim.csv')
-ad1400 <- readSWSN('Data/AD1400sim.csv')
 ```
 
 ## some network plots
 
 ```{r}
-ggraph(ad1200, 'manual', node.positions = swsn.attr) +
+ad1200 %>% 
+  delete_edges(E(ad1200)[E(ad1200)$weight < .75]) %>%
+  ggraph('manual', node.positions = swsn.pts) +
   geom_edge_link(aes(alpha = weight, color = weight)) +
-  geom_node_point() +
+  geom_node_point(aes(size = P1room)) +
+  scale_size_area() +
   scale_edge_color_viridis() +
-  coord_fixed()+
+  scale_edge_alpha() +
+  coord_quickmap()+
   theme_void()
+```
+
+```{r}
+states <- map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
+IDs <- sapply(strsplit(states$names, ":"), function(x) x[1])
+states.ply <- map2SpatialPolygons(states, IDs=IDs)
+```
+
+```{r}
+test.plot <- ad1200 %>% 
+  delete_edges(E(ad1200)[E(ad1200)$weight < .75]) %>%
+  ggraph('manual', node.positions = swsn.pts) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = 'white') +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point(aes(size = P1room)) +
+  scale_size_area() +
+  scale_edge_color_viridis() +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1200') +
+  coord_quickmap() +
+  theme_void()
+
+test.plot
+```
+
+Now try adding the EOF
+```{r}
+eof1200 <- brick('Data/eof1200.nc')[[3]] %>% mask(states.ply)
+eof.dat <- data_frame(x = init(eof1200, 'x') %>% mask(states.ply)%>% getValues,
+                      y = init(eof1200, 'y') %>% %>% mask(states.ply)getValues,
+                      z = getValues(eof1200))
+
+test.plot + geom_raster(aes(x = x, y = y, fill = z), data = eof.dat, na.rm = T, show.legend = F)
 ```
 
 
@@ -77,35 +110,7 @@ ggraph(ad1200, 'manual', node.positions = swsn.attr) +
 ```{r}
 library(GGally)
 library(ggmap)
-library(maps)
 library(raster)
-library(maptools)
-
-states <- map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
-IDs <- sapply(strsplit(states$names, ":"), function(x) x[1])
-states.ply <- map2SpatialPolygons(states, IDs=IDs)
-
-
-plotBase <- ggplot(data = states) +
-  geom_polygon(aes(x = long, y = lat, group = region), color = 'black', fill = 'white') +
-  coord_quickmap() +
-  theme_minimal() +
-  labs(x = "Longitude", y = "Latitude")
-
-n1 <- ggnetworkmap(plotBase, ad1200, great.circles = T, size = .5, segment.alpha = I(.5)) +
-  geom_label(x = -106, y = 35, label = 'AD 1200')
-
-n2 <- ggnetworkmap(plotBase, ad1250, great.circles = T, size = .5, segment.alpha = I(.5)) +
-  geom_label(x = -106, y = 35, label = 'AD 1250')
-
-n3 <- ggnetworkmap(plotBase, ad1300, great.circles = T, size = .5, segment.alpha = I(.5)) +
-  geom_label(x = -106, y = 35, label = 'AD 1300')
-
-n4 <- ggnetworkmap(plotBase, ad1350, great.circles = T, size = .5, segment.alpha = I(.5)) +
-  geom_label(x = -106, y = 35, label = 'AD 1350')
-
-n5 <- ggnetworkmap(plotBase, ad1400, great.circles = T, size = .5, segment.alpha = I(.5)) +
-  geom_label(x = -106, y = 35, label = 'AD 1400')
 
 
 plotEOF <- function(x){
@@ -119,49 +124,5 @@ plotEOF <- function(x){
   labs(x = "Longitude", y = "Latitude")
 }
 
-eof1200 <- brick('Data/eof1200.nc')[[3]] %>% plotEOF
-eof1250 <- brick('Data/eof1250.nc')[[3]] %>% plotEOF
-eof1300 <- brick('Data/eof1300.nc')[[3]] %>% plotEOF
-eof1350 <- brick('Data/eof1350.nc')[[3]] %>% plotEOF
-eof1400 <- brick('Data/eof1400.nc')[[3]] %>% plotEOF
-
-e1 <- ggnetworkmap(eof1200, ad1200, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1200')
-e2 <- ggnetworkmap(eof1250, ad1250, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1250')
-e3 <- ggnetworkmap(eof1300, ad1300, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1300')
-e4 <- ggnetworkmap(eof1350, ad1350, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1350')
-e5 <- ggnetworkmap(eof1400, ad1400, great.circles = T, size = .5, segment.alpha = I(.5)) #+ geom_label(x = -106, y = 35, label = 'AD 1400')
 ```
 
-```{r, include=FALSE}
-multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
-  library(grid)
-  plots <- c(list(...), plotlist)
-  numPlots = length(plots)
-  if (is.null(layout)) {
-    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
-                    ncol = cols, nrow = ceiling(numPlots/cols))
-  }
-
- if (numPlots==1) {
-    print(plots[[1]])
-
-  } else {
-    grid.newpage()
-    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
-    for (i in 1:numPlots) {
-      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
-      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
-                                      layout.pos.col = matchidx$col))
-    }
-  }
-}
-```
-
-```{r}
-multiplot(n1, n2, n3, n4, layout = matrix(c(1,2,3,4), byrow = T, nrow = 2))
-multiplot(e1, e2, e3, e4, layout = matrix(c(1,2,3,4), byrow = T, nrow = 2))
-
-#multiplot(n1, n2, n3, n4, n5, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
-#multiplot(e1, e2, e3, e4, e5, layout = matrix(c(1,2,3,4,5,6), byrow = T, nrow = 3))
-
-```
