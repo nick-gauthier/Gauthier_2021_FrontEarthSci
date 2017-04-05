@@ -22,7 +22,6 @@ library(ggraph)
 library(maps)
 library(maptools)
 library(raster)
-library(rasterVis)
 ```
 
 Import the SWSN attribute file and reproject the UTM coordinates to Lat-Lon.
@@ -64,9 +63,9 @@ ad1200 %>%
   geom_edge_link(aes(alpha = weight, color = weight)) +
   geom_node_point(aes(size = P1room)) +
   scale_size_area() +
-  scale_edge_color_viridis() +
+  scale_edge_colour_viridis() +
   scale_edge_alpha() +
-  coord_quickmap()+
+  coord_quickmap() +
   theme_void()
 ```
 
@@ -77,30 +76,135 @@ states.ply <- map2SpatialPolygons(states, IDs=IDs)
 ```
 
 ```{r}
-test.plot <- ad1200 %>% 
-  delete_edges(E(ad1200)[E(ad1200)$weight < .75]) %>%
-  ggraph('manual', node.positions = swsn.pts) +
-  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = 'white') +
+swsn.layout <- ad1200 %>% 
+  delete_edges(E(ad1200)[E(ad1200)$weight < .5]) %>%
+  create_layout('manual', node.positions = swsn.pts) 
+```
+
+```{r}
+ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
   geom_edge_link(aes(alpha = weight, color = weight)) +
   geom_node_point(aes(size = P1room)) +
   scale_size_area() +
-  scale_edge_color_viridis() +
+  #scale_edge_color_viridis() +
+  scale_edge_color_distiller() +
   scale_edge_alpha() +
   geom_label(x = -106, y = 35, label = 'AD 1200') +
   coord_quickmap() +
-  theme_void()
+  theme_void() +
+  theme(legend.position="none")
+```
 
-test.plot
+now without pointsizing
+```{r}
+ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point() +
+  #scale_edge_color_viridis() +
+  scale_edge_color_distiller() +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1200') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+```
+Now without any points
+```{r}
+ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  #scale_edge_color_viridis() +
+  scale_edge_color_distiller() +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1200') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+```
+log transform the colors
+```{r}
+ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  #scale_edge_color_viridis() +
+  scale_edge_color_distiller() +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1200') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+```
+
+```{r}
+library(RColorBrewer)
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))((swsn.layout$Macro %>% unique %>% length))
+
+ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_bin2d(aes(x = x, y = y, fill = Macro), na.rm=TRUE) +
+  scale_fill_manual(values = getPalette) +
+  geom_label(x = -106, y = 35, label = 'AD 1200') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+```
+
+## LEast cost distances
+LCP distance matrix
+```{r}
+library(gdistance)
+```
+
+```{r}
+elev.agg <- raster('~/Data/NED/swsn_NED_1.tif') %>% aggregate(fact = 10)
+plot(elev.agg)
+```
+
+```{r}
+altDiff <- function(x){x[2] - x[1]}
+hd <- transition(elev.agg, altDiff, 8, symm=FALSE)
+slope <- geoCorrection(hd, type = 'c')
+
+adj <- adjacent(elev.agg, cells=1:ncell(elev.agg), pairs=TRUE, directions=8)
+speed <- slope
+speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
+Conductance <- geoCorrection(speed, type = 'c')
+rm(slope, hd, adj, speed, elev.agg)
+
+
+lcp <- costDistance(Conductance, swsn.pts)
+#lcp2 <- costDistance(Conductance, cbind(dat$to_lon, dat$to_lat), cbind(dat$from_lon, dat$from_lat)) %>% diag
+#dat$lcp <- (lcp1 + lcp2) / 3600
 ```
 
 Now try adding the EOF
 ```{r}
-eof1200 <- brick('Data/eof1200.nc')[[3]] %>% mask(states.ply)
-eof.dat <- data_frame(x = init(eof1200, 'x') %>% mask(states.ply)%>% getValues,
-                      y = init(eof1200, 'y') %>% %>% mask(states.ply)getValues,
-                      z = getValues(eof1200))
+eof.dat <- brick('Data/eof1200.nc')[[3]] %>% 
+  mask(states.ply) %>%
+  as.data.frame(xy = T, na.rm = T) %>%
+  mutate(value = cut(X3, breaks=seq(-max(abs(X3)), max(abs(X3)), length.out=11)))
 
-test.plot + geom_raster(aes(x = x, y = y, fill = z), data = eof.dat, na.rm = T, show.legend = F)
+qplot(x, y, fill = value, dat = eof.dat, geom = 'raster') +
+  scale_fill_brewer(palette = 'RdBu')
+
+ggraph(swsn.layout) +
+  geom_raster(aes(fill = value), data = eof.dat) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point() +
+    scale_fill_brewer(palette = 'RdBu') +
+  #scale_edge_color_viridis() +
+  scale_edge_color_distiller() +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1200') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none") 
+
+
+
 ```
 
 
