@@ -22,6 +22,7 @@ library(ggraph)
 library(maps)
 library(maptools)
 library(raster)
+library(gdistance)
 ```
 
 Import the SWSN attribute file and reproject the UTM coordinates to Lat-Lon.
@@ -151,11 +152,8 @@ ggraph(swsn.layout) +
   theme(legend.position="none")
 ```
 
-## LEast cost distances
+## Least cost distances
 LCP distance matrix
-```{r}
-library(gdistance)
-```
 
 ```{r}
 elev.agg <- raster('~/Data/NED/swsn_NED_1.tif') %>% aggregate(fact = 10)
@@ -174,10 +172,30 @@ Conductance <- geoCorrection(speed, type = 'c')
 rm(slope, hd, adj, speed, elev.agg)
 
 
-lcp <- costDistance(Conductance, swsn.pts)
-#lcp2 <- costDistance(Conductance, cbind(dat$to_lon, dat$to_lat), cbind(dat$from_lon, dat$from_lat)) %>% diag
-#dat$lcp <- (lcp1 + lcp2) / 3600
+lcp <- costDistance(Conductance, as.matrix(swsn.pts)) %>%
+  ./3600 %>%
+  graph_from_adjacency_matrix(mode = 'directed', weighted = T, diag = F) %>%
+  set_vertex_attr(name, V(ad1200$name))
+
+swsn.lcp.layout <- lcp %>% 
+  induced_subgraph(as_ids(V(delete_vertices(ad1200, degree(ad1200) == 0)))) %>%
+  delete_edges(E(.)[E(.)$weight > 5]) %>%
+  #set_vertex_attr('eigen.c', value = eigen_centrality(.)) %>%
+  create_layout('manual', node.positions = swsn.pts[match(V(test)$name, swsn.attr$SWSN_Site),]) 
 ```
+
+```{r}
+ggraph(swsn.lcp.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_label(x = -106, y = 35, label = 'AD 1200') +
+  geom_edge_link(alpha = .1) +
+  geom_node_point(color = 'red') +
+  scale_size_area() +
+  coord_quickmap() +
+  theme_void()
+```
+
+
 
 Now try adding the EOF
 ```{r}
