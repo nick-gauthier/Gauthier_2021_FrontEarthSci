@@ -15,13 +15,13 @@ First import the SWSN attribute file. Use tidyverse packages for data munging.
 
 Site coordinates are in UTM, so first use rgdal to reproject to LatLon.
 ```{r message = F, warning = F}
-library(tidyverse)
 library(rgdal)
-library(igraph)
-library(ggraph)
 library(maps)
 library(maptools)
 library(raster)
+library(tidyverse)
+library(igraph)
+library(ggraph)
 library(gdistance)
 ```
 
@@ -58,44 +58,146 @@ ad1200 <- readSWSN('Data/AD1200sim.csv')
 ## some network plots
 
 ```{r}
+library(viridis)
 ad1200 %>% 
   delete_edges(E(ad1200)[E(ad1200)$weight < .75]) %>%
   ggraph('manual', node.positions = swsn.pts) +
   geom_edge_link(aes(alpha = weight, color = weight)) +
   geom_node_point(aes(size = P1room)) +
   scale_size_area() +
-  scale_edge_colour_viridis() +
+  scale_edge_colour_gradientn(colors = viridis(n = 10)) +
   scale_edge_alpha() +
   coord_quickmap() +
   theme_void()
 ```
 
 ```{r}
-states <- map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
+states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
 IDs <- sapply(strsplit(states$names, ":"), function(x) x[1])
 states.ply <- map2SpatialPolygons(states, IDs=IDs)
 ```
 
 ```{r}
 swsn.layout <- ad1200 %>% 
-  delete_edges(E(ad1200)[E(ad1200)$weight < .5]) %>%
+ delete_edges(E(ad1200)[E(ad1200)$weight < .5]) %>%
   create_layout('manual', node.positions = swsn.pts) 
-```
 
-```{r}
 ggraph(swsn.layout) +
   geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
   geom_edge_link(aes(alpha = weight, color = weight)) +
   geom_node_point(aes(size = P1room)) +
   scale_size_area() +
-  #scale_edge_color_viridis() +
-  scale_edge_color_distiller() +
+  scale_edge_colour_gradientn(colors = viridis(n = 10)) +
   scale_edge_alpha() +
   geom_label(x = -106, y = 35, label = 'AD 1200') +
   coord_quickmap() +
   theme_void() +
   theme(legend.position="none")
+
+ggsave('ad1200.png', width = 8)
 ```
+```{r}
+ad1250 <- readSWSN('Data/AD1250sim.csv')
+ad1300 <- readSWSN('Data/AD1300sim.csv')
+ad1350 <- readSWSN('Data/AD1350sim.csv')
+ad1400 <- readSWSN('Data/AD1400sim.csv')
+```
+
+```{r}
+library(GGally)
+swsn.layout <- ad1200 %>% 
+ delete_edges(E(ad1200)[E(ad1200)$weight < .5]) %>%
+  create_layout('manual', node.positions = swsn.pts) 
+
+n1 <- ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point(aes(size = P1room)) +
+  scale_size_area() +
+  scale_edge_colour_gradientn(colors = viridis(n = 10)) +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1200') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+
+ggsave('ad1200.png', n1, width = 8)
+
+swsn.layout <- ad1250 %>% 
+ delete_edges(E(ad1250)[E(ad1250)$weight < .5]) %>%
+  create_layout('manual', node.positions = swsn.pts) 
+
+n2 <- ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point(aes(size = P2room)) +
+  scale_size_area() +
+  scale_edge_colour_gradientn(colors = viridis(n = 10)) +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1250') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+ggsave('ad1250.png', n2, width = 8)
+
+swsn.layout <- ad1300 %>% 
+ delete_edges(E(ad1300)[E(ad1300)$weight < .5]) %>%
+  create_layout('manual', node.positions = swsn.pts) 
+
+n3 <- ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point(aes(size = P3room)) +
+  scale_size_area() +
+  scale_edge_colour_gradientn(colors = viridis(n = 10)) +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1300') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+ggsave('ad1300.png', n3, width = 8)
+
+swsn.layout <- ad1350 %>% 
+ delete_edges(E(ad1350)[E(ad1350)$weight < .5]) %>%
+  create_layout('manual', node.positions = swsn.pts) 
+
+n4 <- ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point(aes(size = P4room)) +
+  scale_size_area() +
+  scale_edge_colour_gradientn(colors = viridis(n = 10)) +
+  scale_edge_alpha() +
+  geom_label(x = -106, y = 35, label = 'AD 1350') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+ggsave('ad1350.png', n4, width = 8)
+
+swsn.layout <- ad1400 %>% 
+ delete_edges(E(ad1400)[E(ad1400)$weight < .5]) %>%
+  create_layout('manual', node.positions = swsn.pts) 
+
+n5 <- ggraph(swsn.layout) +
+  geom_polygon(aes(x = long, y = lat, group = region), data = states, color = 'black', fill = NA) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point(aes(size = P5room)) +
+  scale_size_area(name = 'Room count') +
+  scale_edge_colour_gradientn(name = 'Interaction strength', colors = viridis(n = 10), guide = 'legend') +
+  scale_edge_alpha(name = 'Interaction strength') +
+  geom_label(x = -106, y = 35, label = 'AD 1400') +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.box = "horizontal")
+ggsave('ad1400.png', n5, width = 8)
+
+leg <- grab_legend(n5)
+list(n1,n2,n3,n4,n5, leg) %>% 
+  ggmatrix(3, 2)
+
+ggsave('all_networks.png', width = 16)
+```
+
 
 now without pointsizing
 ```{r}
