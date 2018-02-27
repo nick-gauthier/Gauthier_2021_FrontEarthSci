@@ -1,0 +1,227 @@
+---
+title: "Spatial Interaction Modeling"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## setup
+Import required packages.
+```{r}
+library(raster)
+library(tidyverse)
+library(gdistance)
+library(tidygraph)
+library(ggraph)
+library(sp)
+library(geosphere)
+```
+
+## Data import and preprocessing
+Import the node and edge datasets.
+```{r}
+node_data <- read_csv('Data/attributes_orig.csv')
+
+swsn <- read.csv('Data/AD1200sim.csv', row.names = 1, check.names = F) %>% 
+  as.matrix %>%
+  as_tbl_graph(directed = T, diag = F) %>%
+  left_join(node_data, by = c('name' = 'SWSN_Site')) %>%
+  activate(edges) %>%
+  filter(!edge_is_loop()) %>%
+  activate(nodes)
+```
+
+
+```{r}
+pts <- swsn %>% 
+  select(x = EASTING, y = NORTHING) %>%
+  as_tibble %>%
+  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=NAD27")) %>%
+  spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
+  coordinates %>%
+  data.frame
+
+swsn <- swsn %>%
+  mutate(lon = pts$x, lat = pts$y)
+
+ggraph(swsn, 'manual', node.positions = pts) +
+  geom_edge_link(aes(alpha = weight, color = weight)) +
+  geom_node_point(aes(size = P1room)) +
+  scale_size_area() +
+  scale_edge_alpha() +
+  coord_quickmap() +
+  theme_graph()
+```
+calculate the geodesic distances between sites
+```{r}
+distances <- swsn %>%
+  activate(edges) %>%
+  mutate(distance = distGeo(matrix(c(.N()$lon[from], .N()$lat[from]), ncol = 2), 
+                            matrix(c(.N()$lon[to], .N()$lat[to]), ncol = 2)) / 1000) %>%
+  as_tibble %>%
+  filter(distance > 0)
+  
+ggplot(distances, aes(distance / 1000, weight)) + geom_point(alpha = .1) + geom_smooth()
+```
+
+```{r}
+bbox <- extent(c(-113.5, -106.5, 31, 37.5))
+elev <- raster('~/gdrive/Data/SRTM_1km.tif') %>%
+  crop(bbox)
+plot(elev)
+```
+
+```{r}
+altDiff <- function(x){x[2] - x[1]}
+hd <- transition(elev, altDiff, 16, symm=FALSE)
+cell.targets <- Which(!is.na(elev), cells = T)
+adj <- adjacent(elev, cells=cell.targets, target = cell.targets, pairs=TRUE, directions=16)
+```
+
+```{r lcp_conductance, cache = T}
+slope.c <- geoCorrection(hd, type = 'c')
+speed.c <- slope.c
+speed.c[adj] <- 6 * exp(-3.5 * abs(slope.c[adj] + 0.05))
+Conductance.c <- geoCorrection(speed.c, type = 'c')
+rm(slope.c, speed.c)
+plot(raster(Conductance.c))
+```
+
+```{r}
+acc <- accCost(Conductance.c, as.matrix(pts)) %>%
+  mask(elev)
+
+acc %>%
+  `/`(3600) %>%
+  as.data.frame(xy = T, na.rm = T) %>%
+ggplot(aes(x, y)) +
+  geom_tile(aes(fill = layer)) +
+  theme_void() +
+    geom_point(data = pts, aes(x, y)) +
+  scale_fill_viridis(direction = -1) +
+  coord_quickmap() +
+  theme(legend.position="none")
+```
+
+```{r}
+library(tidygraph)
+library(ggraph)
+swsn.dat <- as_tibble(swsn)
+dist.mat <- costDistance(Conductance.c, as.matrix(pts)) %>%
+  `/`(3600) %>%
+  as_tbl_graph(diagonal = F) %>%
+  mutate(name = swsn.dat$name, population = 1, attractiveness = 1, x = swsn.dat$lon, y = swsn.dat$lat, rooms = swsn.dat$P1room) %E>%
+  group_by(from) %>%
+  rename(distance = weight) %>%
+  ungroup
+
+
+interact <- function(net){
+  net %E>%
+    mutate(interaction_strength = .N()$attractiveness[to] ^ alpha * exp(-beta * distance))  %N>%
+    mutate(outflow = population / centrality_degree(weights = interaction_strength, mode = 'out', loops = F)) %E>%
+    mutate(flow = .N()$outflow[from] * interaction_strength) %N>%
+    mutate(inflow = centrality_degree(weights = flow, mode = 'in', loops = F)) %>%
+    mutate(attractiveness = attractiveness + .01 * (inflow  - attractiveness)) %>%
+    mutate(population = 97 * attractiveness / sum(attractiveness))
+}
+
+alpha <- 1.05
+beta <- .57
+
+net <- dist.mat
+for(i in 1:500){
+  net <- interact(net)
+}
+
+net %E>%
+ group_by(from) %>%
+  filter(flow == max(flow), .N()$population[from] < .N()$population[to]) %N>%
+  mutate(terminal = node_is_sink()) %>%
+ggraph(layout = 'manual', node.positions = as_tibble(activate(dist.mat, nodes))) +
+  geom_edge_link(alpha = .6) +
+  geom_node_point(aes(size = population, color = terminal)) +
+ # geom_node_label(aes(label = name)) +
+  scale_size_area() +
+  coord_quickmap() +
+  theme_void()
+```
+
+```{r}
+ggraph(net, layout = 'manual', node.positions = as_tibble(activate(dist.mat, nodes))) +
+  #geom_edge_link(alpha = .1) +
+  geom_node_point(aes(size = rooms / mean(rooms))) +
+  scale_size_area() +
+  coord_quickmap() +
+  theme_void()
+```
+```{r}
+weights <- swsn %E>%
+  as_tibble %>%
+  select(weight)
+net %E>%
+  as_tibble %>%
+ggplot(aes(distance, weights)) %>%
+  
+```
+
+```{r cache = T}
+costAll <- function(fromCoords, cost){
+  
+  aC <- elev
+  for(i in 1:dim(fromCoords)[1]) {aC <- stack(aC, accCost(cost, fromCoords[i,]))}
+  aC <- dropLayer(aC,1)
+  alC <- calc(aC, which.min)
+  return(alC)
+}
+
+#https://stat.ethz.ch/pipermail/r-sig-geo/2011-July/012208.html
+  
+cum.cost <- net %E>%
+ group_by(from) %>%
+  filter(flow == max(flow), .N()$population[from] < .N()$population[to]) %N>%
+  filter(node_is_sink()) %>%
+  as_tibble %>%
+  select(x, y) %>%
+  as.matrix %>%
+  costAll(Conductance.c) %>%
+  mask(elev) 
+```
+
+```{r}
+terminal <- net %E>%
+ group_by(from) %>%
+  filter(flow == max(flow), .N()$population[from] < .N()$population[to]) %>%
+    ungroup %N>%
+    mutate(terminal = group_components()) %>%
+  as_tibble %>%
+  select(terminal) %>%
+    cbind(1:279, .)
+
+test <- swsn %>%
+ select(lon, lat) %>%
+  as_tibble %>%
+  as.matrix %>%
+  costAll(Conductance.c) %>%
+  mask(srtm) %>%
+  reclassify(terminal) %>%
+  rasterToPolygons(dissolve = T) %>% 
+  fortify
+
+net %E>%
+ group_by(from) %>%
+  filter(flow == max(flow), .N()$population[from] < .N()$population[to]) %N>%
+  mutate(terminal = node_is_sink()) %>%
+ggraph(layout = 'manual', node.positions = as_tibble(activate(dist.mat, nodes))) +
+  geom_path(data = test, aes(long, lat, group = group), alpha = .1) +
+  geom_edge_link(alpha = .6) +
+  geom_node_point(aes(size = population, color = terminal)) +
+ # geom_node_label(aes(label = name)) +
+  scale_size_area() +
+  coord_quickmap() +
+  theme_void() +
+  theme(legend.position="none")
+
+```
