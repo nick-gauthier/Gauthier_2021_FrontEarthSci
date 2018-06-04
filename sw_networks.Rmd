@@ -1,0 +1,225 @@
+---
+title: "sw_networks"
+author: "Nick Gauthier"
+date: "June 1, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+Load the necessary packages.
+```{r message = F}
+library(raster)
+library(tidyverse)
+library(rgdal)
+library(gdistance)
+library(tidygraph)
+library(ggraph)
+library(mgcv)
+```
+
+## Data import and preprocessing
+Import the node and edge datasets.
+```{r message = F}
+node_data <- read_csv('Data/attributes_orig.csv')
+```
+
+```{r}
+swsn <- list.files('Data/Sim', full.names = T) %>%
+  map(read.csv, row.names = 1, check.names = F) %>%
+  map(as.matrix) %>%
+  map(~replace(.x, .x==0, 999)) %>%
+  map(as_tbl_graph) %>%
+  map(activate, edges) %>%
+  imap(~mutate(.x, time = .y)) %>%
+  reduce(graph_join) %>%
+  filter(!edge_is_loop()) %>%
+  mutate(weight = if_else(weight == 999, 0, weight)) %>%
+  rename(similarity = weight) %N>%
+  left_join(node_data, by = c('name' = 'SWSN_Site'))
+```
+
+Create a separate spatial points object, storing the locations of the sites. Convert the coordinates from utm to lat lon, and add back to the original data
+```{r}
+pts <- swsn %>% 
+  select(x = EASTING, y = NORTHING) %>%
+  as_tibble %>%
+  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=NAD27")) %>%
+  spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
+  coordinates %>%
+  data.frame
+
+swsn <- swsn %>%
+  mutate(lon = pts$x, lat = pts$y)
+```
+Get state outlines.
+```{r}
+states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
+```
+
+```{r echo = F}
+swsn %E>%
+  filter(similarity > .75) %>%
+ggraph('manual', node.positions = pts) +
+  geom_edge_link(aes(alpha = similarity, color = similarity)) +
+  facet_edges(~time) +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  scale_edge_alpha() +
+  coord_equal() +
+  theme_graph()
+```
+
+## Least Cost Distances
+```{r}
+bbox <- extent(c(-113.5, -106.5, 31, 37.5))
+elev <- raster('~/gdrive/Data/SRTM_1km.tif') %>%
+  crop(bbox)
+```
+
+```{r cache = T}
+altDiff <- function(x){x[2] - x[1]}
+hd <- transition(elev, altDiff, 8, symm = F)
+cell.targets <- Which(!is.na(elev), cells = T)
+adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = T, directions = 8)
+slope <- geoCorrection(hd, type = 'c')
+speed <- slope
+speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
+conductance <- geoCorrection(speed, type = 'c')
+```
+
+```{r echo = F}
+plot(raster(conductance))
+```
+
+Calculate the least cost distance matrix between all sites and turn into a graph.
+```{r cache = T}
+distances <- swsn %>%
+  select(lon, lat) %>%
+  as_tibble %>%
+  as.matrix %>%
+  costDistance(conductance, .) %>%
+  as_tbl_graph %E>%
+  rename(distance = weight) %>%
+  as_tibble
+```
+
+```{r}
+dat <- swsn %E>%
+  left_join(distances) %>%
+  #mutate(size_prod = .N()$P1room[from] * .N()$P1room[to],
+  #       size_sum = .N()$P1room[from] + .N()$P1room[to]) %>%
+  as_tibble %>%
+  mutate(distance = replace_na(distance, 0))
+```
+
+```{r echo = F}
+ggplot(dat, aes(distance, similarity)) +
+  geom_point(alpha = .1) +
+  geom_smooth() +
+  theme_minimal()
+dat %>% 
+  mutate(group = paste(from, to, sep = '-')) %>%
+ggplot(aes(time, similarity, group = group)) +
+  geom_line(alpha = .1)
+```
+
+```{r}
+mod1 <- bam(similarity ~ s(distance, bs = 'cr'),
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+
+residuals(mod1, type = 'response')
+
+mod2 <- dat %>% 
+  group_by(from, to) %>% 
+  arrange(time, .by_group = T) %>%
+  mutate(test = if_else(row_number() == 1, T, F)) %>%
+  bam(similarity ~ s(distance, bs = 'cr'),
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            rho = .3,
+            AR.start = test,
+            data = .)
+
+plot(mod2)
+```
+
+```{r}
+mod2 <- gam(weight ~ s(distance, bs = 'cr'),
+            method = 'REML',
+            select = T, 
+            data = dat)
+mod3 <- gam(weight ~ s(distance, bs = 'cr'),
+            method = 'REML',
+            family = gaussian(link = 'log'),
+            select = T, 
+            data = dat)
+mod4 <- gam(weight * 1000 ~ s(distance, bs = 'cr'),
+            method = 'REML',
+            family = poisson,
+            select = T, 
+            data = dat)
+plot(mod1); plot(mod2); plot(mod3); plot(mod4)
+list(mod1,mod2,mod3, mod4) %>% map(summary)
+list(mod1,mod2,mod3, mod4) %>% map(gam.check)
+```
+
+```{r}
+mod5 <- gam(weight ~ s(distance, bs = 'cr') +
+                     s(size_prod, bs = 'cr') +
+                     ti(distance, size_prod), 
+            method = 'REML',
+            select = T, 
+            family = betar(link = 'cloglog'),
+            eps  = .0001,
+            data = dat)
+mod6 <- gam(weight ~ te(distance, size_prod), 
+            method = 'REML',
+            select = T, 
+            family = betar(link = 'cloglog'),
+            eps = .0001,
+            data = dat)
+mod7 <- gam(weight ~ te(distance, size_sum), 
+            method = 'REML',
+            select = T, 
+            family = betar(link = 'cloglog'),
+            eps = .0001,
+            data = dat)
+mod8 <- gam(weight ~ s(distance, bs = 'cr') +
+                     s(size_sum, bs = 'cr') +
+                     ti(distance, size_sum), 
+            method = 'REML',
+            select = T, 
+            family = betar(link = 'cloglog'),
+            eps  = .0001,
+            data = dat)
+
+plot(mod5, scheme = 1)
+plot(mod6, scheme = 1)
+plot(mod7, scheme = 1)
+plot(mod8, scheme = 1)
+summary(mod5);summary(mod6);summary(mod7)
+gam.check(mod6)
+dat %>% 
+  pull(weight) %>%
+  summary
+```
+
+```{r}
+swsn %E>%
+  mutate(resid = residuals(mod1, type = 'response')) %>%
+  filter(resid > .25 | resid < -.25) %>%
+  mutate(fac = if_else(resid > 0, 'pos', 'neg')) %>%
+  ggraph('manual', node.positions = pts) +
+  geom_edge_link(aes(alpha = abs(resid), color = resid)) +
+  facet_graph(time ~ fac, col_type = 'edge') +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  scale_edge_colour_distiller(palette = 'RdBu', limits = c(-1,1)) +
+  coord_equal() +
+  theme_graph()
+```
+
