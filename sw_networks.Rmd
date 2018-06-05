@@ -53,7 +53,22 @@ pts <- swsn %>%
   data.frame
 
 swsn <- swsn %>%
-  mutate(lon = pts$x, lat = pts$y)
+  mutate(lon = pts$x, 
+         lat = pts$y) %E>%
+  mutate(from_x = .N()$lon[from],
+         from_y = .N()$lat[from],
+         to_x = .N()$lon[to],
+         to_y = .N()$lat[to],
+         size_from = case_when(time == 1 ~ .N()$P1room[from],
+                               time == 2 ~ .N()$P2room[from],
+                               time == 3 ~ .N()$P3room[from],
+                               time == 4 ~ .N()$P4room[from],
+                               time == 5 ~ .N()$P5room[from]),
+         size_to = case_when(time == 1 ~ .N()$P1room[to],
+                             time == 2 ~ .N()$P2room[to],
+                             time == 3 ~ .N()$P3room[to],
+                             time == 4 ~ .N()$P4room[to],
+                             time == 5 ~ .N()$P5room[to]))
 ```
 Get state outlines.
 ```{r}
@@ -75,7 +90,7 @@ ggraph('manual', node.positions = pts) +
 ## Least Cost Distances
 ```{r}
 bbox <- extent(c(-113.5, -106.5, 31, 37.5))
-elev <- raster('~/gdrive/Data/SRTM_1km.tif') %>%
+elev <- raster('~/Downloads/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>%
   crop(bbox)
 ```
 
@@ -90,13 +105,18 @@ speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
 conductance <- geoCorrection(speed, type = 'c')
 ```
 
+```{r echo = F, message = F, warning = F}
+rm(hd, adj, slope, speed)
+gc()
+```
+
 ```{r echo = F}
 plot(raster(conductance))
 ```
 
 Calculate the least cost distance matrix between all sites and turn into a graph.
 ```{r cache = T}
-distances <- swsn %>%
+distances <- swsn %N>%
   select(lon, lat) %>%
   as_tibble %>%
   as.matrix %>%
@@ -106,13 +126,13 @@ distances <- swsn %>%
   as_tibble
 ```
 
+## Model fitting
 ```{r}
 dat <- swsn %E>%
   left_join(distances) %>%
-  #mutate(size_prod = .N()$P1room[from] * .N()$P1room[to],
-  #       size_sum = .N()$P1room[from] + .N()$P1room[to]) %>%
   as_tibble %>%
-  mutate(distance = replace_na(distance, 0))
+  mutate(distance = replace_na(distance, 0)) %>%
+  mutate(edge = as.factor(paste(from, to, sep = '-')))
 ```
 
 ```{r echo = F}
@@ -132,7 +152,51 @@ mod1 <- bam(similarity ~ s(distance, bs = 'cr'),
             family = betar(link = 'cloglog'),
             data = dat)
 
-residuals(mod1, type = 'response')
+mod2 <- bam(similarity ~ s(distance, bs = 'cr') +
+                         s(size_from, bs = 'cr') +
+                         s(size_to, bs = 'cr'),
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+
+mod3 <- bam(similarity ~ s(distance, bs = 'cr') +
+              s(size_from, bs = 'cr') +
+              s(size_to, bs = 'cr') +
+            s(from_x, from_y, k = 30) +
+            s(to_x, to_y, k = 30),
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+
+mod3 <- bam(similarity ~ s(distance, bs = 'cr') +
+            s(from_x, from_y) +
+            s(to_x, to_y),
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+
+mod2 <- gamm(similarity * 1000 ~ s(distance, bs = 'cr'),
+            method = 'REML',
+            family = poisson,
+            correlation = corAR1(form = ~time|edge),
+            data = dat)
+
+plot(mod1);plot(mod2);plot(mod3)
+AIC(mod1);AIC(mod2);AIC(mod3)
+gam.check(mod3)
+```
+
+```{r}
+test <- dat %>%
+  mutate(resid = residuals(mod1, type = 'response')) %>%
+  group_by(from, to) %>%
+  arrange(time, .by_group = T) %>%
+select(from, to, time, resid) %>%
+  mutate(lag1 = lag(resid)) %>%
+  filter(!is.na(lag1))
+cor(test$resid, test$lag1)
+
+acf(test[1:3,6], lag.max = 5)
 
 mod2 <- dat %>% 
   group_by(from, to) %>% 
@@ -146,6 +210,7 @@ mod2 <- dat %>%
             data = .)
 
 plot(mod2)
+presidents
 ```
 
 ```{r}
@@ -211,7 +276,7 @@ dat %>%
 
 ```{r}
 swsn %E>%
-  mutate(resid = residuals(mod1, type = 'response')) %>%
+  mutate(resid = residuals(mod2, type = 'response')) %>%
   filter(resid > .25 | resid < -.25) %>%
   mutate(fac = if_else(resid > 0, 'pos', 'neg')) %>%
   ggraph('manual', node.positions = pts) +
