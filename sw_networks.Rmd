@@ -13,9 +13,11 @@ knitr::opts_chunk$set(echo = TRUE)
 Load the necessary packages.
 ```{r message = F}
 library(raster)
+library(fields)
 library(tidyverse)
 library(rgdal)
 library(gdistance)
+library(wql)
 library(tidygraph)
 library(ggraph)
 library(mgcv)
@@ -126,6 +128,114 @@ distances <- swsn %N>%
   as_tibble
 ```
 
+## Empiricial Orthogonal Functions
+
+```{r}
+tpsInterp <- function(rast.brick, r){
+  target <- raster(crs = '+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0 ', 
+                   ext = bbox_extended, resolution = r, vals = 1)
+  
+  brick_data <- as.data.frame(rast.brick, xy = T)
+  
+  map(1:nlayers(rast.brick), ~interpolate(target, Tps(brick_data[1:2], brick_data[2 + .x], lon.lat = T))) %>% unlist %>% brick
+}
+```
+```{r}
+spei_obs <- ((brick('~/Downloads/spei12_6_PRISM.nc') + 
+              brick('~/Downloads/spei12_7_PRISM.nc') + 
+              brick('~/Downloads/spei12_8_PRISM.nc')) / 3) %>%
+  crop(bbox_extended) %>%
+  `names<-`(1895:2017) %>%
+  .[[6:105]]
+
+da_obs <- brick('~/Downloads/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc', varname = 'spei_mn') %>%
+   .[[1900:1999]] %>%
+   rotate %>%
+   crop(bbox_extended, snap = 'out') %>%
+   resample(spei_obs) %>%
+  crop(bbox_extended) %>%
+  mask(spei_obs)
+plot(spei_obs, da_obs)
+
+spei_obs %>%
+  as.data.frame(xy = T, na.rm = T) %>%
+  gather(year, value, 3:102) %>%
+  mutate(year = as.numeric(str_sub(year, 2))) %>%
+  ggplot(aes(year, value)) +
+    geom_line(apha = .1, aes(group = intersect(x,y)))
+```
+
+```{r warning = F, message = F}
+bbox_extended <- extent(c(-120, -103, 29, 45))
+
+spei_coarse <- brick('~/Downloads/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc', varname = 'spei_mn') %>%
+  .[[1100:1499]] %>%
+  rotate %>%
+  crop(bbox_extended, snap = 'out') 
+
+spei <- spei_coarse %>%
+  tpsInterp(.083333333333)
+```
+
+```{r echo = F}
+spei_coarse %>% 
+  as.data.frame(xy = T, na.rm = T) %>%
+  `names<-`(c('x', 'y', 1100:1499)) %>%
+  gather(year, value, 3:402) %>%
+  mutate(year = as.numeric(year)) %>%
+  ggplot(aes(year, value)) +
+  geom_line(alpha = .1, aes(group = interaction(x, y))) +
+  geom_smooth() +
+  ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
+          'June-August, 12 month lag') +
+  theme_bw()
+```
+
+
+
+
+```{r message = F}
+eof_space_detrend <- eof(stfdf, 'spatial') %>% brick
+eof_time <- eof(stfdf, 'temporal')
+eof_diag_space <- eof(stfdf, 'spatial', returnEOFs = F)
+eof_diag_time <- eof(stfdf, 'temporal', returnEOFs = F)
+```
+
+```{r echo = F}
+plot(spei_coarse[[1]])
+eofNum(t(as.matrix(spei_coarse)), scale. = F)
+eofNum(t(as.matrix(spei_obs)), scale. = F)
+as.data.frame(spei_obs, na.rm = T) %>% 
+  t %>%
+  eofNum(scale. = F)
+t1 <- wql::eof(t(as.matrix(spei_coarse)), 4, scale. = F)
+setValues(spei_coarse[[1:6]],t1$REOF) %>% plot
+```
+
+```{r}
+t3 <- wql::eof(t(as.matrix(spei)), 6, scale. = F)
+rasterVis::levelplot(setValues(spei[[1:6]],t3$REOF))
+rasterVis::levelplot(crop(setValues(spei[[1:6]],t3$REOF), bbox))
+setValues(spei_coarse[[1]], xyFromCell(spei_coarse, 1:ncell(spei_coarse))[,2]) %>% cos %>% plot
+
+
+edit(eof)
+```
+
+{r echo = F}
+plot(eof_time[,2])
+```
+
+```{r echo = F}
+plot(eof_diag$sdev[1:10]/sum(eof_diag$sdev))
+screeplot(eof_diag, type = 'lines')
+biplot(eof_diag, var.axes = F)
+
+test <- as_tibble(eof_diag$rotation)
+
+```
+
+
 ## Model fitting
 ```{r}
 dat <- swsn %E>%
@@ -211,6 +321,8 @@ mod2 <- dat %>%
 
 plot(mod2)
 presidents
+
+swsn %E>% filter(from == 1) %>% as_tibble %>% select(similarity) %>% pull %>% sum
 ```
 
 ```{r}
