@@ -128,6 +128,10 @@ distances <- swsn %N>%
   as_tibble
 ```
 
+```{r}
+bbox_extended <- extent(c(-124, -105, 31, 41))
+```
+
 ## Empiricial Orthogonal Functions
 
 ```{r}
@@ -139,34 +143,176 @@ tpsInterp <- function(rast.brick, r){
   
   map(1:nlayers(rast.brick), ~interpolate(target, Tps(brick_data[1:2], brick_data[2 + .x], lon.lat = T))) %>% unlist %>% brick
 }
+
 ```
+
+Compare the coarse resolution rasters, as a bias correction step.
+```{r}
+da_coarse <- brick('~/Downloads/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc', varname = 'spei_mn') %>%
+   .[[1900:1999]] %>%
+   rotate %>%
+   crop(bbox_extended, snap = 'out')
+spei_coarse <- ((brick('~/Downloads/spei12_6_PRISM.nc') + 
+              brick('~/Downloads/spei12_7_PRISM.nc') + 
+              brick('~/Downloads/spei12_8_PRISM.nc')) / 3) %>%
+  `names<-`(1895:2017) %>%
+  .[[6:105]] %>%
+ resample(da_coarse) %>%
+  mask(da_coarse)
+
+plot(brick(c(da_coarse[[1:10]], spei_coarse[[1:10]])))
+```
+
+```{r}
+spei_coarse %>%
+  as.data.frame(na.rm = T) %>%
+  t %>%
+  eofNum(scale. = F)
+
+da_coarse %>%
+  as.data.frame(na.rm = T) %>%
+  t %>%
+  eofNum(scale. = F)
+```
+
+```{r}
+brick(c(spei_coarse, da_coarse)) %>% 
+  as.data.frame(xy = T, na.rm = T) %>%
+  gather(year, value, 3:202) %>%
+  separate(year, c('year', 'type')) %>%
+  mutate(year = str_sub(year, 2),
+         year = as.numeric(year),
+         type = if_else(type == '1', 'observed', 'data assimilation')) %>%
+  ggplot(aes(year, value)) +
+  geom_line(alpha = .3, aes(group = interaction(x, y, type), color = type)) +
+  geom_smooth(aes(color = type)) +
+  ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
+          'June-August, 12 month lag') +
+  theme_bw()
+```
+
+The leading 4 eofs are roughly equivalent
+```{r}
+
+obs_eof <- eof(t(as.data.frame(spei_coarse, na.rm = T)), 4, scale. = F)
+as.data.frame(spei_coarse[[1]], xy = T, na.rm = T) %>%cbind(obs_eof$REOF) %>%
+  select(-3) %>%
+  gather(eof, value, 3:6) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+    scale_fill_distiller(palette = 'RdBu', direction = 1, limits = c(-1, 1)) +
+  facet_wrap(~eof) +
+  coord_quickmap()
+
+```
+```{r}
+da_eof <- eof(t(as.data.frame(da_coarse, na.rm = T)), 4, scale. = F)
+as.data.frame(da_coarse[[1]], xy = T, na.rm = T) %>%cbind(da_eof$REOF) %>%
+  select(-3) %>%
+  gather(eof, value, 3:6) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+    scale_fill_distiller(palette = 'RdBu', direction = 1, limits = c(-1, 1)) +
+  facet_wrap(~eof) +
+  coord_quickmap()
+```
+
+Now see about bias correcting the da fields.
+```{r}
+spei_dat <- left_join(spei_coarse %>%
+  as.data.frame(xy = T, na.rm = T) %>%
+  gather(year, obs, 3:102) %>%
+  mutate(year = as.numeric(str_sub(year, 2))),
+da_coarse %>%
+  as.data.frame(xy = T, na.rm = T)  %>%
+  gather(year, da, 3:102) %>%
+  mutate(year = as.numeric(str_sub(year,2)))) %>% 
+  mutate(cell = interaction(x, y))
+
+m1 <- gam(obs ~ s(da, bs = 'cr'), data = spei_dat, method = 'REML')
+m2 <- gamm(obs ~ s(da, bs = 'cr'), 
+           data = spei_dat, method = 'REML', 
+           correlation = corAR1(form = ~year|cell))
+plot(m1, residuals = T)
+plot(m2$gam, scheme = 2)
+summary(m1)
+summary(m2$gam)
+m2
+gam.check(m1)
+AIC(m1);AIC(m2$gam)
+```
+
+```{r}
+spei_dat %>%
+  mutate(res = residuals(m1)) %>%
+  qplot(x, y, fill = res, data = ., geom = 'raster') + 
+  scale_fill_distiller(palette = 'RdBu', direction = 1) + 
+  facet_wrap(~year) +
+  theme_void()
+  
+
+spei_dat %>%
+  mutate(res = residuals(m1)) %>%
+  group_by(year) %>%
+  summarise(res = mean(res)) %>% pull(res) %>% acf
+```
+
+
 ```{r}
 spei_obs <- ((brick('~/Downloads/spei12_6_PRISM.nc') + 
               brick('~/Downloads/spei12_7_PRISM.nc') + 
               brick('~/Downloads/spei12_8_PRISM.nc')) / 3) %>%
   crop(bbox_extended) %>%
   `names<-`(1895:2017) %>%
-  .[[6:105]]
+  .[[6:105]] %>%
+  aggregate(fact = 2)
 
 da_obs <- brick('~/Downloads/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc', varname = 'spei_mn') %>%
-   .[[1900:1999]] %>%
+   .[[1950:1999]] %>%
    rotate %>%
-   crop(bbox_extended, snap = 'out') %>%
-   resample(spei_obs) %>%
-  crop(bbox_extended) %>%
-  mask(spei_obs)
-plot(spei_obs, da_obs)
+   crop(extent(c(-117,-100, 30, 44)), snap = 'out') %>%
+   tpsInterp(0.08333333) %>%
+   crop(bbox_extended) %>%
+   mask(spei_obs) %>%
+  resample(spei_obs)
 
-spei_obs %>%
-  as.data.frame(xy = T, na.rm = T) %>%
-  gather(year, value, 3:102) %>%
-  mutate(year = as.numeric(str_sub(year, 2))) %>%
-  ggplot(aes(year, value)) +
-    geom_line(apha = .1, aes(group = intersect(x,y)))
+elev <- raster('~/Downloads/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>%
+  crop(bbox_extended) %>%
+  resample(spei_obs) %>%
+  mask(spei_obs[[1]])
+
+brick(c(spei_obs[[1]], da_obs[[1]], elev)) %>% plot
+```
+
+```{r}
+plot(test$obs, test$da)
+
+t1 <- bam(obs ~ s(da, bs = 'cr'),
+          data = test, method = 'REML')
+
+plot(t1, residuals = T)
+gam.check(t1)
+test %>% mutate(res = residuals(t1)) %>%
+  group_by(x, y) %>%
+  mutate(res = mean(res)) %>%
+  ggplot(aes(x, y)) +
+  geom_raster(aes(fill = res)) +
+  coord_quickmap()
+
+
+plot(elev)
+test %>% mutate(res = residuals(t1)) %>%
+  group_by(x, y) %>%
+  mutate(res_avg = mean(res)) %>% left_join(as.data.frame(elev, xy = T, na.rm =T)) %>%
+  filter(between(year, 1900, 1910)) %>%
+   ggplot(aes(x,y)) +
+  geom_raster(aes(fill = res)) +
+  scale_fill_distiller(palette = 'RdBu', limits = c(-3, 3)) +
+  facet_wrap(~year) +
+  coord_quickmap()
 ```
 
 ```{r warning = F, message = F}
-bbox_extended <- extent(c(-120, -103, 29, 45))
 
 spei_coarse <- brick('~/Downloads/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc', varname = 'spei_mn') %>%
   .[[1100:1499]] %>%
@@ -192,37 +338,83 @@ spei_coarse %>%
 ```
 
 
-
-
-```{r message = F}
-eof_space_detrend <- eof(stfdf, 'spatial') %>% brick
-eof_time <- eof(stfdf, 'temporal')
-eof_diag_space <- eof(stfdf, 'spatial', returnEOFs = F)
-eof_diag_time <- eof(stfdf, 'temporal', returnEOFs = F)
-```
-
 ```{r echo = F}
 plot(spei_coarse[[1]])
 eofNum(t(as.matrix(spei_coarse)), scale. = F)
 eofNum(t(as.matrix(spei_obs)), scale. = F)
-as.data.frame(spei_obs, na.rm = T) %>% 
+t3 <- as.data.frame(spei_obs, na.rm = T) %>% 
   t %>%
-  eofNum(scale. = F)
+  eof(6, scale. = F)
+
+  
+rasterVis::levelplot(setValues(spei_obs[[1:6]][!is.na(spei_obs[[1:6]])],t3$REOF))
 t1 <- wql::eof(t(as.matrix(spei_coarse)), 4, scale. = F)
 setValues(spei_coarse[[1:6]],t1$REOF) %>% plot
 ```
 
 ```{r}
-t3 <- wql::eof(t(as.matrix(spei)), 6, scale. = F)
+t3 <- wql::eof(t(as.matrix(spei_obs)), 6, scale. = F)
 rasterVis::levelplot(setValues(spei[[1:6]],t3$REOF))
 rasterVis::levelplot(crop(setValues(spei[[1:6]],t3$REOF), bbox))
 setValues(spei_coarse[[1]], xyFromCell(spei_coarse, 1:ncell(spei_coarse))[,2]) %>% cos %>% plot
 
 
-edit(eof)
+    eigs <- prcomp(t(as.data.frame(da_obs, na.rm = T)), scale. = F)[["sdev"]]^2
+    eigs.pct <- 100 * eigs/sum(eigs)
+    eigs.lo <- eigs * (1 - sqrt(2/400))
+    eigs.hi <- eigs * (1 + sqrt(2/400))
+    cumvar <- round(cumsum(eigs.pct), 1)
+    p <- 400
+    d <- data.frame(rank = factor(1:p), eigs, eigs.lo, eigs.hi, 
+        cumvar)
+    d <- within(d, cumvar.line <- eigs.hi + 0.02 * max(eigs.hi))
+    d <- d[1:min(p, 10), ]
+    ggplot(data = d, aes(x = rank, y = eigs)) + geom_errorbar(aes(x = rank, 
+        ymin = eigs.lo, ymax = eigs.hi), width = 0.3) + geom_point(size = 3) + 
+        geom_text(aes(x = rank, y = cumvar.line, label = cumvar), 
+            size = 3, vjust = 0) + labs(list(x = "Rank", y = "Eigenvalue")) + 
+        theme(panel.grid.minor = element_blank())
+    
+    edit(eof)
+```
+```{r}
+
+obs_eof <- eof(t(as.data.frame(spei_obs, na.rm = T)), 6, scale. = F)
+as.data.frame(spei_obs[[1]], xy = T, na.rm = T) %>%cbind(obs_eof$REOF) %>%
+  select(-3) %>%
+  gather(eof, value, 3:8) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+    scale_fill_distiller(palette = 'RdBu', direction = 1, limits = c(-1, 1)) +
+  facet_wrap(~eof) +
+  coord_quickmap()
+
+```
+```{r}
+da_eof <- eof(t(as.data.frame(da_obs, na.rm = T)), 6, scale. = F)
+as.data.frame(da_obs[[1]], xy = T, na.rm = T) %>%cbind(da_eof$REOF) %>%
+  select(-3) %>%
+  gather(eof, value, 3:8) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+    scale_fill_distiller(palette = 'RdBu', direction = 1, limits = c(-1, 1)) +
+  facet_wrap(~eof) +
+  coord_quickmap()
 ```
 
-{r echo = F}
+```{r}
+da_eof <- eof(t(as.data.frame(da_obs, na.rm = T)), 6, scale. = F)
+as.data.frame(da_obs[[1]], xy = T, na.rm = T) %>%cbind(da_eof$REOF) %>%
+  select(-3) %>%
+  gather(eof, value, 3:8) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+    scale_fill_distiller(palette = 'RdBu', direction = 1, limits = c(-1, 1)) +
+  facet_wrap(~eof) +
+  coord_quickmap()
+```
+
+```{r echo = F}
 plot(eof_time[,2])
 ```
 
