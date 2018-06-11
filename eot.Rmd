@@ -13,3 +13,20 @@ knitr::opts_chunk$set(echo = TRUE)
 library(remote)
 ```
 
+```{r}
+test <- eot(crop(spei_obs, bbox), n = 10)
+plot(test,4)
+```
+```{r}
+plot(test, 4, show.bp = T)
+```
+```{r}
+plot(crop(spei_obs[[3]], bbox))
+test2 <- eot(spei_coarse, crop(spei_obs, bbox), n = 30)
+plot(test2[[5]])
+nXplain(test2, .85)
+```
+```{r}
+plot(predict(test2, spei_coarse, 12)[[1:10]] - spei_obs[[1:10]])
+```
+
