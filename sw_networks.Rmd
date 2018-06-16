@@ -203,129 +203,41 @@ cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,3])
 cor(ncdf4::ncvar_get(phyda, 'EPac_mn')[1100:1999], recon_eof$amplitude[,4])
 ```
 
-```{r}
-amplitudes %>%
+```{r message = F}
+recon_amplitudes <- amplitudes %>%
   group_by(eof) %>%
   nest %>%
   mutate(mod = map(data, ~gam(obs ~ s(recon, bs = 'cr'), data = ., method = 'REML', select = T))) %>%
   left_join(past_amplitudes) %>%
   mutate(predictions = map2(mod, recons, ~predict(.x, .y, type = 'response')),
          predictions = map(predictions, ~.[1:400]),
-         predictions = map(predictions, ~tibble(year = 1100:1499, amplitude = .))) %>%
+         predictions = map(predictions, ~tibble(year = 1100:1499, amplitude = .)),
+         predictions = map(predictions, ~mutate(., amp_smooth = zoo::rollmean(amplitude, k = 51, fill = NA)))) %>%
   select(eof, predictions) %>%
   unnest %>%
-  ggplot(aes(year, amplitude, group = eof)) +
+  mutate(period = floor((year/50)) * 50) 
+```
+
+```{r echo = F}
+ggplot(recon_amplitudes, aes(year, amplitude, group = eof)) +
   geom_line(aes(color = eof), alpha = .7) +
-  geom_line(aes(y = zoo::rollmean(amplitude, k = 50, na.pad = T))) +
+  geom_line(aes(y = amp_smooth)) +
   scale_color_brewer(palette = 'Spectral') +
   facet_wrap(~eof) +
   theme_minimal()
-
-amplitudes
-```
-
-
-
-```{r warning = F, message = F}
-
-spei_coarse <- brick('~/Downloads/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc') %>%
-  .[[1100:1499]] %>%
-  rotate %>%
-  crop(bbox_extended, snap = 'out') 
-
-spei <- spei_coarse %>%
-  tpsInterp(.083333333333)
-```
-
-```{r echo = F}
-spei_coarse %>% 
-  as.data.frame(xy = T, na.rm = T) %>%
-  `names<-`(c('x', 'y', 1100:1499)) %>%
-  gather(year, value, 3:402) %>%
-  mutate(year = as.numeric(year)) %>%
-  ggplot(aes(year, value)) +
-  geom_line(alpha = .1, aes(group = interaction(x, y))) +
-  geom_smooth() +
-  ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
-          'June-August, 12 month lag') +
-  theme_bw()
-```
-
-
-```{r echo = F}
-plot(spei_coarse[[1]])
-eofNum(t(as.matrix(spei_coarse)), scale. = F)
-eofNum(t(as.matrix(spei_obs)), scale. = F)
-t3 <- as.data.frame(spei_obs, na.rm = T) %>% 
-  t %>%
-  eof(6, scale. = F)
-
-  
-rasterVis::levelplot(setValues(spei_obs[[1:6]][!is.na(spei_obs[[1:6]])],t3$REOF))
-t1 <- wql::eof(t(as.matrix(spei_coarse)), 4, scale. = F)
-setValues(spei_coarse[[1:6]],t1$REOF) %>% plot
 ```
 
 ```{r}
-t3 <- wql::eof(t(as.matrix(spei_obs)), 6, scale. = F)
-rasterVis::levelplot(setValues(spei[[1:6]],t3$REOF))
-rasterVis::levelplot(crop(setValues(spei[[1:6]],t3$REOF), bbox))
-setValues(spei_coarse[[1]], xyFromCell(spei_coarse, 1:ncell(spei_coarse))[,2]) %>% cos %>% plot
-
-
-
-    
-    edit(eof)
-```
-```{r}
-
-obs_eof <- eof(t(as.data.frame(spei_obs, na.rm = T)), 6, scale. = F)
-as.data.frame(spei_obs[[1]], xy = T, na.rm = T) %>%cbind(obs_eof$REOF) %>%
-  select(-3) %>%
-  gather(eof, value, 3:8) %>%
-  ggplot(aes(x,y)) +
-  geom_raster(aes(fill = value)) +
-    scale_fill_distiller(palette = 'RdBu', direction = 1, limits = c(-1, 1)) +
+recon_amplitudes %>%
+  filter(between(period, 1200, 1400)) %>%
+  ggplot(aes(factor(period), amplitude)) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0, color = 'red', linetype = 2) +
+  scale_color_brewer(palette = 'Spectral') +
   facet_wrap(~eof) +
-  coord_quickmap()
-
-```
-```{r}
-da_eof <- eof(t(as.data.frame(da_obs, na.rm = T)), 6, scale. = F)
-as.data.frame(da_obs[[1]], xy = T, na.rm = T) %>%cbind(da_eof$REOF) %>%
-  select(-3) %>%
-  gather(eof, value, 3:8) %>%
-  ggplot(aes(x,y)) +
-  geom_raster(aes(fill = value)) +
-    scale_fill_distiller(palette = 'RdBu', direction = 1, limits = c(-1, 1)) +
-  facet_wrap(~eof) +
-  coord_quickmap()
+  theme_minimal()
 ```
 
-```{r}
-da_eof <- eof(t(as.data.frame(da_obs, na.rm = T)), 6, scale. = F)
-as.data.frame(da_obs[[1]], xy = T, na.rm = T) %>%cbind(da_eof$REOF) %>%
-  select(-3) %>%
-  gather(eof, value, 3:8) %>%
-  ggplot(aes(x,y)) +
-  geom_raster(aes(fill = value)) +
-    scale_fill_distiller(palette = 'RdBu', direction = 1, limits = c(-1, 1)) +
-  facet_wrap(~eof) +
-  coord_quickmap()
-```
-
-```{r echo = F}
-plot(eof_time[,2])
-```
-
-```{r echo = F}
-plot(eof_diag$sdev[1:10]/sum(eof_diag$sdev))
-screeplot(eof_diag, type = 'lines')
-biplot(eof_diag, var.axes = F)
-
-test <- as_tibble(eof_diag$rotation)
-
-```
 ## Data import and preprocessing
 Import the node and edge datasets.
 ```{r message = F}
@@ -431,6 +343,9 @@ distances <- swsn %N>%
   as_tibble
 ```
 
+```{r echo = F}
+gc()
+```
 
 
 ```{r}
@@ -441,6 +356,65 @@ reof_raster <- as.data.frame(spei_obs[[1]], xy = T, na.rm = T) %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>% 
   crop(bbox)
 
+test <- recon_amplitudes %>%
+  filter(between(period, 1200, 1400)) %>%
+  group_by(eof, period) %>% 
+  summarise(amplitude = mean(amplitude))
+
+eof_data <- swsn %N>%
+  select(lon, lat) %>%
+  as_tibble %>%
+  raster::extract(reof_raster, ., df = T) %>%
+  gather(eof, value, 2:5) %>%
+  full_join(test) %>%
+  mutate(key = paste(eof, period, sep = '_'),
+            value = value * amplitude) %>%
+  select(ID, key, value) %>%
+  spread(key, value, -1)
+
+swsn <- swsn %N>%
+  mutate(ID = 1:n()) %>%
+  left_join(eof_data) %E>%
+  mutate(EOF1_from = case_when(time == 1 ~ .N()$EOF1_1200[from],
+                               time == 2 ~ .N()$EOF1_1250[from],
+                               time == 3 ~ .N()$EOF1_1300[from],
+                               time == 4 ~ .N()$EOF1_1350[from],
+                               time == 5 ~ .N()$EOF1_1400[from]),
+         EOF1_to = case_when(time == 1 ~ .N()$EOF1_1200[to],
+                             time == 2 ~ .N()$EOF1_1250[to],
+                             time == 3 ~ .N()$EOF1_1300[to],
+                             time == 4 ~ .N()$EOF1_1350[to],
+                             time == 5 ~ .N()$EOF1_1400[to]),
+         EOF2_from = case_when(time == 1 ~ .N()$EOF2_1200[from],
+                               time == 2 ~ .N()$EOF2_1250[from],
+                               time == 3 ~ .N()$EOF2_1300[from],
+                               time == 4 ~ .N()$EOF2_1350[from],
+                               time == 5 ~ .N()$EOF2_1400[from]),
+         EOF2_to = case_when(time == 1 ~ .N()$EOF2_1200[to],
+                             time == 2 ~ .N()$EOF2_1250[to],
+                             time == 3 ~ .N()$EOF2_1300[to],
+                             time == 4 ~ .N()$EOF2_1350[to],
+                             time == 5 ~ .N()$EOF2_1400[to]),
+         EOF3_from = case_when(time == 1 ~ .N()$EOF3_1200[from],
+                               time == 2 ~ .N()$EOF3_1250[from],
+                               time == 3 ~ .N()$EOF3_1300[from],
+                               time == 4 ~ .N()$EOF3_1350[from],
+                               time == 5 ~ .N()$EOF3_1400[from]),
+         EOF3_to = case_when(time == 1 ~ .N()$EOF3_1200[to],
+                             time == 2 ~ .N()$EOF3_1250[to],
+                             time == 3 ~ .N()$EOF3_1300[to],
+                             time == 4 ~ .N()$EOF3_1350[to],
+                             time == 5 ~ .N()$EOF3_1400[to]),
+         EOF4_from = case_when(time == 1 ~ .N()$EOF4_1200[from],
+                               time == 2 ~ .N()$EOF4_1250[from],
+                               time == 3 ~ .N()$EOF4_1300[from],
+                               time == 4 ~ .N()$EOF4_1350[from],
+                               time == 5 ~ .N()$EOF4_1400[from]),
+         EOF4_to = case_when(time == 1 ~ .N()$EOF4_1200[to],
+                             time == 2 ~ .N()$EOF4_1250[to],
+                             time == 3 ~ .N()$EOF4_1300[to],
+                             time == 4 ~ .N()$EOF4_1350[to],
+                             time == 5 ~ .N()$EOF4_1400[to]))
 ```
 
 ## Model fitting
