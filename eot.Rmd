@@ -15,18 +15,131 @@ library(remote)
 
 ```{r}
 test <- eot(crop(spei_obs, bbox), n = 10)
-plot(test,4)
+subset(test, 10, drop = T)
+purrr::walk(1:10, ~plot(test, .))
 ```
+```{r}
+t1<-spei_obs %>%
+  crop(bbox) %>%
+  as.data.frame(na.rm = T) %>%
+  t %>%
+  eof(10, scale = F)
+
+spei_obs %>%
+  crop(bbox) %>%
+  as.data.frame(xy = T, na.rm = T) %>%
+  .[1:2] %>%
+  cbind(t1$REOF) %>%
+  gather(eof, value, 3:12) %>%
+  qplot(x, y, data = ., fill = value, geom = 'raster') + facet_wrap(~eof) + scale_fill_distiller(palette = 'Spectral') + coord_quickmap()+ theme_void()
+```
+
+
 ```{r}
 plot(test, 4, show.bp = T)
 ```
 ```{r}
-plot(crop(spei_obs[[3]], bbox))
-test2 <- eot(spei_coarse, crop(spei_obs, bbox), n = 30)
-plot(test2[[5]])
-nXplain(test2, .85)
+t2<-spei_obs %>%
+  aggregate(fact = 2) %>%
+  as.data.frame(na.rm = T) %>%
+  t %>%
+  eof(9, scale = F)
+t2$variance
+spei_obs %>%
+  aggregate(fact = 2)  %>%
+  as.data.frame(xy = T, na.rm = T) %>%
+  .[1:2] %>%
+  cbind(t2$REOF) %>%
+  gather(eof, value, 3:11) %>%
+  qplot(x, y, data = ., fill = value, geom = 'raster') + facet_wrap(~eof) + scale_fill_distiller(palette = 'Spectral') + coord_quickmap()+ theme_void()
 ```
 ```{r}
-plot(predict(test2, spei_coarse, 12)[[1:10]] - spei_obs[[1:10]])
+t3<-da_coarse %>%
+  as.data.frame(na.rm = T) %>%
+  t %>%
+  eof(4, scale = F)
+t3$variance
+da_coarse %>% 
+  as.data.frame(xy = T, na.rm = T) %>%
+  .[1:2] %>%
+  cbind(t3$REOF) %>%
+  gather(eof, value, 3:6) %>%
+  qplot(x, y, data = ., fill = value, geom = 'raster') + facet_wrap(~eof) + scale_fill_distiller(palette = 'Spectral') + coord_quickmap()+ theme_void()
+```
+```{r}
+t4<-da_full %>%
+  as.data.frame(na.rm = T) %>%
+  t %>%
+  eof(5, scale = F)
+da_full %>% 
+  as.data.frame(xy = T, na.rm = T) %>%
+  .[1:2] %>%
+  cbind(t4$REOF) %>%
+  gather(eof, value, 3:7) %>%
+  qplot(x, y, data = ., fill = value, geom = 'raster') + facet_wrap(~eof) + scale_fill_distiller(palette = 'Spectral') + coord_quickmap()+ theme_void()
 ```
 
+```{r}
+plot(t2$amplitude[,3], t3$amplitude[,1])
+plot(t2$amplitude[,3], t3$amplitude[,2])
+plot(t2$amplitude[,3], t3$amplitude[,3])
+plot(t2$amplitude[,3], t3$amplitude[,4])
+
+```
+
+```{r}
+m1 <- t(as.data.frame(spei_coarse, na.rm = T))
+m2 <- t2$amplitude
+
+1:45 %>% map_dbl(~cor(m1[,.], m2[,4]))
+plot(m1[,36], m2[,1])
+plot(spei_coarse[[1]])
+
+test3 <- eot(spei_coarse, denoise(aggregate(spei_obs, fact = 2), expl.var = .9), n = 20)
+plot(test3, 1)
+plot(test3, 2)
+plot(test3, 3)
+```
+```{r}
+test4 <- eot(da_coarse, denoise(aggregate(spei_obs, fact = 2), expl.var = .9), n = 20)
+plot(test4, 1)
+plot(test4, 2)
+plot(test4, 3)
+```
+
+
+```{r}
+test2 <- eot(tpsInterp(spei_coarse, .5), denoise(aggregate(spei_obs, fact = 2), expl.var = .9), n = 30)
+plot(test2, 1)
+plot(test2, 2)
+plot(test2, 3)
+plot(test2, 4)
+plot(test2, 5)
+plot(test2, 6)
+
+nXplain(test2, .85)
+```
+
+```{r}
+rasterVis::levelplot(brick(c(predict(test2, tpsInterp(spei_coarse[[6:12]], .5), 6), crop(spei_obs[[6:12]], bbox))))
+```
+
+```{r}
+sst_jja <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
+  .[[505:1752]] %>%
+  .[[sort.int(c(seq(6, 1248, 12),seq(7, 1248, 12),seq(8, 1248, 12)))]] %>%
+  stackApply(rep(1:104, each = 3), mean) %>%
+  anomalize
+sst_ann <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
+   .[[508:1755]] %>%
+  stackApply(rep(1:104, each = 12), mean) %>%
+  anomalize
+
+eot_sst_jja <- eot(denoise(sst_jja, expl.var = .9), denoise(aggregate(spei_obs, fact = 2), expl.var = .9), 4)
+eot_sst_ann <- eot(denoise(sst_ann, expl.var = .9), denoise(aggregate(spei_obs, fact = 2), expl.var = .9), 4)
+
+plot(eot_sst_jja, 1)
+plot(eot_sst_jja, 2)
+plot(eot_sst_jja, 3)
+plot(eot_sst_jja, 4)
+```
