@@ -248,28 +248,77 @@ node_data <- read_csv('Data/attributes_orig.csv')
 swsn <- list.files('Data/Sim', full.names = T) %>%
   map(read.csv, row.names = 1, check.names = F) %>%
   map(as.matrix) %>%
-  map(~replace(.x, .x==0, 999)) %>%
   map(as_tbl_graph) %>%
   map(activate, edges) %>%
   imap(~mutate(.x, time = .y)) %>%
-  reduce(graph_join) %>%
-  filter(!edge_is_loop()) %>%
-  mutate(weight = if_else(weight == 999, 0, weight)) %>%
+  map(~filter(., !edge_is_loop())) %>%
+  map(lans) %>%
+  reduce(graph_join, by = 'name') %>%
   rename(similarity = weight) %N>%
   left_join(node_data, by = c('name' = 'SWSN_Site'))
+
+
+
+
+lans <- function(g){
+  g_filtered <- g %E>%
+  as_tibble %>%
+  group_by(from) %>%
+  mutate(total_weight = sum(weight), 
+         fractional_weight = weight / total_weight) %>%
+  nest %>%
+  mutate(fractionals = map(data, ~.$fractional_weight)) %>%
+  unnest(data, .preserve = fractionals) %>%
+  mutate(ecdf = map2(fractional_weight, fractionals, ~.x >= .y)) %>%
+  mutate(test = map_dbl(ecdf,sum)) %>%
+  mutate(outs =  map_dbl(ecdf, length)) %>%
+  mutate(test2 = 1 - test / outs) %>%
+  filter(test2 <= .05) %>%
+  select(from, to, weight)
+  
+  g %E>%
+    semi_join(g_filtered, by  = c('from', 'to')) %>%
+  return
+}
+
 ```
 
 Create a separate spatial points object, storing the locations of the sites. Convert the coordinates from utm to lat lon, and add back to the original data
 ```{r}
-pts <- swsn %>% 
+pts <- swsn %N>% 
   select(x = EASTING, y = NORTHING) %>%
   as_tibble %>%
   SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=NAD27")) %>%
   spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
   coordinates %>%
   data.frame
+```
 
-swsn <- swsn %>%
+Add location and size to edge data.
+```{r}
+swsn <- swsn %N>%
+  mutate(lon = pts$x, 
+         lat = pts$y) %E>%
+  mutate(from_x = .N()$lon[from],
+         from_y = .N()$lat[from],
+         to_x = .N()$lon[to],
+         to_y = .N()$lat[to],
+         size_from = case_when(time == 1 ~ .N()$P1room[from],
+                               time == 2 ~ .N()$P2room[from],
+                               time == 3 ~ .N()$P3room[from],
+                               time == 4 ~ .N()$P4room[from],
+                               time == 5 ~ .N()$P5room[from]),
+         size_to = case_when(time == 1 ~ .N()$P1room[to],
+                             time == 2 ~ .N()$P2room[to],
+                             time == 3 ~ .N()$P3room[to],
+                             time == 4 ~ .N()$P4room[to],
+                             time == 5 ~ .N()$P5room[to])) %>%
+  mutate(size = size_from * size_to)
+```
+
+```{r echo = F, eval = F}
+#Alternative version of code for directed network
+swsn <- swsn %N>%
   mutate(lon = pts$x, 
          lat = pts$y) %E>%
   mutate(from_x = .N()$lon[from],
@@ -293,10 +342,8 @@ states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = T, plo
 ```
 
 ```{r echo = F}
-swsn %E>%
-  filter(similarity > .75) %>%
-ggraph('manual', node.positions = pts) +
-  geom_edge_link(aes(alpha = similarity, color = similarity)) +
+ggraph(swsn, 'manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
   facet_edges(~time) +
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   scale_edge_alpha() +
@@ -323,7 +370,7 @@ conductance <- geoCorrection(speed, type = 'c')
 ```
 
 ```{r echo = F, message = F, warning = F}
-rm(hd, adj, slope, speed)
+rm(hd, adj, slope)#, speed)
 gc()
 ```
 
@@ -371,7 +418,64 @@ eof_data <- swsn %N>%
             value = value * amplitude) %>%
   select(ID, key, value) %>%
   spread(key, value, -1)
+```
 
+```{r}
+swsn <- swsn %N>%
+  mutate(ID = 1:n()) %>%
+  left_join(eof_data) %E>%
+  mutate(EOF1_from = case_when(time == 1 ~ .N()$EOF1_1200[from],
+                               time == 2 ~ .N()$EOF1_1250[from],
+                               time == 3 ~ .N()$EOF1_1300[from],
+                               time == 4 ~ .N()$EOF1_1350[from],
+                               time == 5 ~ .N()$EOF1_1400[from]),
+         EOF1_to = case_when(time == 1 ~ .N()$EOF1_1200[to],
+                             time == 2 ~ .N()$EOF1_1250[to],
+                             time == 3 ~ .N()$EOF1_1300[to],
+                             time == 4 ~ .N()$EOF1_1350[to],
+                             time == 5 ~ .N()$EOF1_1400[to]),
+         EOF2_from = case_when(time == 1 ~ .N()$EOF2_1200[from],
+                               time == 2 ~ .N()$EOF2_1250[from],
+                               time == 3 ~ .N()$EOF2_1300[from],
+                               time == 4 ~ .N()$EOF2_1350[from],
+                               time == 5 ~ .N()$EOF2_1400[from]),
+         EOF2_to = case_when(time == 1 ~ .N()$EOF2_1200[to],
+                             time == 2 ~ .N()$EOF2_1250[to],
+                             time == 3 ~ .N()$EOF2_1300[to],
+                             time == 4 ~ .N()$EOF2_1350[to],
+                             time == 5 ~ .N()$EOF2_1400[to]),
+         EOF3_from = case_when(time == 1 ~ .N()$EOF3_1200[from],
+                               time == 2 ~ .N()$EOF3_1250[from],
+                               time == 3 ~ .N()$EOF3_1300[from],
+                               time == 4 ~ .N()$EOF3_1350[from],
+                               time == 5 ~ .N()$EOF3_1400[from]),
+         EOF3_to = case_when(time == 1 ~ .N()$EOF3_1200[to],
+                             time == 2 ~ .N()$EOF3_1250[to],
+                             time == 3 ~ .N()$EOF3_1300[to],
+                             time == 4 ~ .N()$EOF3_1350[to],
+                             time == 5 ~ .N()$EOF3_1400[to]),
+         EOF4_from = case_when(time == 1 ~ .N()$EOF4_1200[from],
+                               time == 2 ~ .N()$EOF4_1250[from],
+                               time == 3 ~ .N()$EOF4_1300[from],
+                               time == 4 ~ .N()$EOF4_1350[from],
+                               time == 5 ~ .N()$EOF4_1400[from]),
+         EOF4_to = case_when(time == 1 ~ .N()$EOF4_1200[to],
+                             time == 2 ~ .N()$EOF4_1250[to],
+                             time == 3 ~ .N()$EOF4_1300[to],
+                             time == 4 ~ .N()$EOF4_1350[to],
+                             time == 5 ~ .N()$EOF4_1400[to])) %>%
+  mutate(eof1 = EOF1_from - EOF1_to,
+      eof2 = EOF2_from - EOF2_to,
+      eof3 = EOF3_from - EOF3_to,
+      eof4 = EOF4_from - EOF4_to,
+      eof1_same = sign(EOF1_from) == sign(EOF1_to),
+      eof2_same = sign(EOF2_from) == sign(EOF2_to),
+      eof3_same = sign(EOF3_from) == sign(EOF3_to),
+      eof4_same = sign(EOF4_from) == sign(EOF4_to))
+```
+
+
+```{r echo = F, eval = F}
 swsn <- swsn %N>%
   mutate(ID = 1:n()) %>%
   left_join(eof_data) %E>%
@@ -422,8 +526,12 @@ swsn <- swsn %N>%
 dat <- swsn %E>%
   left_join(distances) %>%
   as_tibble %>%
-  mutate(distance = replace_na(distance, 0)) %>%
-  mutate(edge = as.factor(paste(from, to, sep = '-')))
+    mutate(distance = replace_na(distance, 0)) %>%
+  mutate(edge = as.factor(paste(from, to, sep = '-'))) %>%
+  mutate(eof1_same = as.factor(eof1_same),
+         eof2_same = as.factor(eof2_same),
+         eof3_same = as.factor(eof3_same),
+         eof4_same = as.factor(eof4_same))
 ```
 
 ```{r echo = F}
@@ -438,43 +546,81 @@ ggplot(aes(time, similarity, group = group)) +
 ```
 
 ```{r}
-mod1 <- bam(similarity ~ s(distance, bs = 'cr'),
+mod1 <- gam(similarity ~ s(distance, bs = 'cr'),
             method = 'REML',
             family = betar(link = 'cloglog'),
             data = dat)
 
-mod2 <- bam(similarity ~ s(distance, bs = 'cr') +
-                         s(size_from, bs = 'cr') +
-                         s(size_to, bs = 'cr'),
+mod2 <- gam(similarity ~ s(distance, bs = 'cr') +
+                         s(size, bs = 'cr'),
             method = 'REML',
             family = betar(link = 'cloglog'),
             data = dat)
 
-mod3 <- bam(similarity ~ s(distance, bs = 'cr') +
-              s(size_from, bs = 'cr') +
-              s(size_to, bs = 'cr') +
-            s(from_x, from_y, k = 30) +
-            s(to_x, to_y, k = 30),
+mod3 <- gam(similarity ~ s(distance, bs = 'cr') +
+                         s(size, bs = 'cr') +
+                        ti(distance, size),
             method = 'REML',
             family = betar(link = 'cloglog'),
             data = dat)
 
-mod3 <- bam(similarity ~ s(distance, bs = 'cr') +
-            s(from_x, from_y) +
-            s(to_x, to_y),
+mod4 <- gam(similarity ~ te(distance, size),
             method = 'REML',
             family = betar(link = 'cloglog'),
             data = dat)
 
+mod5 <- gam(similarity ~ s(distance, bs = 'cr') +
+              s(eof1, bs = 'cr') +
+              s(eof2, bs = 'cr') +
+              s(eof3, bs = 'cr') +
+              s(eof4, bs = 'cr'),
+            select = T,
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+
+mod6 <- gam(similarity ~ s(distance, bs = 'cr') +
+              s(abs(eof1), bs = 'cr') +
+              s(abs(eof2), bs = 'cr') +
+              s(abs(eof3), bs = 'cr') +
+              s(abs(eof4), bs = 'cr'),
+            select = T,
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+mod7 <- gam(similarity ~ s(distance, bs = 'cr') +
+              eof2_same +
+              s(eof1, bs = 'cr') +
+              s(eof2, bs = 'cr', by = eof2_same) +
+              s(eof3, bs = 'cr') +
+              s(eof4, bs = 'cr'),
+            select = T,
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+mod8 <- gam(similarity ~ s(distance, bs = 'cr') +
+                eof2_same +
+              s(abs(eof1), bs = 'cr') +
+              s(abs(eof2), bs = 'cr', by = eof2_same) +
+              s(abs(eof3), bs = 'cr') +
+              s(abs(eof4), bs = 'cr'),
+            select = T,
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+
+levels(dat$eof4_same)
 mod2 <- gamm(similarity * 1000 ~ s(distance, bs = 'cr'),
             method = 'REML',
             family = poisson,
             correlation = corAR1(form = ~time|edge),
             data = dat)
 
-plot(mod1);plot(mod2);plot(mod3)
-AIC(mod1);AIC(mod2);AIC(mod3)
-gam.check(mod3)
+plot(mod1, residuals = T);plot(mod2, residuals = T);plot(mod3, scheme = 1, residuals = T);plot(mod4, scheme = 1);plot(mod5, residuals = F)
+plot(mod6);plot(mod7);plot(mod8)
+AIC(mod1);AIC(mod2);AIC(mod3);AIC(mod4);AIC(mod5);AIC(mod6);AIC(mod7);AIC(mod8)
+gam.check(mod5)
+summary(mod7)
 ```
 
 ```{r}
