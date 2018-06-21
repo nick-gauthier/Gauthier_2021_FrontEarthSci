@@ -239,48 +239,33 @@ recon_amplitudes %>%
 ```
 
 ## Data import and preprocessing
-Import the node and edge datasets.
+Import the node data.
 ```{r message = F}
 node_data <- read_csv('Data/attributes_orig.csv')
 ```
 
+Define a function for importing and processing a single time step of the edge datasets.
+```{r}
+read_swsn <- function(net, time){
+  read.csv(net, row.names = 1, check.names = F) %>%
+    as.matrix %>%
+    as_tbl_graph(directed = T) %E>%
+    rename(similarity = weight) %>%
+    filter(!edge_is_loop()) %N>%
+    mutate(centrality = centrality_eigen(weights = similarity)) %E>%
+    mutate(time = 1150 + 50 * time,
+           centrality_from = .N()$centrality[from],
+           centrality_to = .N()$centrality[to]) %N>%
+    select(-centrality)
+}
+```
+
+Get a list of the similarity files, map the above function over them, reduce to a single graph.
 ```{r}
 swsn <- list.files('Data/Sim', full.names = T) %>%
-  map(read.csv, row.names = 1, check.names = F) %>%
-  map(as.matrix) %>%
-  map(as_tbl_graph) %>%
-  map(activate, edges) %>%
-  imap(~mutate(.x, time = .y)) %>%
-  map(~filter(., !edge_is_loop())) %>%
-  map(lans) %>%
+  imap(read_swsn) %>%
   reduce(graph_join, by = 'name') %>%
-  rename(similarity = weight) %N>%
   left_join(node_data, by = c('name' = 'SWSN_Site'))
-
-
-
-
-lans <- function(g){
-  g_filtered <- g %E>%
-  as_tibble %>%
-  group_by(from) %>%
-  mutate(total_weight = sum(weight), 
-         fractional_weight = weight / total_weight) %>%
-  nest %>%
-  mutate(fractionals = map(data, ~.$fractional_weight)) %>%
-  unnest(data, .preserve = fractionals) %>%
-  mutate(ecdf = map2(fractional_weight, fractionals, ~.x >= .y)) %>%
-  mutate(test = map_dbl(ecdf,sum)) %>%
-  mutate(outs =  map_dbl(ecdf, length)) %>%
-  mutate(test2 = 1 - test / outs) %>%
-  filter(test2 <= .05) %>%
-  select(from, to, weight)
-  
-  g %E>%
-    semi_join(g_filtered, by  = c('from', 'to')) %>%
-  return
-}
-
 ```
 
 Create a separate spatial points object, storing the locations of the sites. Convert the coordinates from utm to lat lon, and add back to the original data
@@ -296,57 +281,50 @@ pts <- swsn %N>%
 
 Add location and size to edge data.
 ```{r}
-swsn <- swsn %N>%
+dat <- swsn %N>%
   mutate(lon = pts$x, 
          lat = pts$y) %E>%
   mutate(from_x = .N()$lon[from],
          from_y = .N()$lat[from],
          to_x = .N()$lon[to],
          to_y = .N()$lat[to],
-         size_from = case_when(time == 1 ~ .N()$P1room[from],
-                               time == 2 ~ .N()$P2room[from],
-                               time == 3 ~ .N()$P3room[from],
-                               time == 4 ~ .N()$P4room[from],
-                               time == 5 ~ .N()$P5room[from]),
-         size_to = case_when(time == 1 ~ .N()$P1room[to],
-                             time == 2 ~ .N()$P2room[to],
-                             time == 3 ~ .N()$P3room[to],
-                             time == 4 ~ .N()$P4room[to],
-                             time == 5 ~ .N()$P5room[to])) %>%
-  mutate(size = size_from * size_to)
+         size_from = case_when(time == 1200 ~ .N()$P1room[from],
+                               time == 1250 ~ .N()$P2room[from],
+                               time == 1300 ~ .N()$P3room[from],
+                               time == 1350 ~ .N()$P4room[from],
+                               time == 1400 ~ .N()$P5room[from]),
+         size_to = case_when(time == 1200 ~ .N()$P1room[to],
+                             time == 1250 ~ .N()$P2room[to],
+                             time == 1300 ~ .N()$P3room[to],
+                             time == 1350 ~ .N()$P4room[to],
+                             time == 1400 ~ .N()$P5room[to]),
+         macro_from = .N()$Macro[from],
+         macro_to =.N()$Macro[to],
+         macro_same = macro_from == macro_to,
+         micro_from = .N()$Micro[from],
+         micro_to = .N()$Micro[to],
+         micro_same = micro_from == micro_to) %>%
+  as_tibble
 ```
 
-```{r echo = F, eval = F}
-#Alternative version of code for directed network
-swsn <- swsn %N>%
-  mutate(lon = pts$x, 
-         lat = pts$y) %E>%
-  mutate(from_x = .N()$lon[from],
-         from_y = .N()$lat[from],
-         to_x = .N()$lon[to],
-         to_y = .N()$lat[to],
-         size_from = case_when(time == 1 ~ .N()$P1room[from],
-                               time == 2 ~ .N()$P2room[from],
-                               time == 3 ~ .N()$P3room[from],
-                               time == 4 ~ .N()$P4room[from],
-                               time == 5 ~ .N()$P5room[from]),
-         size_to = case_when(time == 1 ~ .N()$P1room[to],
-                             time == 2 ~ .N()$P2room[to],
-                             time == 3 ~ .N()$P3room[to],
-                             time == 4 ~ .N()$P4room[to],
-                             time == 5 ~ .N()$P5room[to]))
-```
 Get state outlines.
 ```{r}
 states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
 ```
 
-```{r echo = F}
-ggraph(swsn, 'manual', node.positions = pts) +
+```{r echo = F, eval = F}
+swsn %E>%
+  filter(time == 3) %N>% 
+  mutate(centrality = centrality_eigen(weights = similarity)) %>%
+ggraph('manual', node.positions = pts) +
+  geom_raster(data = gather(as.data.frame(reof_raster, xy = T, na.rm = T), key, value,  3:6), aes(x, y, fill = value)) +
   geom_edge_fan(aes(alpha = similarity, color = similarity)) +
-  facet_edges(~time) +
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  geom_node_point(aes(size = centrality, color = centrality)) +
+  #facet_edges(~time) +
+  facet_wrap(~key) +
   scale_edge_alpha() +
+  scale_fill_distiller(palette = 'Spectral', direction = 1, limits = c(-1, 1)) +
   coord_equal() +
   theme_graph()
 ```
@@ -364,13 +342,15 @@ hd <- transition(elev, altDiff, 8, symm = F)
 cell.targets <- Which(!is.na(elev), cells = T)
 adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = T, directions = 8)
 slope <- geoCorrection(hd, type = 'c')
+rm(hd)
 speed <- slope
 speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
+rm(slope, adj)
 conductance <- geoCorrection(speed, type = 'c')
+rm(speed)
 ```
 
 ```{r echo = F, message = F, warning = F}
-rm(hd, adj, slope)#, speed)
 gc()
 ```
 
@@ -385,7 +365,7 @@ distances <- swsn %N>%
   as_tibble %>%
   as.matrix %>%
   costDistance(conductance, .) %>%
-  as_tbl_graph %E>%
+  as_tbl_graph(directed = T) %E>%
   rename(distance = weight) %>%
   as_tibble
 ```
@@ -526,50 +506,116 @@ swsn <- swsn %N>%
 dat <- swsn %E>%
   left_join(distances) %>%
   as_tibble %>%
-    mutate(distance = replace_na(distance, 0)) %>%
+   mutate(distance = replace_na(distance, 0)) %>%
+  filter(similarity > 0) %>%
   mutate(edge = as.factor(paste(from, to, sep = '-'))) %>%
   mutate(eof1_same = as.factor(eof1_same),
          eof2_same = as.factor(eof2_same),
          eof3_same = as.factor(eof3_same),
-         eof4_same = as.factor(eof4_same))
+         eof4_same = as.factor(eof4_same)) 
 ```
 
 ```{r echo = F}
+ggplot(filter(dat, similarity > 0), aes(distance,similarity)) +
+  geom_point(alpha = .1) +
+  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
+  geom_smooth() +
+  #scale_x_log10()+
+  #scale_y_log10()+
+  theme_minimal()
+
+ggplot(filter(dat, similarity>0), aes(distance,similarity)) +
+  geom_point(alpha = .1, aes(color = local_significance)) +
+  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
+  geom_smooth() +
+  theme_minimal()
+```
+
+In log log space, we get teh downward function from devries et al 2009!
+```{r}
+ggplot(filter(dat, local_significance <=.1), aes(distance + .01,similarity + .001)) +
+  geom_point(alpha = .1, aes(color = local_significance)) +
+  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
+  geom_smooth() +
+  scale_x_log10()+
+  scale_y_log10()+
+  theme_minimal()
+```
+
+```{r}
+ggplot(filter(dat, local_significance <=.5 & similarity > 0), aes(distance,similarity)) +
+  geom_point(alpha = .1, aes(color = local_significance)) +
+  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
+  geom_smooth() +
+  theme_minimal()
+```
+
+Do the fits to distance change with time? a little bit, but seems more to have to do with the decreae in sample size with time.
+```{r}
 ggplot(dat, aes(distance, similarity)) +
+  geom_point(alpha = .1, aes(color = time)) +
+    scale_color_distiller(palette = 'Spectral', direction = 1) +
+  geom_smooth(aes(group = time, color = time)) +
+  geom_smooth() +
+  theme_minimal()
+```
+
+```{r}
+ggplot(dat, aes(distance, weighted_similarity)) +
   geom_point(alpha = .1) +
   geom_smooth() +
   theme_minimal()
+```
+
+```{r}
+
+ggplot(dat, aes(log((similarity * (nrow(dat) - 1) + .5 )/nrow(dat)) / (1 - (similarity * (nrow(dat) - 1) + .5 )/nrow(dat)))) +
+  geom_density()
+ggplot(dat, aes(log(-log((1 - (similarity * (nrow(dat) - 1) + .5 )/nrow(dat)))))) +
+  geom_density()
 dat %>% 
   mutate(group = paste(from, to, sep = '-')) %>%
 ggplot(aes(time, similarity, group = group)) +
   geom_line(alpha = .1)
+
+hist(dat$similarity)
 ```
 
 ```{r}
-mod1 <- gam(similarity ~ s(distance, bs = 'cr'),
-            method = 'REML',
-            family = betar(link = 'cloglog'),
-            data = dat)
+fit_gam <- function(x){
+  bam(x, select = T, 
+         family = betar(link = 'cloglog', eps = .001,#1/(2*nrow(dat))), # MacMillan and Creelman 2005 pp 8-9
+         data = dat)#(dat * (nrow(dat) - 1) + .5) / nrow(dat))
+}
 
-mod2 <- gam(similarity ~ s(distance, bs = 'cr') +
-                         s(size, bs = 'cr'),
-            method = 'REML',
-            family = betar(link = 'cloglog'),
-            data = dat)
+geo_models <- c(
+    "s(distance, bs = 'cr')",
+    "s(distance, bs = 'cr') + s(size, bs = 'cr')",
+    "s(distance, bs = 'cr') + s(size_from, size_to)",
+    "ti(distance) + ti(size) + ti(distance, size)",
+    "te(distance, size, k = 10)",
+    "s(distance, bs = 'cr') + s(abs(eof1), bs = 'cr', k = 15) + s(abs(eof2), bs = 'cr') + s(abs(eof3), bs = 'cr', k = 15) + s(abs(eof4), bs = 'cr', k = 15)",
+    "s(distance, bs = 'cr') + s(sqrt(abs(eof1)), bs = 'cr', k = 15) + s(abs(eof2), bs = 'cr') + s(abs(eof3), bs = 'cr', k = 15) + s(abs(eof4), bs = 'cr', k = 15)") %>%
+  paste('similarity ~', .) %>%
+  map(as.formula) %>%
+  tibble(formula = .) %>%
+  mutate(model = map(formula, fit_gam))
 
-mod3 <- gam(similarity ~ s(distance, bs = 'cr') +
-                         s(size, bs = 'cr') +
-                        ti(distance, size),
-            method = 'REML',
-            family = betar(link = 'cloglog'),
-            data = dat)
+geo_models %>%
+  mutate(aic = map_dbl(model, AIC))
 
-mod4 <- gam(similarity ~ te(distance, size),
-            method = 'REML',
-            family = betar(link = 'cloglog'),
-            data = dat)
+summary(geo_models[[6,2]])
+plot(geo_models[[7,2]], scheme = 1, residuals = T)
+gam.check(geo_models[[6,2]])
+hist(sqrt(abs(dat$eof4)))
+```
 
-mod5 <- gam(similarity ~ s(distance, bs = 'cr') +
+```{r}
+
+```
+
+```{r}
+mod5 <- gam(fractional_similarity ~ s(distance, bs = 'cr') +
               s(eof1, bs = 'cr') +
               s(eof2, bs = 'cr') +
               s(eof3, bs = 'cr') +
@@ -588,6 +634,51 @@ mod6 <- gam(similarity ~ s(distance, bs = 'cr') +
             method = 'REML',
             family = betar(link = 'cloglog'),
             data = dat)
+
+summary(mod1)
+plot(mod1)
+gam.check(mod1)
+```
+
+
+```{r}
+mod1.5 <- gam(similarity ~ s(distance, bs = 'cr', k = 30),
+            method = 'REML',
+            select = T,
+            family = betar(link = 'cloglog', eps = .0001),
+            data = filter(dat, local_significance <= .5))
+summary(mod1.5)
+plot(mod1.5, residuals= F)
+gam.check(mod1.5)
+
+hist(degree_distribution(swsn %E>% filter(local_significance <= .05 & similarity > 0), mode = 'out'))
+swsn %E>%
+  filter(time == 1) %>%
+  filter(local_significance < .05 & similarity > 0) %N>%
+  mutate(degree = centrality_degree(weights = similarity, mode = 'out')) %>%
+  as_tibble %>%
+  ggplot(aes(degree)) +
+  geom_density()
+
+
+
+dat %>%
+  filter(local_significance <= .05) %>%
+  ggplot(aes(similarity)) +
+  geom_density() +
+  facet_wrap(~time)
+```
+
+
+```{r}
+mod2 <- gam(similarity ~ s(distance, bs = 'cr') +
+                         s(size_from, bs = 'cr') +
+                        s(size_to, bs = 'cr'),
+            method = 'REML',
+            family = betar(link = 'cloglog'),
+            data = dat)
+
+
 mod7 <- gam(similarity ~ s(distance, bs = 'cr') +
               eof2_same +
               s(eof1, bs = 'cr') +
@@ -616,106 +707,28 @@ mod2 <- gamm(similarity * 1000 ~ s(distance, bs = 'cr'),
             correlation = corAR1(form = ~time|edge),
             data = dat)
 
-plot(mod1, residuals = T);plot(mod2, residuals = T);plot(mod3, scheme = 1, residuals = T);plot(mod4, scheme = 1);plot(mod5, residuals = F)
+plot(mod1, residuals = T);plot(mod2, residuals = F);plot(mod3, scheme = 1, residuals = T);plot(mod4, scheme = 1);plot(mod5, residuals = F)
 plot(mod6);plot(mod7);plot(mod8)
 AIC(mod1);AIC(mod2);AIC(mod3);AIC(mod4);AIC(mod5);AIC(mod6);AIC(mod7);AIC(mod8)
 gam.check(mod5)
 summary(mod7)
-```
 
+gam.check(mod1)
+summary(residuals(mod1, type = 'response'))
+cbind(dat, test = residuals(mod1)) %>%
+  filter(test > 6)
+```
 ```{r}
-test <- dat %>%
-  mutate(resid = residuals(mod1, type = 'response')) %>%
-  group_by(from, to) %>%
-  arrange(time, .by_group = T) %>%
-select(from, to, time, resid) %>%
-  mutate(lag1 = lag(resid)) %>%
-  filter(!is.na(lag1))
-cor(test$resid, test$lag1)
-
-acf(test[1:3,6], lag.max = 5)
-
-mod2 <- dat %>% 
-  group_by(from, to) %>% 
-  arrange(time, .by_group = T) %>%
-  mutate(test = if_else(row_number() == 1, T, F)) %>%
-  bam(similarity ~ s(distance, bs = 'cr'),
-            method = 'REML',
-            family = betar(link = 'cloglog'),
-            rho = .3,
-            AR.start = test,
-            data = .)
-
-plot(mod2)
-presidents
-
-swsn %E>% filter(from == 1) %>% as_tibble %>% select(similarity) %>% pull %>% sum
+plot(reof_raster)
 ```
 
-```{r}
-mod2 <- gam(weight ~ s(distance, bs = 'cr'),
-            method = 'REML',
-            select = T, 
-            data = dat)
-mod3 <- gam(weight ~ s(distance, bs = 'cr'),
-            method = 'REML',
-            family = gaussian(link = 'log'),
-            select = T, 
-            data = dat)
-mod4 <- gam(weight * 1000 ~ s(distance, bs = 'cr'),
-            method = 'REML',
-            family = poisson,
-            select = T, 
-            data = dat)
-plot(mod1); plot(mod2); plot(mod3); plot(mod4)
-list(mod1,mod2,mod3, mod4) %>% map(summary)
-list(mod1,mod2,mod3, mod4) %>% map(gam.check)
-```
 
-```{r}
-mod5 <- gam(weight ~ s(distance, bs = 'cr') +
-                     s(size_prod, bs = 'cr') +
-                     ti(distance, size_prod), 
-            method = 'REML',
-            select = T, 
-            family = betar(link = 'cloglog'),
-            eps  = .0001,
-            data = dat)
-mod6 <- gam(weight ~ te(distance, size_prod), 
-            method = 'REML',
-            select = T, 
-            family = betar(link = 'cloglog'),
-            eps = .0001,
-            data = dat)
-mod7 <- gam(weight ~ te(distance, size_sum), 
-            method = 'REML',
-            select = T, 
-            family = betar(link = 'cloglog'),
-            eps = .0001,
-            data = dat)
-mod8 <- gam(weight ~ s(distance, bs = 'cr') +
-                     s(size_sum, bs = 'cr') +
-                     ti(distance, size_sum), 
-            method = 'REML',
-            select = T, 
-            family = betar(link = 'cloglog'),
-            eps  = .0001,
-            data = dat)
 
-plot(mod5, scheme = 1)
-plot(mod6, scheme = 1)
-plot(mod7, scheme = 1)
-plot(mod8, scheme = 1)
-summary(mod5);summary(mod6);summary(mod7)
-gam.check(mod6)
-dat %>% 
-  pull(weight) %>%
-  summary
-```
 
 ```{r}
 swsn %E>%
-  mutate(resid = residuals(mod2, type = 'response')) %>%
+  filter(similarity > 0) %>%
+  mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
   filter(resid > .25 | resid < -.25) %>%
   mutate(fac = if_else(resid > 0, 'pos', 'neg')) %>%
   ggraph('manual', node.positions = pts) +
@@ -726,4 +739,53 @@ swsn %E>%
   coord_equal() +
   theme_graph()
 ```
+```{r}
+swsn %N>%
+  filter(similarity > 0) %>%
+  mutate(resid = residuals(geo_models[[6,2]], type = 'response')) %>%
+  filter(resid > .25 | resid < -.25) %>%
+  mutate(fac = if_else(resid > 0, 'pos', 'neg')) %>%
+  ggraph('manual', node.positions = pts) +
+  geom_edge_link(aes(alpha = abs(resid), color = resid)) +
+  facet_graph(time ~ fac, col_type = 'edge') +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  scale_edge_colour_distiller(palette = 'RdBu', limits = c(-1,1)) +
+  coord_equal() +
+  theme_graph()
+```
+Looks like distance is correlated with residuals
+```{r}
+dat %>%
+  filter(similarity > 0) %>%
+  mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
+  as_tibble %>%
+  qplot(distance, resid, data = ., geom = 'point', alpha = I(.1), color = as.factor(time))
+```
+```{r}
+dat %>%
+  filter(similarity > 0) %>%
+  mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
+  as_tibble %>%
+  qplot(abs(eof1), resid, data = ., geom = 'point', alpha = I(.1), color = as.factor(time))
+```
+```{r}
+swsn %E>%
+    filter(similarity > 0) %>%
+  mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
+  filter(time == 1) %N>%
+  mutate(centrality = centrality_eigen(weights = similarity)) %E>%
+  mutate(cent = .N()$centrality[from] * .N()$centrality[to]) %>%
+  as_tibble %>%
+  qplot(cent, resid, data = ., geom = 'point', alpha = I(.1))
+```
 
+```{r}
+swsn %E>%
+    filter(similarity > 0) %>%
+  mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
+  filter(time == 3) %N>%
+  mutate(centrality = centrality_eigen(weights = similarity)) %E>%
+  mutate(cent = .N()$centrality[from] + .N()$centrality[to]) %>%
+  as_tibble %>%
+  qplot(cent, similarity, data = ., geom = 'point', alpha = I(.1))
+```
