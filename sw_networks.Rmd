@@ -218,6 +218,7 @@ recon_amplitudes <- amplitudes %>%
   mutate(period = floor((year/50)) * 50) 
 ```
 
+
 ```{r echo = F}
 ggplot(recon_amplitudes, aes(year, amplitude, group = eof)) +
   geom_line(aes(color = eof), alpha = .7) +
@@ -307,21 +308,17 @@ dat <- swsn %N>%
   as_tibble
 ```
 
-Get state outlines.
-```{r}
-states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
-```
+
 
 ```{r echo = F, eval = F}
-swsn %E>%
-  filter(time == 3) %N>% 
-  mutate(centrality = centrality_eigen(weights = similarity)) %>%
-ggraph('manual', node.positions = pts) +
+states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
+
+ggraph(swsn, 'manual', node.positions = pts) +
   geom_raster(data = gather(as.data.frame(reof_raster, xy = T, na.rm = T), key, value,  3:6), aes(x, y, fill = value)) +
   geom_edge_fan(aes(alpha = similarity, color = similarity)) +
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   geom_node_point(aes(size = centrality, color = centrality)) +
-  #facet_edges(~time) +
+  facet_edges(~time) +
   facet_wrap(~key) +
   scale_edge_alpha() +
   scale_fill_distiller(palette = 'Spectral', direction = 1, limits = c(-1, 1)) +
@@ -329,65 +326,41 @@ ggraph('manual', node.positions = pts) +
   theme_graph()
 ```
 
-## Least Cost Distances
+## Environmental Data
 ```{r}
 bbox <- extent(c(-113.5, -106.5, 31, 37.5))
-elev <- raster('~/Downloads/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>%
-  crop(bbox)
 ```
-
-```{r cache = T}
-altDiff <- function(x){x[2] - x[1]}
-hd <- transition(elev, altDiff, 8, symm = F)
-cell.targets <- Which(!is.na(elev), cells = T)
-adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = T, directions = 8)
-slope <- geoCorrection(hd, type = 'c')
-rm(hd)
-speed <- slope
-speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
-rm(slope, adj)
-conductance <- geoCorrection(speed, type = 'c')
-rm(speed)
-```
-
-```{r echo = F, message = F, warning = F}
-gc()
-```
-
-```{r echo = F}
-plot(raster(conductance))
-```
-
-Calculate the least cost distance matrix between all sites and turn into a graph.
-```{r cache = T}
-distances <- swsn %N>%
-  select(lon, lat) %>%
-  as_tibble %>%
-  as.matrix %>%
-  costDistance(conductance, .) %>%
-  as_tbl_graph(directed = T) %E>%
-  rename(distance = weight) %>%
-  as_tibble
-```
-
-```{r echo = F}
-gc()
-```
-
 
 ```{r}
+elev <- raster('~/Downloads/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>%
+  crop(bbox)
+
+prec <- raster('Data/PRISM_ppt_30yr_normal_800mM2_annual_asc.asc') %>% 
+  crop(bbox)
+
+temp <- raster('Data/PRISM_tmean_30yr_normal_800mM2_annual_asc.asc') %>%
+  crop(bbox)
+
 reof_raster <- as.data.frame(spei_obs[[1]], xy = T, na.rm = T) %>%
   select(x:y) %>%
   cbind(obs_eof$REOF) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>% 
   crop(bbox)
+  
+env_rasters <- list(elev, prec, temp, reof_raster) %>%
+  map(projectRaster, prec) %>%
+  brick %>%
+  `names<-`(c('elev', 'precip', 'temp', 'reof1', 'reof2', 'reof3', 'reof4'))
 
+pairs(env_rasters)
+```
+
+```{r, eval = F, echo = F}
 test <- recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
   group_by(eof, period) %>% 
   summarise(amplitude = mean(amplitude))
-
 eof_data <- swsn %N>%
   select(lon, lat) %>%
   as_tibble %>%
@@ -398,6 +371,10 @@ eof_data <- swsn %N>%
             value = value * amplitude) %>%
   select(ID, key, value) %>%
   spread(key, value, -1)
+```
+
+```{r}
+raster::extract(env_rasters, pts, df = T)
 ```
 
 ```{r}
@@ -455,51 +432,53 @@ swsn <- swsn %N>%
 ```
 
 
-```{r echo = F, eval = F}
-swsn <- swsn %N>%
-  mutate(ID = 1:n()) %>%
-  left_join(eof_data) %E>%
-  mutate(EOF1_from = case_when(time == 1 ~ .N()$EOF1_1200[from],
-                               time == 2 ~ .N()$EOF1_1250[from],
-                               time == 3 ~ .N()$EOF1_1300[from],
-                               time == 4 ~ .N()$EOF1_1350[from],
-                               time == 5 ~ .N()$EOF1_1400[from]),
-         EOF1_to = case_when(time == 1 ~ .N()$EOF1_1200[to],
-                             time == 2 ~ .N()$EOF1_1250[to],
-                             time == 3 ~ .N()$EOF1_1300[to],
-                             time == 4 ~ .N()$EOF1_1350[to],
-                             time == 5 ~ .N()$EOF1_1400[to]),
-         EOF2_from = case_when(time == 1 ~ .N()$EOF2_1200[from],
-                               time == 2 ~ .N()$EOF2_1250[from],
-                               time == 3 ~ .N()$EOF2_1300[from],
-                               time == 4 ~ .N()$EOF2_1350[from],
-                               time == 5 ~ .N()$EOF2_1400[from]),
-         EOF2_to = case_when(time == 1 ~ .N()$EOF2_1200[to],
-                             time == 2 ~ .N()$EOF2_1250[to],
-                             time == 3 ~ .N()$EOF2_1300[to],
-                             time == 4 ~ .N()$EOF2_1350[to],
-                             time == 5 ~ .N()$EOF2_1400[to]),
-         EOF3_from = case_when(time == 1 ~ .N()$EOF3_1200[from],
-                               time == 2 ~ .N()$EOF3_1250[from],
-                               time == 3 ~ .N()$EOF3_1300[from],
-                               time == 4 ~ .N()$EOF3_1350[from],
-                               time == 5 ~ .N()$EOF3_1400[from]),
-         EOF3_to = case_when(time == 1 ~ .N()$EOF3_1200[to],
-                             time == 2 ~ .N()$EOF3_1250[to],
-                             time == 3 ~ .N()$EOF3_1300[to],
-                             time == 4 ~ .N()$EOF3_1350[to],
-                             time == 5 ~ .N()$EOF3_1400[to]),
-         EOF4_from = case_when(time == 1 ~ .N()$EOF4_1200[from],
-                               time == 2 ~ .N()$EOF4_1250[from],
-                               time == 3 ~ .N()$EOF4_1300[from],
-                               time == 4 ~ .N()$EOF4_1350[from],
-                               time == 5 ~ .N()$EOF4_1400[from]),
-         EOF4_to = case_when(time == 1 ~ .N()$EOF4_1200[to],
-                             time == 2 ~ .N()$EOF4_1250[to],
-                             time == 3 ~ .N()$EOF4_1300[to],
-                             time == 4 ~ .N()$EOF4_1350[to],
-                             time == 5 ~ .N()$EOF4_1400[to]))
+## Least Cost Distances
+
+```{r cache = T}
+altDiff <- function(x){x[2] - x[1]}
+hd <- transition(elev, altDiff, 8, symm = F)
+cell.targets <- Which(!is.na(elev), cells = T)
+adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = T, directions = 8)
+slope <- geoCorrection(hd, type = 'c')
+rm(hd)
+speed <- slope
+speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
+rm(slope, adj)
+conductance <- geoCorrection(speed, type = 'c')
+rm(speed)
 ```
+
+```{r echo = F, message = F, warning = F}
+gc()
+```
+
+```{r echo = F}
+plot(raster(conductance))
+```
+
+Calculate the least cost distance matrix between all sites and turn into a graph.
+```{r cache = T}
+distances <- swsn %N>%
+  select(lon, lat) %>%
+  as_tibble %>%
+  as.matrix %>%
+  costDistance(conductance, .) %>%
+  as_tbl_graph(directed = T) %E>%
+  rename(distance = weight) %>%
+  as_tibble
+```
+
+```{r echo = F}
+gc()
+```
+```{r}
+saveRDS(distances, 'distances.rds')
+loadRDS(distances, 'distances.rds')
+```
+
+
+
+
 
 ## Model fitting
 ```{r}
