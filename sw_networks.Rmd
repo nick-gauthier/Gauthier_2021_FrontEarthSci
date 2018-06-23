@@ -280,34 +280,6 @@ pts <- swsn %N>%
   data.frame
 ```
 
-Add location and size to edge data.
-```{r}
-dat <- swsn %N>%
-  mutate(lon = pts$x, 
-         lat = pts$y) %E>%
-  mutate(from_x = .N()$lon[from],
-         from_y = .N()$lat[from],
-         to_x = .N()$lon[to],
-         to_y = .N()$lat[to],
-         size_from = case_when(time == 1200 ~ .N()$P1room[from],
-                               time == 1250 ~ .N()$P2room[from],
-                               time == 1300 ~ .N()$P3room[from],
-                               time == 1350 ~ .N()$P4room[from],
-                               time == 1400 ~ .N()$P5room[from]),
-         size_to = case_when(time == 1200 ~ .N()$P1room[to],
-                             time == 1250 ~ .N()$P2room[to],
-                             time == 1300 ~ .N()$P3room[to],
-                             time == 1350 ~ .N()$P4room[to],
-                             time == 1400 ~ .N()$P5room[to]),
-         macro_from = .N()$Macro[from],
-         macro_to =.N()$Macro[to],
-         macro_same = macro_from == macro_to,
-         micro_from = .N()$Micro[from],
-         micro_to = .N()$Micro[to],
-         micro_same = micro_from == micro_to) %>%
-  as_tibble
-```
-
 
 
 ```{r echo = F, eval = F}
@@ -373,63 +345,7 @@ eof_data <- swsn %N>%
   spread(key, value, -1)
 ```
 
-```{r}
-raster::extract(env_rasters, pts, df = T)
-```
 
-```{r}
-swsn <- swsn %N>%
-  mutate(ID = 1:n()) %>%
-  left_join(eof_data) %E>%
-  mutate(EOF1_from = case_when(time == 1 ~ .N()$EOF1_1200[from],
-                               time == 2 ~ .N()$EOF1_1250[from],
-                               time == 3 ~ .N()$EOF1_1300[from],
-                               time == 4 ~ .N()$EOF1_1350[from],
-                               time == 5 ~ .N()$EOF1_1400[from]),
-         EOF1_to = case_when(time == 1 ~ .N()$EOF1_1200[to],
-                             time == 2 ~ .N()$EOF1_1250[to],
-                             time == 3 ~ .N()$EOF1_1300[to],
-                             time == 4 ~ .N()$EOF1_1350[to],
-                             time == 5 ~ .N()$EOF1_1400[to]),
-         EOF2_from = case_when(time == 1 ~ .N()$EOF2_1200[from],
-                               time == 2 ~ .N()$EOF2_1250[from],
-                               time == 3 ~ .N()$EOF2_1300[from],
-                               time == 4 ~ .N()$EOF2_1350[from],
-                               time == 5 ~ .N()$EOF2_1400[from]),
-         EOF2_to = case_when(time == 1 ~ .N()$EOF2_1200[to],
-                             time == 2 ~ .N()$EOF2_1250[to],
-                             time == 3 ~ .N()$EOF2_1300[to],
-                             time == 4 ~ .N()$EOF2_1350[to],
-                             time == 5 ~ .N()$EOF2_1400[to]),
-         EOF3_from = case_when(time == 1 ~ .N()$EOF3_1200[from],
-                               time == 2 ~ .N()$EOF3_1250[from],
-                               time == 3 ~ .N()$EOF3_1300[from],
-                               time == 4 ~ .N()$EOF3_1350[from],
-                               time == 5 ~ .N()$EOF3_1400[from]),
-         EOF3_to = case_when(time == 1 ~ .N()$EOF3_1200[to],
-                             time == 2 ~ .N()$EOF3_1250[to],
-                             time == 3 ~ .N()$EOF3_1300[to],
-                             time == 4 ~ .N()$EOF3_1350[to],
-                             time == 5 ~ .N()$EOF3_1400[to]),
-         EOF4_from = case_when(time == 1 ~ .N()$EOF4_1200[from],
-                               time == 2 ~ .N()$EOF4_1250[from],
-                               time == 3 ~ .N()$EOF4_1300[from],
-                               time == 4 ~ .N()$EOF4_1350[from],
-                               time == 5 ~ .N()$EOF4_1400[from]),
-         EOF4_to = case_when(time == 1 ~ .N()$EOF4_1200[to],
-                             time == 2 ~ .N()$EOF4_1250[to],
-                             time == 3 ~ .N()$EOF4_1300[to],
-                             time == 4 ~ .N()$EOF4_1350[to],
-                             time == 5 ~ .N()$EOF4_1400[to])) %>%
-  mutate(eof1 = EOF1_from - EOF1_to,
-      eof2 = EOF2_from - EOF2_to,
-      eof3 = EOF3_from - EOF3_to,
-      eof4 = EOF4_from - EOF4_to,
-      eof1_same = sign(EOF1_from) == sign(EOF1_to),
-      eof2_same = sign(EOF2_from) == sign(EOF2_to),
-      eof3_same = sign(EOF3_from) == sign(EOF3_to),
-      eof4_same = sign(EOF4_from) == sign(EOF4_to))
-```
 
 
 ## Least Cost Distances
@@ -465,7 +381,8 @@ distances <- swsn %N>%
   costDistance(conductance, .) %>%
   as_tbl_graph(directed = T) %E>%
   rename(distance = weight) %>%
-  as_tibble
+  as_tibble %>%
+  mutate(distance = replace_na(distance, 0))
 ```
 
 ```{r echo = F}
@@ -473,7 +390,7 @@ gc()
 ```
 ```{r}
 saveRDS(distances, 'distances.rds')
-loadRDS(distances, 'distances.rds')
+distances <- readRDS('distances.rds')
 ```
 
 
@@ -482,50 +399,72 @@ loadRDS(distances, 'distances.rds')
 
 ## Model fitting
 ```{r}
-dat <- swsn %E>%
-  left_join(distances) %>%
+dat <- swsn %N>%
+  mutate(ID = 1:n(),
+         lon = pts$x, 
+         lat = pts$y) %>%
+  left_join(raster::extract(env_rasters, pts, df = T), by = 'ID') %E>%
+  left_join(distances, by = c('from', 'to')) %>%
+  mutate(from_x = .N()$lon[from],
+         from_y = .N()$lat[from],
+         to_x = .N()$lon[to],
+         to_y = .N()$lat[to],
+         size_from = case_when(time == 1200 ~ .N()$P1room[from],
+                               time == 1250 ~ .N()$P2room[from],
+                               time == 1300 ~ .N()$P3room[from],
+                               time == 1350 ~ .N()$P4room[from],
+                               time == 1400 ~ .N()$P5room[from]),
+         size_to = case_when(time == 1200 ~ .N()$P1room[to],
+                             time == 1250 ~ .N()$P2room[to],
+                             time == 1300 ~ .N()$P3room[to],
+                             time == 1350 ~ .N()$P4room[to],
+                             time == 1400 ~ .N()$P5room[to]),
+         macro_from = .N()$Macro[from],
+         macro_to =.N()$Macro[to],
+         macro_same = macro_from == macro_to,
+         micro_from = .N()$Micro[from],
+         micro_to = .N()$Micro[to],
+         micro_same = micro_from == micro_to,
+         elev_from = .N()$elev[from],
+         elev_to = .N()$elev[to],
+         precip_from = .N()$precip[from],
+         precip_to = .N()$precip[to],
+         temp_from = .N()$temp[from],
+         temp_to = .N()$temp[to],
+         reof1_from = .N()$reof1[from],
+         reof1_to = .N()$reof1[to],
+         reof2_from = .N()$reof2[from],
+         reof2_to = .N()$reof2[to],
+         reof3_from = .N()$reof3[from],
+         reof3_to = .N()$reof3[to],
+         reof4_from = .N()$reof4[from],
+         reof4_to = .N()$reof4[to]) %>%
   as_tibble %>%
-   mutate(distance = replace_na(distance, 0)) %>%
-  filter(similarity > 0) %>%
-  mutate(edge = as.factor(paste(from, to, sep = '-'))) %>%
-  mutate(eof1_same = as.factor(eof1_same),
-         eof2_same = as.factor(eof2_same),
-         eof3_same = as.factor(eof3_same),
-         eof4_same = as.factor(eof4_same)) 
+  filter(centrality_from >= centrality_to)
 ```
 
 ```{r echo = F}
-ggplot(filter(dat, similarity > 0), aes(distance,similarity)) +
+ggplot(dat, aes(distance, similarity)) +
   geom_point(alpha = .1) +
   scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
   geom_smooth() +
-  #scale_x_log10()+
-  #scale_y_log10()+
   theme_minimal()
 
-ggplot(filter(dat, similarity>0), aes(distance,similarity)) +
-  geom_point(alpha = .1, aes(color = local_significance)) +
-  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
-  geom_smooth() +
-  theme_minimal()
+#ggplot(dat, aes(distance,similarity)) +
+ # geom_point(alpha = .1, aes(color = local_significance)) +
+#  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
+ # geom_smooth() +
+  #theme_minimal()
 ```
 
 In log log space, we get teh downward function from devries et al 2009!
 ```{r}
-ggplot(filter(dat, local_significance <=.1), aes(distance + .01,similarity + .001)) +
-  geom_point(alpha = .1, aes(color = local_significance)) +
+ggplot(dat, aes(distance + .01,similarity + .001)) +
+  geom_point(alpha = .1) +
   scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
   geom_smooth() +
   scale_x_log10()+
   scale_y_log10()+
-  theme_minimal()
-```
-
-```{r}
-ggplot(filter(dat, local_significance <=.5 & similarity > 0), aes(distance,similarity)) +
-  geom_point(alpha = .1, aes(color = local_significance)) +
-  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
-  geom_smooth() +
   theme_minimal()
 ```
 
@@ -538,13 +477,15 @@ ggplot(dat, aes(distance, similarity)) +
   geom_smooth() +
   theme_minimal()
 ```
-
 ```{r}
-ggplot(dat, aes(distance, weighted_similarity)) +
-  geom_point(alpha = .1) +
+ggplot(dat, aes(centrality_to, similarity)) +
+  geom_point(alpha = .1, aes(color = time)) +
+    scale_color_distiller(palette = 'Spectral', direction = 1) +
+  geom_smooth(aes(group = time, color = time)) +
   geom_smooth() +
   theme_minimal()
 ```
+
 
 ```{r}
 
@@ -563,18 +504,17 @@ hist(dat$similarity)
 ```{r}
 fit_gam <- function(x){
   bam(x, select = T, 
-         family = betar(link = 'cloglog', eps = .001,#1/(2*nrow(dat))), # MacMillan and Creelman 2005 pp 8-9
+         family = betar(link = 'cloglog', eps = .001),#1/(2*nrow(dat))), # MacMillan and Creelman 2005 pp 8-9
          data = dat)#(dat * (nrow(dat) - 1) + .5) / nrow(dat))
 }
 
 geo_models <- c(
     "s(distance, bs = 'cr')",
-    "s(distance, bs = 'cr') + s(size, bs = 'cr')",
+    "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr')",
+    "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr')",
     "s(distance, bs = 'cr') + s(size_from, size_to)",
-    "ti(distance) + ti(size) + ti(distance, size)",
-    "te(distance, size, k = 10)",
-    "s(distance, bs = 'cr') + s(abs(eof1), bs = 'cr', k = 15) + s(abs(eof2), bs = 'cr') + s(abs(eof3), bs = 'cr', k = 15) + s(abs(eof4), bs = 'cr', k = 15)",
-    "s(distance, bs = 'cr') + s(sqrt(abs(eof1)), bs = 'cr', k = 15) + s(abs(eof2), bs = 'cr') + s(abs(eof3), bs = 'cr', k = 15) + s(abs(eof4), bs = 'cr', k = 15)") %>%
+    "s(distance, bs = 'cr') + s(centrality_from, centrality_to)"
+   ) %>%
   paste('similarity ~', .) %>%
   map(as.formula) %>%
   tibble(formula = .) %>%
@@ -590,7 +530,10 @@ hist(sqrt(abs(dat$eof4)))
 ```
 
 ```{r}
-
+    "ti(distance) + ti(size) + ti(distance, size)",
+    "te(distance, size, k = 10)"
+ "s(distance, bs = 'cr') + s(abs(eof1), bs = 'cr', k = 15) + s(abs(eof2), bs = 'cr') + s(abs(eof3), bs = 'cr', k = 15) + s(abs(eof4), bs = 'cr', k = 15)",
+    "s(distance, bs = 'cr') + s(sqrt(abs(eof1)), bs = 'cr', k = 15) + s(abs(eof2), bs = 'cr') + s(abs(eof3), bs = 'cr', k = 15) + s(abs(eof4), bs = 'cr', k = 15)"
 ```
 
 ```{r}
