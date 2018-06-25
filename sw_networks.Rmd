@@ -499,34 +499,61 @@ ggplot(aes(time, similarity, group = group)) +
   geom_line(alpha = .1)
 
 hist(dat$similarity)
+
 ```
 
 ```{r}
-fit_gam <- function(x){
-  bam(x, select = T, 
+fit_gam_cloglog <- function(x){
+  gam(x, method = 'REML', select = T, 
          family = betar(link = 'cloglog', eps = .001),#1/(2*nrow(dat))), # MacMillan and Creelman 2005 pp 8-9
          data = dat)#(dat * (nrow(dat) - 1) + .5) / nrow(dat))
 }
+fit_gam_logit <- function(x){
+  gam(x, method = 'REML', select = T, 
+         family = betar(link = 'logit', eps = .001),#1/(2*nrow(dat))), # MacMillan and Creelman 2005 pp 8-9
+         data = dat)#(dat * (nrow(dat) - 1) + .5) / nrow(dat))
+}
+
 
 geo_models <- c(
     "s(distance, bs = 'cr')",
+    "s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr')",
     "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr')",
     "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr')",
     "s(distance, bs = 'cr') + s(size_from, size_to)",
-    "s(distance, bs = 'cr') + s(centrality_from, centrality_to)"
+    "s(distance, bs = 'cr') + te(size_from, size_to)",
+    "s(distance, bs = 'cr') + s(centrality_from, centrality_to)",
+    "s(distance, bs = 'cr') + te(centrality_from, centrality_to)",
+    "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr')",
+    "s(distance, bs = 'cr') + te(size_from, size_to) + te(centrality_from, centrality_to)"
    ) %>%
   paste('similarity ~', .) %>%
-  map(as.formula) %>%
-  tibble(formula = .) %>%
-  mutate(model = map(formula, fit_gam))
+  tibble(formula_chr = .) %>%
+  mutate(formula = map(formula_chr, as.formula), 
+         cloglog = map(formula, fit_gam_cloglog),
+         logit = map(formula, fit_gam_logit)) %>%
+  gather(link, model, 3:4) %>%
+  mutate(aic = map_dbl(model, AIC)) %>%
+  arrange(aic)
 
-geo_models %>%
-  mutate(aic = map_dbl(model, AIC))
-
-summary(geo_models[[6,2]])
-plot(geo_models[[7,2]], scheme = 1, residuals = T)
-gam.check(geo_models[[6,2]])
-hist(sqrt(abs(dat$eof4)))
+geo_models[[1,4]] %>% plot(residuals = F)  
+geo_models[[1,4]] %>% gam.check  
+map(geo_models$model, summary)
+map(geo_models$model, plot, scheme = 1, residuals = F)
+map(geo_models$model, plot, scheme = 1, residuals = T)
+gam.check(geo_models[[5,2]])
+```
+```{r}
+mod1 <- gam(similarity ~ s(distance, bs = 'cr') + 
+            s(size_from, bs = 'cr') + 
+            s(size_to, bs = 'cr') + 
+            s(centrality_from, bs = 'cr') + 
+            s(centrality_to, bs = 'cr'), 
+            method = 'REML', select = T, 
+          family = betar(link = 'logit', eps = .001),
+          data = dat)
+gam.check(mod1)
+plot(mod1)
 ```
 
 ```{r}
@@ -649,8 +676,8 @@ plot(reof_raster)
 
 ```{r}
 swsn %E>%
-  filter(similarity > 0) %>%
-  mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
+  filter(centrality_from >= centrality_to) %>%
+  mutate(resid = residuals(mod1, type = 'response')) %>%
   filter(resid > .25 | resid < -.25) %>%
   mutate(fac = if_else(resid > 0, 'pos', 'neg')) %>%
   ggraph('manual', node.positions = pts) +
