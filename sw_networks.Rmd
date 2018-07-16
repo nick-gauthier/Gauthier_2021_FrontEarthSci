@@ -17,7 +17,7 @@ link-citations: yes
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(message = FALSE, warning = FALSE, cache=TRUE)
+knitr::opts_chunk$set(tidy = FALSE, message = FALSE, warning = FALSE, cache=TRUE)
 ```
 
 # Introduction
@@ -26,7 +26,7 @@ This RMarkdown document contains all analysis code used to produce the results a
 In this two-part analysis we first compare temporal patterns of temperature and precipitation, derived from a transient paleoclimate simulation, at three points in the west Mediterranean. Then we analyze the spatial pattern of climate change from the LGM to the Mid Holocene using an ensemble of downscaled equilibrium time-slice paleoclimate simulations.
 
 ## Data sources
-This R Markdown script requires raster data of [observed present-day temperature and precipitation](https://vdeblauwe.wordpress.com/download/)
+This R Markdown script requires raster data of [observed present-day temperature and precipitation](http://www.prism.oregonstate.edu/normals/)^[http://www.prism.oregonstate.edu/normals/] 30-year averages and 100-year time series of the [Standardized Precipitation-Evapotranspiration Index](https://wrcc.dri.edu/wwdt/time/)^[https://wrcc.dri.edu/wwdt/time/]. We'll also need reconstructed SPEI rasters^[https://zenodo.org/record/1198817]. Finally, get the CGIAR version of the SRMTM [digital elevation model](http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/)^[http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/], resampled to 250m. With permission, also acquire the [Southwest Social Networks Database](http://www.southwestsocialnetworks.net/data.html)^[http://www.southwestsocialnetworks.net/data.html].
 
 ## Packages
 Load the packages used in the analyses.
@@ -178,20 +178,6 @@ recon_eof <- spei_recon %>%
 ```
 
 Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 5 leading modes.
-```{r plot_eof_obs, echo = FALSE, fig.cap = 'Observed drought REOFs'}
-as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
-  cbind(obs_eof$REOF) %>%
-  select(-3) %>%
-  gather(eof, value, 3:(n_modes + 2)) %>%
-  ggplot(aes(x,y)) +
-  geom_raster(aes(fill = value)) +
-    scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
-  facet_wrap(~eof) +
-  theme_void() +
-  coord_quickmap(xlim = c(-124, -106), ylim = c(31, 40)) +
-  geom_polygon(data =  map_data("state"), aes(x = long, y = lat, group = group), color = 'darkgrey', fill = NA)
-```
-
 ```{r plot_eof_recons, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
 as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_eof$REOF) %>%
   select(-3) %>%
@@ -202,6 +188,23 @@ as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_eof$REOF
   facet_wrap(~eof) +
   theme_void() + 
   coord_quickmap()
+```
+
+```{r plot_eof_obs, echo = FALSE, fig.width = 6, fig.height = 4, fig.cap = 'Observed drought REOFs'}
+as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
+  cbind(obs_eof$REOF) %>%
+  select(-3) %>%
+  gather(eof, value, 3:(n_modes + 2)) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
+  facet_wrap(~eof) +
+  theme_void() +
+  coord_quickmap(xlim = c(-124, -106), ylim = c(31, 40)) +
+  geom_polygon(data =  map_data("state"), aes(x = long, y = lat, group = group), color = 'darkgrey', fill = NA) +
+  ggtitle('Leading 5 rotated empirical orthogonal functions',
+          'SPEI') +
+  theme(legend.position = "bottom")
 ```
 
 To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
@@ -218,15 +221,17 @@ amplitudes <- left_join(
     gather(eof, obs, 1:n_modes))
 ```
 
-```{r plot_amplitudes, echo = FALSE, fig.cap = 'Amplitude reconstruction'}
+Zoom in on the study area.
+```{r plot_amplitudes, fig.fullwidth=TRUE, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
 ggplot(amplitudes, aes(recon, obs)) +
   geom_point(aes(color = year)) +
   geom_smooth(method = 'lm') +
   scale_color_viridis() +
-  facet_wrap(~eof) +
+  facet_wrap(~eof, nrow = 1) +
   ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
   theme_minimal() +
-  coord_fixed()
+  coord_fixed() +
+  theme(legend.position = "bottom")
 ```
 
 Now let's fit these models in practice. First create a data frame of past amplitudes.
@@ -259,23 +264,30 @@ cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,3])
 cor(ncdf4::ncvar_get(phyda, 'EPac_mn')[1100:1999], recon_eof$amplitude[,4])
 ```
 
+We can fit gams between the observed and reconstrcuted PC time series, and then use these to predict the eof amplitudes back in tmie. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
 ```{r recon_amplitudes}
 recon_amplitudes <- amplitudes %>%
   group_by(eof) %>%
   nest %>%
-  mutate(mod = purrr::map(data, ~gam(obs ~ s(recon, bs = 'cr'), data = ., method = 'REML', select = TRUE))) %>%
+  mutate(mod = purrr::map(data, ~gam(obs ~ s(recon, bs = 'cr'), 
+                                     data = ., method = 'REML', 
+                                     select = TRUE))) %>%
   left_join(past_amplitudes, by = 'eof') %>%
-  mutate(predictions = purrr::map2(mod, recons, ~predict(.x, .y, type = 'response')),
+  mutate(predictions = purrr::map2(mod, recons, 
+                                   ~predict(.x, .y, type = 'response')),
          predictions = purrr::map(predictions, ~.[1:400]),
-         predictions = purrr::map(predictions, ~tibble(year = 1100:1499, amplitude = .)),
-         predictions = purrr::map(predictions, ~mutate(., amp_smooth = zoo::rollmean(amplitude, k = 51, fill = NA)))) %>%
+         predictions = purrr::map(predictions, 
+                                  ~tibble(year = 1100:1499, amplitude = .)),
+         predictions = purrr::map(predictions, 
+                                  ~mutate(., 
+                                          amp_smooth = zoo::rollmean(amplitude, k = 51, fill = NA)))) %>%
   select(eof, predictions) %>%
   unnest %>%
   mutate(period = floor((year/50)) * 50) 
 ```
 
-
-```{r plot_recon_amplitudes, echo = FALSE, fig.margin = TRUE}
+How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
+```{r plot_recon_amplitudes, echo = FALSE}
 ggplot(recon_amplitudes, aes(year, amplitude, group = eof)) +
   geom_line(aes(color = eof), alpha = .7) +
   geom_line(aes(y = amp_smooth)) +
@@ -284,7 +296,7 @@ ggplot(recon_amplitudes, aes(year, amplitude, group = eof)) +
   theme_minimal()
 ```
 
-```{r, echo = FALSE, fig.margin=TRUE}
+```{r, echo = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
 recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
   ggplot(aes(factor(period), amplitude)) +
@@ -299,6 +311,13 @@ recon_amplitudes %>%
 Now we move on to the archaeological social network proxies. First we read in a csv file containing information for all of the archaeological sites in the database, including spatial location and number of rooms present from each time period. These will become the node-level data for the network.
 ```{r}
 node_data <- read_csv('Data/attributes_orig.csv')
+```
+
+```{r, echo = FALSE}
+library(xtable)
+options(xtable.comment = FALSE)
+options(xtable.booktabs = TRUE)
+xtable(head(node_data[, 1:6]), caption = "First rows of node level data")
 ```
 
 Next import the edge data. Our data come in the form of similarity matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a ddirected graph. We then filter out seeelf loops, calculate eigenvector centrality for each of the nodes, then for each edge record the time period and centralities of the neighboring nodes.
@@ -378,7 +397,7 @@ env_rasters <- list(elev, prec, temp, reof_raster) %>%
 ```
 
 
-## Least Cost Distances
+# Least Cost Distances
 
 ```{r eval = FALSE}
 altDiff <- function(x){x[2] - x[1]}
@@ -386,15 +405,13 @@ hd <- transition(elev, altDiff, 8, symm = FALSE)
 cell.targets <- Which(!is.na(elev), cells = TRUE)
 adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = TRUE, directions = 8)
 slope <- geoCorrection(hd, type = 'c')
-rm(hd)
 speed <- slope
 speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
-rm(slope, adj)
 conductance <- geoCorrection(speed, type = 'c')
-rm(speed)
 ```
 
 ```{r eval = FALSE, echo = FALSE}
+rm(hd, slope, adj, speed)
 gc()
 ```
 
@@ -419,12 +436,10 @@ saveRDS(distances, 'distances.rds')
 ```{r echo = FALSE, eval = FALSE}
 gc()
 ```
+
 ```{r}
 distances <- readRDS('distances.rds')
 ```
-
-
-
 
 
 # Model fitting
@@ -473,6 +488,9 @@ dat <- swsn %N>%
   as_tibble %>%
   filter(centrality_from >= centrality_to)
 ```
+```{r, echo = FALSE}
+xtable(head(dat[, 1:6]), caption = "First rows of node level data")
+```
 
 ```{r, eval = FALSE, echo = FALSE}
 test <- recon_amplitudes %>%
@@ -490,26 +508,21 @@ eof_data <- swsn %N>%
   select(ID, key, value) %>%
   spread(key, value, -1)
 ```
+
 ## Distance modeling
-```{r echo = FALSE}
+
+First, how does similarity of two settlements vary as a function of the distance between them?
+```{r echo = FALSE, fig.fullwidth=TRUE}
 ggplot(dat, aes(distance, similarity)) +
   geom_point(alpha = .1) +
-  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
   geom_smooth() +
-  theme_minimal()
-
-#ggplot(dat, aes(distance,similarity)) +
- # geom_point(alpha = .1, aes(color = local_significance)) +
-#  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
- # geom_smooth() +
-  #theme_minimal()
+  ggtitle('Empirical distance decay function')
 ```
 
-In log log space, we get the downward function from devries et al 2009!
-```{r}
+
+```{r, fig.margin = TRUE, fig.cap='In log log space, we get the downward function from devries et al 2009!'}
 ggplot(dat, aes(distance + .01,similarity + .001)) +
   geom_point(alpha = .1) +
-  scale_color_distiller(palette = 'Spectral', direction = 1, limits = c(0,1)) +
   geom_smooth() +
   scale_x_log10()+
   scale_y_log10()+
@@ -525,6 +538,7 @@ ggplot(dat, aes(distance, similarity)) +
   geom_smooth() +
   theme_minimal()
 ```
+
 ```{r centrality_plot}
 ggplot(dat, aes(centrality_to, similarity)) +
   geom_point(alpha = .1, aes(color = time)) +
@@ -536,7 +550,6 @@ ggplot(dat, aes(centrality_to, similarity)) +
 
 
 ```{r include = FALSE, eval = FALSE}
-
 ggplot(dat, aes(log((similarity * (nrow(dat) - 1) + .5 )/nrow(dat)) / (1 - (similarity * (nrow(dat) - 1) + .5 )/nrow(dat)))) +
   geom_density()
 ggplot(dat, aes(log(-log((1 - (similarity * (nrow(dat) - 1) + .5 )/nrow(dat)))))) +
@@ -550,19 +563,21 @@ hist(dat$similarity)
 
 ```
 
-```{r geo_models}
+```{r fit_gam}
 fit_gam_cloglog <- function(x){
   bam(x, method = 'REML', select = TRUE, 
          family = betar(link = 'cloglog', eps = .001),#1/(2*nrow(dat))), # MacMillan and Creelman 2005 pp 8-9
          data = dat)#(dat * (nrow(dat) - 1) + .5) / nrow(dat))
 }
+
 fit_gam_logit <- function(x){
   bam(x, method = 'REML', select = TRUE, 
-         family = betar(link = 'logit', eps = .001),#1/(2*nrow(dat))), # MacMillan and Creelman 2005 pp 8-9
+         family = betar(link = 'logit', eps = .001),#1/(2*nrow(dat)))
          data = dat)#(dat * (nrow(dat) - 1) + .5) / nrow(dat))
 }
+```
 
-
+```{r geo_models}
 geo_models <- c(
     "s(distance, bs = 'cr')",
     "s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr')",
@@ -583,6 +598,10 @@ geo_models <- c(
   gather(link, model, 3:4) %>%
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
+```
+
+```{r}
+geo_models
 ```
 
 ```{r geo_models_output}
