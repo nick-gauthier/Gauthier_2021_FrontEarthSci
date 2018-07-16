@@ -21,9 +21,11 @@ knitr::opts_chunk$set(tidy = FALSE, message = FALSE, warning = FALSE, cache=TRUE
 ```
 
 # Introduction
+\begin{fullwidth}
 This RMarkdown document contains all analysis code used to produce the results and figures in the main text.
 
 In this two-part analysis we first compare temporal patterns of temperature and precipitation, derived from a transient paleoclimate simulation, at three points in the west Mediterranean. Then we analyze the spatial pattern of climate change from the LGM to the Mid Holocene using an ensemble of downscaled equilibrium time-slice paleoclimate simulations.
+\end{fullwidth}
 
 ## Data sources
 This R Markdown script requires raster data of [observed present-day temperature and precipitation](http://www.prism.oregonstate.edu/normals/)^[http://www.prism.oregonstate.edu/normals/] 30-year averages and 100-year time series of the [Standardized Precipitation-Evapotranspiration Index](https://wrcc.dri.edu/wwdt/time/)^[https://wrcc.dri.edu/wwdt/time/]. We'll also need reconstructed SPEI rasters^[https://zenodo.org/record/1198817]. Finally, get the CGIAR version of the SRMTM [digital elevation model](http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/)^[http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/], resampled to 250m. With permission, also acquire the [Southwest Social Networks Database](http://www.southwestsocialnetworks.net/data.html)^[http://www.southwestsocialnetworks.net/data.html].
@@ -39,12 +41,124 @@ library(wql) # empirical orthogonal function calculation
 library(tidygraph) # network analysis
 library(ggraph) # network plotting
 library(mgcv) # GAM fitting
+library(mgcViz) # GAM plotting
 ```
 
 ```{r include = FALSE}
 theme_set(theme_bw())
 ```
 
+# Archaeological network data
+Now we move on to the archaeological social network proxies^[Go to http://www.southwestsocialnetworks.net for more information on this dataset and the project]. First we read in a csv file containing information for all of the archaeological sites in the database, including spatial location and number of rooms present from each time period. These will become the node-level data for the network.
+```{r}
+node_data <- read_csv('Data/attributes_orig.csv') %>%
+  select(-c(SWSN_ID,GKPM:Periods, N0S1))
+```
+
+```{r, echo = FALSE}
+knitr::kable(
+  node_data[1:6,1:8], caption = 'A subset of the node level data.'
+)
+```
+
+Next import the edge data. Our data come in the form of similarity matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a ddirected graph. We then filter out seeelf loops, calculate eigenvector centrality for each of the nodes, then for each edge record the time period and centralities of the neighboring nodes.
+```{r echo = FALSE, fig.margin = TRUE, fig.cap = 'Example 6x6 simililarity matrix. Note the symmetry'}
+sim_tmp <- read.csv('Data/Sim/AD1200sim.csv', row.names = 1, check.names = FALSE) %>%
+  as.matrix %>%
+  .[1:5,1:5]
+knitr::kable(sim_tmp, caption = 'Example similarity matrix')
+```
+
+```{r read_swsn}
+read_swsn <- function(net, time){
+  read.csv(net, row.names = 1, check.names = FALSE) %>%
+    as.matrix %>%
+    as_tbl_graph(directed = TRUE) %E>%
+    rename(similarity = weight) %>%
+    filter(!edge_is_loop()) %N>%
+    mutate(centrality = centrality_eigen(weights = similarity)) %E>%
+    mutate(time = 1150 + 50 * time,
+           centrality_from = .N()$centrality[from],
+           centrality_to = .N()$centrality[to]) %N>%
+    select(-centrality)
+}
+```
+
+Next we map this function over a lists of simlaritity matrices..Get a list of the similarity files, map the above function over them, reduce to a single graph.  Use reduce and gjin to combiine all of these networks inito a single neetwtork, rataiining the edge weightss sfr eac  separate period.
+```{r swsn_import}
+swsn <- list.files('Data/Sim', full.names = TRUE) %>%
+  imap(read_swsn) %>%
+  reduce(graph_join, by = 'name') %>%
+  left_join(node_data, by = c('name' = 'SWSN_Site'))
+```
+
+Create a separate spatial points object, storing the locations of the sites. Convert the coordinates from utm to lat lon, and add back to the original data
+```{r site_points}
+pts <- swsn %N>% 
+  select(x = EASTING, y = NORTHING) %>%
+  as_tibble %>%
+  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=NAD27")) %>%
+  spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
+  coordinates %>%
+  data.frame
+```
+
+
+```{r network_plot, eval = FALSE, echo = FALSE}
+states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = TRUE, plot = FALSE)
+
+ggraph(swsn, 'manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  geom_node_point() +#aes(size = centrality, color = centrality)) +
+  facet_edges(~time) +
+  scale_edge_alpha() +
+  coord_equal() +
+  theme_graph()
+```
+
+# Least Cost Distances
+```{r eval = FALSE}
+altDiff <- function(x){x[2] - x[1]}
+hd <- transition(elev, altDiff, 8, symm = FALSE)
+cell.targets <- Which(!is.na(elev), cells = TRUE)
+adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = TRUE, directions = 8)
+slope <- geoCorrection(hd, type = 'c')
+speed <- slope
+speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
+conductance <- geoCorrection(speed, type = 'c')
+```
+
+```{r eval = FALSE, echo = FALSE}
+rm(hd, slope, adj, speed)
+gc()
+```
+
+```{r eval=FALSE,echo = FALSE}
+plot(raster(conductance))
+```
+
+Calculate the least cost distance matrix between all sites and turn into a graph.
+```{r eval = FALSE}
+distances <- swsn %N>%
+  select(lon, lat) %>%
+  as_tibble %>%
+  as.matrix %>%
+  costDistance(conductance, .) %>%
+  as_tbl_graph(directed = TRUE) %E>%
+  rename(distance = weight) %>%
+  as_tibble %>%
+  mutate(distance = replace_na(distance, 0))
+saveRDS(distances, 'distances.rds')
+```
+
+```{r echo = FALSE, eval = FALSE}
+gc()
+```
+
+```{r}
+distances <- readRDS('distances.rds')
+```
 
 # Climate Analysis
 First we estimate present and past climate patterns.
@@ -109,7 +223,7 @@ spei_recon %>%
 ```
 
 ## Empiricial Orthogonal Functions
-We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reocnstructed drought dynamics.
+We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reocnstructed drought dynamics.
 
 Now we calculate the rotated empirical orthogonal functions for both the observed and reconstructed drought maps. For the observations, we see that the leading 5 eofs explain 85% of the variance in the series, so we'll retain those for rotation.
 ```{r plot_variance_prism, echo = FALSE}
@@ -207,6 +321,8 @@ as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   theme(legend.position = "bottom")
 ```
 
+A key assumption here is that the REOFs calculated from bot the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represnetaitveness an non-overlap. Now we can be ensured that these are the same signals.
+
 To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
 ```{r amplitudes}
 amplitudes <- left_join(
@@ -221,8 +337,7 @@ amplitudes <- left_join(
     gather(eof, obs, 1:n_modes))
 ```
 
-Zoom in on the study area.
-```{r plot_amplitudes, fig.fullwidth=TRUE, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
+```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
 ggplot(amplitudes, aes(recon, obs)) +
   geom_point(aes(color = year)) +
   geom_smooth(method = 'lm') +
@@ -244,27 +359,8 @@ past_amplitudes <- recon_eof$amplitude %>%
   nest(.key = 'recons')
 ```
 
-```{r echo = FALSE, eval = FALSE}
-phyda <- ncdf4::nc_open('Data/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc')
-cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,1])
-cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,2])
-cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,4])
 
-plot(ncdf4::ncvar_get(phyda, 'Pac130_mn')[1100:1999], recon_eof$amplitude[,2])
-plot(ncdf4::ncvar_get(phyda, 'Pac130_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,2])
-cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,4])
-cor(ncdf4::ncvar_get(phyda, 'amo_mn')[1100:1999], recon_eof$amplitude[,2])
-cor(ncdf4::ncvar_get(phyda, 'amo_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,1])
-cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,2])
-cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'EPac_mn')[1100:1999], recon_eof$amplitude[,4])
-```
-
-We can fit gams between the observed and reconstrcuted PC time series, and then use these to predict the eof amplitudes back in tmie. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
+We can fit gams between the observed and reconstrcuted PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
 ```{r recon_amplitudes}
 recon_amplitudes <- amplitudes %>%
   group_by(eof) %>%
@@ -287,15 +383,17 @@ recon_amplitudes <- amplitudes %>%
 ```
 
 How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
-```{r plot_recon_amplitudes, echo = FALSE}
+```{r plot_recon_amplitudes, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
 ggplot(recon_amplitudes, aes(year, amplitude, group = eof)) +
   geom_line(aes(color = eof), alpha = .7) +
   geom_line(aes(y = amp_smooth)) +
   scale_color_brewer(palette = 'Spectral') +
   facet_wrap(~eof) +
-  theme_minimal()
+  theme_minimal()+
+  theme(legend.position = "bottom")
 ```
 
+These results point to EOFs 3 and 4 as having major shocks at aropund 1300 AD.
 ```{r, echo = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
 recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
@@ -305,68 +403,6 @@ recon_amplitudes %>%
   scale_color_brewer(palette = 'Spectral') +
   facet_wrap(~eof) +
   theme_minimal()
-```
-
-## Network data
-Now we move on to the archaeological social network proxies. First we read in a csv file containing information for all of the archaeological sites in the database, including spatial location and number of rooms present from each time period. These will become the node-level data for the network.
-```{r}
-node_data <- read_csv('Data/attributes_orig.csv')
-```
-
-```{r, echo = FALSE}
-library(xtable)
-options(xtable.comment = FALSE)
-options(xtable.booktabs = TRUE)
-xtable(head(node_data[, 1:6]), caption = "First rows of node level data")
-```
-
-Next import the edge data. Our data come in the form of similarity matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a ddirected graph. We then filter out seeelf loops, calculate eigenvector centrality for each of the nodes, then for each edge record the time period and centralities of the neighboring nodes.
-```{r read_swsn}
-read_swsn <- function(net, time){
-  read.csv(net, row.names = 1, check.names = FALSE) %>%
-    as.matrix %>%
-    as_tbl_graph(directed = TRUE) %E>%
-    rename(similarity = weight) %>%
-    filter(!edge_is_loop()) %N>%
-    mutate(centrality = centrality_eigen(weights = similarity)) %E>%
-    mutate(time = 1150 + 50 * time,
-           centrality_from = .N()$centrality[from],
-           centrality_to = .N()$centrality[to]) %N>%
-    select(-centrality)
-}
-```
-
-Next we map this function over a lists of simlaritity matrices..Get a list of the similarity files, map the above function over them, reduce to a single graph.  Use reduce and gjin to combiine all of these networks inito a single neetwtork, rataiining the edge weightss sfr eac  separate period.
-```{r swsn_import}
-swsn <- list.files('Data/Sim', full.names = TRUE) %>%
-  imap(read_swsn) %>%
-  reduce(graph_join, by = 'name') %>%
-  left_join(node_data, by = c('name' = 'SWSN_Site'))
-```
-
-Create a separate spatial points object, storing the locations of the sites. Convert the coordinates from utm to lat lon, and add back to the original data
-```{r site_points}
-pts <- swsn %N>% 
-  select(x = EASTING, y = NORTHING) %>%
-  as_tibble %>%
-  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=NAD27")) %>%
-  spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
-  coordinates %>%
-  data.frame
-```
-
-
-```{r network_plot, eval = FALSE, echo = FALSE}
-states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = TRUE, plot = FALSE)
-
-ggraph(swsn, 'manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  geom_node_point() +#aes(size = centrality, color = centrality)) +
-  facet_edges(~time) +
-  scale_edge_alpha() +
-  coord_equal() +
-  theme_graph()
 ```
 
 ## Environmental Data
@@ -396,53 +432,8 @@ env_rasters <- list(elev, prec, temp, reof_raster) %>%
   `names<-`(c('elev', 'precip', 'temp', 'reof1', 'reof2', 'reof3', 'reof4', 'reof5'))
 ```
 
-
-# Least Cost Distances
-
-```{r eval = FALSE}
-altDiff <- function(x){x[2] - x[1]}
-hd <- transition(elev, altDiff, 8, symm = FALSE)
-cell.targets <- Which(!is.na(elev), cells = TRUE)
-adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = TRUE, directions = 8)
-slope <- geoCorrection(hd, type = 'c')
-speed <- slope
-speed[adj] <- 6 * exp(-3.5 * abs(slope[adj] + 0.05))
-conductance <- geoCorrection(speed, type = 'c')
-```
-
-```{r eval = FALSE, echo = FALSE}
-rm(hd, slope, adj, speed)
-gc()
-```
-
-```{r eval=FALSE,echo = FALSE}
-plot(raster(conductance))
-```
-
-Calculate the least cost distance matrix between all sites and turn into a graph.
-```{r eval = FALSE}
-distances <- swsn %N>%
-  select(lon, lat) %>%
-  as_tibble %>%
-  as.matrix %>%
-  costDistance(conductance, .) %>%
-  as_tbl_graph(directed = TRUE) %E>%
-  rename(distance = weight) %>%
-  as_tibble %>%
-  mutate(distance = replace_na(distance, 0))
-saveRDS(distances, 'distances.rds')
-```
-
-```{r echo = FALSE, eval = FALSE}
-gc()
-```
-
-```{r}
-distances <- readRDS('distances.rds')
-```
-
-
 # Model fitting
+Now that we have all the data imported and preprocessed, let's put it all together into a data frame.
 ```{r}
 dat <- swsn %N>%
   mutate(ID = 1:n(),
@@ -489,7 +480,9 @@ dat <- swsn %N>%
   filter(centrality_from >= centrality_to)
 ```
 ```{r, echo = FALSE}
-xtable(head(dat[, 1:6]), caption = "First rows of node level data")
+knitr::kable(
+  dat[1:6,], caption = 'A subset of the edge level data.'
+)
 ```
 
 ```{r, eval = FALSE, echo = FALSE}
@@ -512,15 +505,16 @@ eof_data <- swsn %N>%
 ## Distance modeling
 
 First, how does similarity of two settlements vary as a function of the distance between them?
-```{r echo = FALSE, fig.fullwidth=TRUE}
+```{r echo = FALSE, fig.width = 6, fig.height = 4.5, fig.fullwidth=TRUE}
 ggplot(dat, aes(distance, similarity)) +
   geom_point(alpha = .1) +
   geom_smooth() +
-  ggtitle('Empirical distance decay function')
+  labs(title = 'Empirical distance decay function', x = 'Distance', y = 'Similarity') +
+  theme_bw()
 ```
 
 
-```{r, fig.margin = TRUE, fig.cap='In log log space, we get the downward function from devries et al 2009!'}
+```{r, echo=FALSE, fig.margin = TRUE, fig.cap='In log log space, we get the downward function from devries et al 2009!'}
 ggplot(dat, aes(distance + .01,similarity + .001)) +
   geom_point(alpha = .1) +
   geom_smooth() +
@@ -530,7 +524,7 @@ ggplot(dat, aes(distance + .01,similarity + .001)) +
 ```
 
 Do the fits to distance change with time? a little bit, but seems more to have to do with the decreae in sample size with time.
-```{r distance_time_plot}
+```{r echo=FALSE, distance_time_plot}
 ggplot(dat, aes(distance, similarity)) +
   geom_point(alpha = .1, aes(color = time)) +
     scale_color_distiller(palette = 'Spectral', direction = 1) +
@@ -539,7 +533,7 @@ ggplot(dat, aes(distance, similarity)) +
   theme_minimal()
 ```
 
-```{r centrality_plot}
+```{r echo=FALSE, centrality_plot}
 ggplot(dat, aes(centrality_to, similarity)) +
   geom_point(alpha = .1, aes(color = time)) +
     scale_color_distiller(palette = 'Spectral', direction = 1) +
@@ -560,7 +554,6 @@ ggplot(aes(time, similarity, group = group)) +
   geom_line(alpha = .1)
 
 hist(dat$similarity)
-
 ```
 
 ```{r fit_gam}
@@ -605,7 +598,10 @@ geo_models
 ```
 
 ```{r geo_models_output}
-#geo_models[[1,4]] %>% plot(residuals = FALSE)  
+geo_models[[1,4]] %>% 
+  getViz %>%
+  plot %>%
+  print(pages = 1)
 #geo_models[[1,4]] %>% gam.check  
 #purrr::map(geo_models$model, summary)
 #purrr::map(geo_models$model, plot, scheme = 1, residuals = FALSE)
@@ -622,8 +618,14 @@ mod1 <- gam(similarity ~ s(distance, bs = 'cr') +
             method = 'REML', select = TRUE, 
           family = betar(link = 'logit', eps = .001),
           data = dat)
+```
+```{r}
 #gam.check(mod1)
-#plot(mod1)
+mod1_viz <- getViz(geo_models[[1,4]] )
+
+mod1_viz %>%
+  plot %>%
+  print(pages = 1)
 ```
 
 ## Average weather models
@@ -807,5 +809,24 @@ swsn %E>%
   qplot(cent, similarity, data = ., geom = 'point', alpha = I(.1))
 ```
 
+```{r echo = FALSE, eval = FALSE}
+phyda <- ncdf4::nc_open('Data/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc')
+cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,1])
+cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,2])
+cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,4])
+
+plot(ncdf4::ncvar_get(phyda, 'Pac130_mn')[1100:1999], recon_eof$amplitude[,2])
+plot(ncdf4::ncvar_get(phyda, 'Pac130_mn')[1100:1999], recon_eof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,2])
+cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,4])
+cor(ncdf4::ncvar_get(phyda, 'amo_mn')[1100:1999], recon_eof$amplitude[,2])
+cor(ncdf4::ncvar_get(phyda, 'amo_mn')[1100:1999], recon_eof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,1])
+cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,2])
+cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'EPac_mn')[1100:1999], recon_eof$amplitude[,4])
+```
 
 # References {#references .unnumbered}
