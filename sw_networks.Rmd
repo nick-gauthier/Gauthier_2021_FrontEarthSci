@@ -556,6 +556,7 @@ ggplot(aes(time, similarity, group = group)) +
 hist(dat$similarity)
 ```
 
+Since we're running a beta regression, we have a choice of multiple link functions. Let's compare cloglog and logit links. Define a function that, when applied to a dataset and a gam formula, will fit a gam of that formula. Let's define one for each link function.
 ```{r fit_gam}
 fit_gam_cloglog <- function(x){
   bam(x, method = 'REML', select = TRUE, 
@@ -570,6 +571,7 @@ fit_gam_logit <- function(x){
 }
 ```
 
+Now we write out a list of potential model structures, and fit gams using all of them. Calculate the AICs for each formula, link function combination, and reorder the amount from the lowest AIC
 ```{r geo_models}
 geo_models <- c(
     "s(distance, bs = 'cr')",
@@ -593,22 +595,20 @@ geo_models <- c(
   arrange(aic)
 ```
 
+Here we can see that the best model includes distance, centrality, and size in a purely additive structure with a logit link function. This model gives an adjusted R2 of ~70%.
 ```{r}
 geo_models
 ```
 
+Let's visualize the model fits.
 ```{r geo_models_output}
-geo_models[[1,4]] %>% 
+geo_models[[2,4]] %>% 
   getViz %>%
   plot %>%
   print(pages = 1)
-#geo_models[[1,4]] %>% gam.check  
-#purrr::map(geo_models$model, summary)
-#purrr::map(geo_models$model, plot, scheme = 1, residuals = FALSE)
-#purrr::map(geo_models$model, plot, scheme = 1, residuals = TRUE)
-#gam.check(geo_models[[5,2]])
 ```
 
+So let's select this model as our baseline geographic model.
 ```{r real_geo_mod}
 mod1 <- gam(similarity ~ s(distance, bs = 'cr') + 
             s(size_from, bs = 'cr') + 
@@ -619,16 +619,29 @@ mod1 <- gam(similarity ~ s(distance, bs = 'cr') +
           family = betar(link = 'logit', eps = .001),
           data = dat)
 ```
-```{r}
-#gam.check(mod1)
-mod1_viz <- getViz(geo_models[[1,4]] )
 
-mod1_viz %>%
-  plot %>%
-  print(pages = 1)
+## Average climmate models
+Now we can look weather average climate conditions have any predictive power for link strength.
+```{r clim_mods}
+clim_models <- c(
+      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr')",
+      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(prec_from, bs = 'cr') + s(prec_to, bs = 'cr') ",
+      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') ",
+      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(prec_from, bs = 'cr') + s(prec_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') ",
+      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(temp_from, temp_to) + s(prec_from, prec_to)",
+      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') + s(prec_from, prec_to)",
+      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(prec_from, bs = 'cr') + s(prec_to, bs = 'cr') + s(temp_from, temp_to)"
+      ) %>%
+  paste('similarity ~', .) %>%
+  tibble(formula_chr = .) %>%
+  mutate(formula = purrr::map(formula_chr, as.formula), 
+         cloglog = purrr::map(formula, fit_gam_cloglog),
+         logit = purrr::map(formula, fit_gam_logit)) %>%
+  gather(link, model, 3:4) %>%
+  mutate(aic = map_dbl(model, AIC)) %>%
+  arrange(aic)
 ```
 
-## Average weather models
 
 ## Variability models
 ```{r include = FALSE, eval = F}
