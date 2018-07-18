@@ -42,6 +42,7 @@ library(tidygraph) # network analysis
 library(ggraph) # network plotting
 library(mgcv) # GAM fitting
 library(mgcViz) # GAM plotting
+library(dismo)
 ```
 
 ```{r include = FALSE}
@@ -321,7 +322,7 @@ as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   theme(legend.position = "bottom")
 ```
 
-A key assumption here is that the REOFs calculated from bot the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represnetaitveness an non-overlap. Now we can be ensured that these are the same signals.
+A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represnetaitveness an non-overlap. Now we can be ensured that these are the same signals.
 
 To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
 ```{r amplitudes}
@@ -407,13 +408,37 @@ recon_amplitudes %>%
 
 ## Environmental Data
 Import higher resolution environmental layers and crop the reof files
+```{r import_prism}
+get_normals <- function(var){
+  paste0('Data/PRISM/PRISM_', var, '_30yr_normal_800mM2_all_asc/') %>%
+  list.files(pattern = '\\.asc$', full.names = TRUE) %>%
+  .[1:12] %>% # the last file in the list is annual values, drop it
+  purrr::map(raster) %>%
+  purrr::map(crop, bbox_wus) %>%
+  brick
+}
+
+prec <- get_normals('ppt')
+tmin <- get_normals('tmin')
+tmax <- get_normals('tmax')
+```
+
+Use the biovars function from dismo to calculate 19 bioclimatic predictor variables from monthly precipitation and temperature data.
+```{r bioclim_pca}
+bio_clim <- biovars(prec, tmin, tmax)
+```
+
+Reduce the dimensionality of the bioclimatic data using an R-mode PCA.
 ```{r}
-elev <- raster('~/Downloads/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>%
-  crop(bbox)
-prec <- raster('Data/PRISM_ppt_30yr_normal_800mM2_annual_asc.asc') %>% 
-  crop(bbox)
-temp <- raster('Data/PRISM_tmean_30yr_normal_800mM2_annual_asc.asc') %>%
-  crop(bbox)
+clim_pca <- RStoolbox::rasterPCA(bio_clim, spca = TRUE)
+```
+
+Retain the leading 4 PCs.
+```{r}
+screeplot(clim_pca$model, npcs = 20, type = 'lines')
+bio_clim %>%
+  as.data.frame(na.rm = TRUE) %>%
+  eofNum(scale. = TRUE)
 ```
 
 ```{r reof_raster}
@@ -421,15 +446,22 @@ reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   select(x:y) %>%
   cbind(obs_eof$REOF) %>%
   rasterFromXYZ %>%
-  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>% 
-  crop(bbox)
+  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
+  `names<-`(c('reof1', 'reof2', 'reof3', 'reof4', 'reof5')) %>%
+  projectRaster(bio_clim)
 ```
 
 ```{r raster_reprojection}
-env_rasters <- list(elev, prec, temp, reof_raster) %>%
-  purrr::map(projectRaster, prec) %>%
-  brick %>%
-  `names<-`(c('elev', 'precip', 'temp', 'reof1', 'reof2', 'reof3', 'reof4', 'reof5'))
+env_rasters <- clim_pca$map %>%
+  .[[1:4]] %>%
+  `names<-`(c('pc1', 'pc2', 'pc3', 'pc4')) %>%
+  c(reof_raster) %>%
+  brick
+```
+
+```{r}
+plot(env_rasters)
+pairs(env_rasters)
 ```
 
 # Model fitting
@@ -462,12 +494,14 @@ dat <- swsn %N>%
          micro_from = .N()$Micro[from],
          micro_to = .N()$Micro[to],
          micro_same = micro_from == micro_to,
-         elev_from = .N()$elev[from],
-         elev_to = .N()$elev[to],
-         precip_from = .N()$precip[from],
-         precip_to = .N()$precip[to],
-         temp_from = .N()$temp[from],
-         temp_to = .N()$temp[to],
+         pc1_from = .N()$pc1[from],
+         pc1_to = .N()$pc1[to],
+         pc2_from = .N()$pc2[from],
+         pc2_to = .N()$pc2[to],
+         pc3_from = .N()$pc3[from],
+         pc3_to = .N()$pc3[to],
+         pc4_from = .N()$pc4[from],
+         pc4_to = .N()$pc4[to],
          reof1_from = .N()$reof1[from],
          reof1_to = .N()$reof1[to],
          reof2_from = .N()$reof2[from],
