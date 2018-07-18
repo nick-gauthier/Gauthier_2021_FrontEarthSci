@@ -654,17 +654,103 @@ mod1 <- gam(similarity ~ s(distance, bs = 'cr') +
           data = dat)
 ```
 
+
+## Cultural costs
+Higher than average similarity within macroregions, but not significantly when you control for distance. Looks like there are a lot of outliers withhigh simliarity between macroregion that we're not yet capturing. the difference shrinks when we control for difference, because the "same macrogregion" will covary with distance
+
+```{r}
+ggplot(dat, aes(macro_same, similarity)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  theme_bw()
+
+ggplot(dat, aes(macro_same, distance)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Share macroregion?', y = 'Distance') +
+  theme_bw()
+
+dat %>%
+  na.omit %>%
+  mutate(resid = residuals(mod1, type = 'response')) %>%
+ggplot(aes(macro_same, resid)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Distance', y = 'Similarity') +
+  theme_bw()
+```
+
+```{r}
+ggplot(dat, aes(macro_from, similarity)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  theme_bw()
+
+ggplot(dat, aes(macro_to, similarity)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  theme_bw()
+```
+```{r}
+dat %>%
+  na.omit %>%
+  mutate(resid = residuals(mod1, type = 'response')) %>%
+ggplot(aes(macro_from, resid)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Distance', y = 'Similarity') +
+  theme_bw()
+```
+```{r}
+ggplot(dat, aes(micro_same, similarity)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Share microregion?', y = 'Similarity') +
+  theme_bw()
+
+ggplot(dat, aes(micro_same, distance)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Share microregion?', y = 'Distance') +
+  theme_bw()
+
+dat %>%
+  na.omit %>%
+  mutate(resid = residuals(mod1, type = 'response')) %>%
+ggplot(aes(micro_same, resid)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Distance', y = 'Similarity') +
+  theme_bw()
+```
+
+```{r}
+ggplot(dat, aes(micro_from, similarity)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  theme_bw()
+
+ggplot(dat, aes(micro_to, similarity)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  theme_bw()
+
+
+dat %>%
+  na.omit %>%
+  mutate(resid = residuals(mod1, type = 'response')) %>%
+ggplot(aes(micro_to, resid)) +
+  geom_boxplot() +
+  labs(title = '', x = 'Distance', y = 'Similarity') +
+  theme_bw()
+```
+
+
 ## Average climmate models
 Now we can look weather average climate conditions have any predictive power for link strength.
 ```{r clim_mods}
 clim_models <- c(
-      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr')",
-      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(prec_from, bs = 'cr') + s(prec_to, bs = 'cr') ",
-      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') ",
-      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(prec_from, bs = 'cr') + s(prec_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') ",
-      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(temp_from, temp_to) + s(prec_from, prec_to)",
-      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') + s(prec_from, prec_to)",
-      "s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(prec_from, bs = 'cr') + s(prec_to, bs = 'cr') + s(temp_from, temp_to)"
+      "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr')",
+      "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr') + s(precip_from, bs = 'cr') + s(precip_to, bs = 'cr') ",
+      "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') ",
+      "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr') + s(precip_from, bs = 'cr') + s(precip_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') ",
+      "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr') + s(temp_from, temp_to) + s(precip_from, precip_to)",
+      "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr') + s(temp_from, bs = 'cr') + s(temp_to, bs = 'cr') + s(precip_from, precip_to)",
+      "s(distance, bs = 'cr') + s(centrality_from, bs = 'cr') + s(centrality_to, bs = 'cr') + s(precip_from, bs = 'cr') + s(precip_to, bs = 'cr') + s(temp_from, temp_to)"
       ) %>%
   paste('similarity ~', .) %>%
   tibble(formula_chr = .) %>%
@@ -676,6 +762,36 @@ clim_models <- c(
   arrange(aic)
 ```
 
+```{r}
+dat %>%
+  na.omit %>%
+  mutate(resid = residuals(mod1, type = 'response')) %>%
+ggplot(aes(macro_from == macro_to, resid)) +
+  geom_point(alpha = .1) +
+  geom_smooth() +
+  labs(title = '', x = 'Distance', y = 'Similarity') +
+  theme_bw()
+```
+So think about the models to fit. micro same, macro same, and micro and macro same. repeat for micro/macro from/to pairs. Nest all that in same not same. then compare with no distance, distance, and distance + centrality
+
+```{r}
+clim_models
+```
+
+Let's visualize the model fits.
+```{r clim_models_output}
+clim_models[[1,4]] %>% 
+  getViz %>%
+  plot %>%
+  print(pages = 1)
+
+clim_models[[1,4]] %>% plot(scheme = 1)
+```
+
+Interesting. Looks like there is increased similarity between locations with similar precipitation patterns or different temperature patterns. I should:
+1. compare temperature and elevation regressions alone to see which is better
+2. use unrotated EOFs, maybe winter ones too?
+3. Use PCA of bioclim variables
 
 ## Variability models
 ```{r include = FALSE, eval = F}
@@ -712,82 +828,13 @@ gam.check(mod1)
 ```
 
 
-```{r eval = FALSE}
-mod1.5 <- gam(similarity ~ s(distance, bs = 'cr', k = 30),
-            method = 'REML',
-            select = TRUE,
-            family = betar(link = 'cloglog', eps = .0001),
-            data = filter(dat, local_significance <= .5))
-summary(mod1.5)
-plot(mod1.5, residuals= FALSE)
-gam.check(mod1.5)
-
-hist(degree_distribution(swsn %E>% filter(local_significance <= .05 & similarity > 0), mode = 'out'))
-swsn %E>%
-  filter(time == 1) %>%
-  filter(local_significance < .05 & similarity > 0) %N>%
-  mutate(degree = centrality_degree(weights = similarity, mode = 'out')) %>%
-  as_tibble %>%
-  ggplot(aes(degree)) +
-  geom_density()
-
-
-
-dat %>%
-  filter(local_significance <= .05) %>%
-  ggplot(aes(similarity)) +
-  geom_density() +
-  facet_wrap(~time)
-```
-
 
 ```{r eval = FALSE}
-mod2 <- gam(similarity ~ s(distance, bs = 'cr') +
-                         s(size_from, bs = 'cr') +
-                        s(size_to, bs = 'cr'),
-            method = 'REML',
-            family = betar(link = 'cloglog'),
-            data = dat)
-
-
-mod7 <- gam(similarity ~ s(distance, bs = 'cr') +
-              eof2_same +
-              s(eof1, bs = 'cr') +
-              s(eof2, bs = 'cr', by = eof2_same) +
-              s(eof3, bs = 'cr') +
-              s(eof4, bs = 'cr'),
-            select = TRUE,
-            method = 'REML',
-            family = betar(link = 'cloglog'),
-            data = dat)
-mod8 <- gam(similarity ~ s(distance, bs = 'cr') +
-                eof2_same +
-              s(abs(eof1), bs = 'cr') +
-              s(abs(eof2), bs = 'cr', by = eof2_same) +
-              s(abs(eof3), bs = 'cr') +
-              s(abs(eof4), bs = 'cr'),
-            select = TRUE,
-            method = 'REML',
-            family = betar(link = 'cloglog'),
-            data = dat)
-
-levels(dat$eof4_same)
 mod2 <- gamm(similarity * 1000 ~ s(distance, bs = 'cr'),
             method = 'REML',
             family = poisson,
             correlation = corAR1(form = ~time|edge),
             data = dat)
-
-plot(mod1, residuals = TRUE);plot(mod2, residuals = FALSE);plot(mod3, scheme = 1, residuals = TRUE);plot(mod4, scheme = 1);plot(mod5, residuals = FALSE)
-plot(mod6);plot(mod7);plot(mod8)
-AIC(mod1);AIC(mod2);AIC(mod3);AIC(mod4);AIC(mod5);AIC(mod6);AIC(mod7);AIC(mod8)
-gam.check(mod5)
-summary(mod7)
-
-gam.check(mod1)
-summary(residuals(mod1, type = 'response'))
-cbind(dat, test = residuals(mod1)) %>%
-  filter(test > 6)
 ```
 
 
