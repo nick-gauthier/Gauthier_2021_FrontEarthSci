@@ -1,0 +1,117 @@
+---
+title: "Drought variability and the robustness of agricultural social networks"
+author:
+  - name: Nicolas Gauthier
+    email: Nicolas.Gauthier@asu.edu
+    affiliation: Arizona State University
+    corresponding: Nicolas.Gauthier@asu.edu
+address:
+  - code: Arizona State University
+    address: School of Human Evolution and Social Change, 900 S Caddy Mall, Tempe, AZ, Zip
+abstract: |
+  How robust were agrarian social networks to drought? Social networks help absorb weather-related shocks by facilitating resource flows to afflicted settlements and population flows away from them. This property of social networks depends on the degree to which the networks can connect topographically accessible locations that tend to experience different weather patterns. We thus expect rainfall covariance in space and time to interact with patterns of landscape connectivity to structure prehistoric social networks.
+  
+author_summary: |
+  How robust were agrarian social networks to drought? Social networks help absorb weather-related shocks by facilitating resource flows to afflicted settlements and population flows away from them. This property of social networks depends on the degree to which the networks can connect topographically accessible locations that tend to experience different weather patterns. We thus expect rainfall covariance in space and time to interact with patterns of landscape connectivity to structure prehistoric social networks.
+
+output: rticles::plos_article
+csl: plos.csl
+bibliography: mybibfile.bib
+date: "Last updated: `r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment=NA, fig.align = "center", out.width = "0.8\\linewidth",
+                      echo = FALSE, message = FALSE, warning = FALSE)
+knitr::knit_hooks$set(crop.plot = knitr::hook_pdfcrop)
+```
+
+# Introduction
+This is why a solid intro is *so* important for academic articles. And why I recommend a 3-paragraph model:
+1. why this study is needed (preview background)
+2. what this study does/finds (preview methods/findings)
+3. what this study contributes (preview discussion)
+
+In times of drought and famine, farmers in arid and semiarid environments turn to their social networks to avoid starvation. Food transfers among farmers link the food supplies of distant settlements. Similarly, atmospheric transport of moisture via local evapotranspiration and re-precipitation can sync crop yields across distant agroecosystems. Tracing the flows of food, water, and energy within these complex social-ecological systems is essential for understanding their long-term behavior, and leveraging our archaeological understanding of why societies succeed or fail will be critical to anticipating the impact of impending climate changes on farming communities in the developing world.
+
+I propose to build models -- statistical, computational, and mathematical -- of food exchange in semiarid environments, and apply these models to an empirical archaeological case study from the pre-Hispanic American Southwest. Rates of site preservation and recovery are exceptionally high in this region. Nearly two centuries of survey and excavation have yielded extensive, high quality settlement pattern data.
+
+
+   Late pre-Hispanic US Southwest -- Detailed inventories of material culture at nearly 1,000 archaeological sites provide an unparalleled view of the structure and dynamics of past social networks, and the climate of this period has been intensively studied by paleoclimatologists and climate modelers. Here, I will use statistical models to isolate robust social and environmental *patterns* at the macro-scale. 
+    
+Synthesis -- Using theory from ecology, geography, and climate science, and insights from the empirical cases, I will develop a mathematical model of the feedbacks between social and ecological patterns and processes. This modeling framework will be distributed as an R package and web application for use by archaeologists working with settlement pattern data in dryland environments.
+
+By combining first-principles modeling with extensive empirical datasets, the proposed research is of a kind sorely needed in the ongoing study of sustainability in social-ecological systems. This interdisciplinary modeling framework, and the insights generated with it, will be of use not only to archaeologists, but also to anthropologists, development economists, and the broader climate-change impact-assessment community by making tractable problems with hidden, non-trivial human-environmental linkages.
+
+# Background
+
+Food transfers appear to be a cultural universal \cite{Fe2001,Hill2011Co-ResidenceStructure}, yet two distinct strands of research divide anthropological thinking on food-exchange systems. Evolutionary anthropologists, drawing on the behavioral ecology literature, focus on food-sharing behaviors in terms of the evolution of cooperation in small-scale foraging societies, with a general focus on meat sharing on daily time scales \cite{Gurven2000,Ziker2005, Hames2007, Allen-Arave2008}.  Archaeologists drawing from the economics literature focus more on the risk-minimizing aspects of food exchange, with a general focus on the transfer of cereals between agriculturalists on annual to decadal time scales \cite{Gallant1989,Garnsey1989,Rautman1993a,Hegmon1996}.
+
+These are arbitrary disciplinary distinctions. Humans transfer food on a variety of scales and social contexts. Large-scale risk-managing food transfers among agricultural societies are subject to the same kinds of social dilemmas as arise from cooperative behavior in small scale societies, and food-sharing systems minimize subsistence risk regardless of whether risk minimization is why they originally evolved. These two research domains require a unified theoretical approach.
+
+Recent theoretical and empirical work has begun to address how spatial, social, and environmental factors structure food-exchange networks \cite{Nolin2010Food-SharingIndonesia,Koster2014,Hao2015,Schnegg2015}. Food-exchange systems are not independent of the environment, and the biophysical context of exchange is an important component often ignored in the anthropological literature. A more general approach to these systems views them as a form of social infrastructure, channeling the flow of energy between spatially structured populations in much the same way as food webs channel energy in ecosystems \cite{Crabtree2015,Crabtree2017ReconstructingStates}. 
+
+## Food exchange, social networks, and infrastructure
+
+Infrastructure is the filter through which humans interact with their environment \cite{Anderies2015}. A farmer, for example, does not interact with rainwater directly but instead uses systems of canals and fields in coordination with a network of other farmers to manage flows of water in space and time \cite{Yu2015}. Canals, roads, and other forms of physical infrastructure enable physical flows like water and people. Social infrastructure channels information, and provides affordances for additional mass and energy flows \cite{Anderies2015}. At their core, food-exchange networks are clusters of social relationships that redistribute food and people among a structured population of agents. These relationships are a form of public, social infrastructure because they enable the transfer of energy (calories) between populations of potentially distant resource systems (agricultural settlements and their hinterlands). Social networks are both intangible and irregularly mobilized, requiring significant investment to maintain and monitor. As is the case with physical infrastructure, social networks will degrade over time if not actively maintained. 
+
+Social infrastructure interacts directly with physical infrastructure because social networks often must map onto spatial networks. Metabolic costs, such as the energy expended producing and transporting food over space, provide constraints on energy flows in exchange systems \cite{Drennan1984}. In any particular case, the balance between these costs and the metabolic benefits of food transfers influences whether food is moved in bulk to the population in need, or whether that population moves itself to the available food. The topology of spatial networks also constrains who can interact with whom, introducing bottlenecks and other structural flow constraints \cite{Barthelemy2011SpatialNetworks}. Improvements to transportation infrastructure, such as roads and trails, decrease the effective distance between different settlements; failure to maintain these transportation networks increases the effective distance \cite{McCall1985TheAfrica}.
+
+A canal system cannot be understood in isolation from local weather and topography, and neither can an exchange system. An idealized food-transfer network (i.e., lacking physical or social constraints) acts as a spatiotemporal **low-pass filter** on environmental noise, meaning that farmers in the network receive the space-time average crop yields given variable rainfall \cite{Harpending1977}. An understanding of the patterns of variability in rainfall, in particular how rainfall covaries across different nodes in the network, will thus provide a insight into the kinds of environmental pressures that drive food-transfer systems \cite{Rautman1993a,Freeman2014}. The **social-ecological network** concept is useful tool for understanding how social networks fit into a such a broader ecological system.
+
+
+
+## The Archaeology of Social Interaction in the American Sotuhwest
+
+Archaeology -- because of its focus on the material correlates of human behavior over long time spans -- is uniquely suited to address how social and physical infrastructure modulates human interactions with the environment. Not only do archaeologists catalogue the remains of field systems, road networks, canals, and other components of hard infrastructure directly, but also the ceramics, raw materials, and luxury goods that are the material correlates of networks of exchange and interaction. 
+
+Here, I use two empirical archaeological case studies to explore interactions between food exchange and ecohydrology: the late pre-Hispanic American Southwest and the Roman Imperial period in North Africa. These regions both span areas of about 460,000 square kilometers centered on latitude 35&deg;N, the rough limit of the subtropical ridge that determines the northern extent of the world's hot deserts (Figure \ref{fig:case-studies}). Winter rainfall is delivered by large-scale precipitation and mesoscale storms brought by westerly winds, and summer precipitation falls from convective storms associated with southerly Monsoonal winds. Rainfall in both seasons varies markedly year-to-year and, because the majority of annual precipitation can fall in only a handful of storms, it is highly unpredictable in space. Multidecadal drought conditions are common in these regions. Global atmospheric teleconnections often initiate drought conditions -- unusually cool Pacific sea surface temperatures (La Ni\~{n}a phase of the El Ni\~{n}o-Southern Oscillation) in the American Southwest and strong north-south air pressure contrasts over the North Atlantic (positive phase of the North Atlantic Oscillation) in North Africa \cite{trouet2009Persistent,Ault2016}. Interactions between the land and atmosphere are also strong \cite{Koster2004RegionsPrecipitation}, so the length of these dry spells often reflects more localized positive feedbacks between vegetation and soil moisture \cite{Ault2014AssessingData}. Vegetation growth in semiarid environments is water limited, but vegetation itself is often a major source of this  water because of terrestrial moisture recycling. Humans in these regions not only depend on these feedback loops -- soil moisture constrains cereal agriculture as much as natural vegetation -- but also play an active role in them through deforestation and irrigation.
+
+Human populations in these environments have developed similar suites of social and physical infrastructure to manage environmental risk. Food storage is one effective strategy for preserving bulk grains in dry environments, and storage features are a common archaeological find \cite{Stone1997TheTunisia,Spielmann2011SustainableEnvironments}. Irrigation, in particular via runoff harvesting infrastructure near seasonally flooded streams (**wadis**/**arroyos**), redistributes soil moisture in space and time to create microenvironments for agriculture. But these systems are vulnerable to flooding and would have demanded significant labor investments to monitor and maintain \cite{Shaw1982, Dominguez2005,Beckers2013AncientAsia}. Such strategies would have been effective for managing small-scale variability (year-to-year and field-to-field), but would have been vulnerable to a long-lasting, spatially extensive droughts \cite{Halstead1989}. During such extreme weather events, inhabitants of these regions must mobilize social networks to -- depending on the scale and severity of the event -- move food to afflicted settlements or move people away from them. The precise nature of these social networks, and the means by which this social infrastructure was provisioned, varies substantially between the case studies.
+
+The populations of the late pre-Hispanic period in the American Southwest subsisted mainly on maize production, supplemented by a mix of beans and wild proteins. Food transfers are thought to have occurred primarily in the context of informal sharing within kin groups, reciprocal exchange at ritual ceremonies and festivals, and residential mobility on the scale of one to three generations \cite{Hegmon1991,Hegmon1996,Kohler1996TheAnasazi,Varien1999SedentismBeyond,Cordell2007MesaMigration}. The archaeological record attests to extensive exchange networks of durable goods such as ceramics and obsidian \cite{Mills2013a}, and there is direct (if limited) evidence for the long-distance transport of maize \cite{Benson2009PossibleMexico,Benson2010WhoDrought}. 
+
+# Results
+
+## Distance Decay of Social Interaction
+
+## Modes of Drought and Pluvial Variability
+Note that we refer to the full range of moisture/ aridity variability here as drought for concreteness and simplicity.The central idean here is that drought and pluvials
+
+
+## Drought Variability and Social Interaction
+
+
+# Discussion
+
+## Qualifications, Caveats, and Future Work
+
+# Methods
+Question: Do regional interaction networks self-organize with respect to patterns of climate variability, and if so at what spatial scales does this organization occur?
+
+Social networks help absorb weather-related shocks by facilitating resource flows to afflicted settlements and population flows away from them. This property of social networks depends on the degree to which those networks can connect topographically accessible locations that tend to experience different weather patterns. I thus expect patterns of rainfall covariance in space and time to interact with patterns of landscape connectivity to structure prehistoric social networks.
+
+This relationship has been documented in the US Southwest on smaller spatial scales, using definitions of ``climate variability'' limited by the environmental data available in each case \cite{Rautman1993a,Cordell2007MesaMigration,Strawhacker2017RiskProvince}. The proposed work expands on these efforts to analyze the entire regional system, using two types of climate variability derived from a paleoclimate model-data fusion technique.
+
+## Archaeological Social Network Proxies
+
+I draw on an extensive archaeological database from the US Southwest (Figure \ref{fig:swsn}) to address this question. The **Southwest Social Networks** (SWSN) database is a compendium of material-culture data from nearly 1,000 well-dated sites in Arizona and western New Mexico from between 1200 and 1500 CE \cite{Mills2012,Mills2013a,Peeples2013,Borck2015,Hill2015,Mills2015a}. Drawing on a large sample of sites from the earlier **Coalescent Communities** database of all recorded prehistoric settlements with more than 12 rooms in the Southwest from 1200 to 1700 CE \cite{Hill2004}, the SWSN project analyzed nearly 4.7 million ceramic artifacts and nearly 5,000 obsidian artifacts \cite{Mills2015a}. Using an index of the similarity of ceramic assemblages and geochemical sourcing as proxies for the intensity of social interaction between settlements, the SWSN database provides quantitative estimates of the topology of the region-wide social network during six 50 year time steps \cite{Mills2013a}.
+
+## Topography and Least-Cost Networks
+All else being equal, locations that are closer together in space will be more similar than those further apart \cite{Tobler1970}. Modelling this spatial structure in the SWSN data is necessary to control for spatial dependence in statistical analyses of these data. To accomplish this, I calculate the least-cost network between all sites in the SWSN network. This method provides an efficient estimation of the metabolic costs of movement between any pair of settlements in the network. I calculate these costs using the Pandolf-Santee formula \cite{White2012}, which relates the metabolic rate of a traveler in watts to the traveler's weight and external load, walking speed, terrain slope, and a dimensionless terrain roughness coefficient. Using energy expenditure rather than time or Euclidean distance to represent movement costs facilitates a direct comparison of the metabolic costs and benefits of food transfers  \cite{Drennan1984}. The resulting least-cost network will be used as a proxy measure for the constraints on moving both people and bulk goods across the landscape, and thus the topographic affordances for social exchanges. 
+
+## Paleoclimate Data Assimilation
+Estimates of past hydroclimate in the American Southwest are generated using paleoclimate modeling tools, in particular Earth system model simulations, data assimilation, and bias correction and spatial downscaling. Climate-model simulations are a valuable method to estimate past, present, and future climate states. Climate models generate physically consistent climate fields at high temporal resolutions. These models capture the dynamic response of the Earth’s climate system to external forcing and internal variability by resolving a series of differential equations governing atmospheric and oceanic flow on a three-dimensional mesh of points \cite{Gettelman}. Recent state-of-the-art **Earth system models** extend this approach by simulating the interactions between the atmosphere, ocean, ice, land, and biosphere, including an array of biogeohphysical and biogeochemical processes such as the precipitation-vegetation feedbacks generating long-term droughts \cite{Hurrell2013,Kay2015,Gettelman}.  
+
+Data assimilation techniques such as the ensemble Kalman filter are used to generate atmospheric \textit{reanalyses}. A reanalysis is a model-based climate hindcast optimally constrained by instrumental observations. Paleoclimate data assimilation relies on the same principle but replaces instrumental observations with paleoclimate proxy records such as tree rings, ice cores, and corals \cite{Hakim2016TheResults}. Paleoclimate model simulations serve as physically consistent prior information about the possible states of the climate system, and the proxy records provide novel information about the time evolution of those states. The ensemble Kalman filter uses this information, as well as the spatial covariances from the climate-model prior (e.g. teleconnections), to "spread out" information from the point-based proxies to generate physically optimal extrapolations beyond the proxy locations \cite{Acevedo2015TowardsTechniques,Hakim2016TheResults}.
+
+For the late pre-Hispanic period of interest, I will use outputs from the Community Earth System Model (CESM) Last Millennium Ensemble (LME) as a model prior. LME is a paleoclimate simulation that uses CESM to recreate the transient response of the global climate system to changes in climate forcings (e.g. orbit, greenhouse gasses, volcanic activity, land-cover change) during the past 1,000 years \cite{Otto-bliesner2015}. The model was run repeatedly from different initial conditions to assess the range of internal model variability to fixed forcing mechanisms. The CESM-LME simulations were computationally expensive, and so were run at low (1&deg;-2&deg;) spatial resolutions to minimize computation time. The results of the data-assimilation process are constrained to the spatial resolution of the prior, so the CESM-LME outputs must be spatially downscaled prior to the assimilation of the proxies. Statistical downscaling uses information from climate-model outputs, high-resolution observations, and topographic derivatives to estimate functional relationships to bridge the scale gap between coarse climate-model outputs and the high-resolution fields needed for climate-change impact studies \cite{Flaounas2013}. I will use a stochastic model output statistics approach to bias correct and downscale simulation results from the LME experiments \cite{Wong2014}. This method involves two steps: 1) correct distributional biases in the large-scale atmospheric fields (temperature and precipitation) generated by the paleo-reanalysis \cite{Kallache2011}; 2) correct change-of-scale biases introduced by small-scale topography \cite{Flaounas2013,Wong2014}.
+
+## Statistical inference
+To isolate meaningful patterns of variability in the paleo-reanalysis, I use the model outputs to calculate a drought index and then decompose the nearly 3,600 monthly drought maps from 1200 to 1500 CE into five \textit{empirical orthogonal functions} (EOFs) (Figure \ref{fig:eofs}). EOFs are the eigenvectors of the climate space-time covariance matrix, such that the leading EOFs capture most of the variability in the original climate signal \cite{Lorenz1956EmpiricalPrediction}. EOFs are equivalent to the principal component analysis commonly used in archaeology \cite[e.g.][]{Dean1996DemographyStress}, save for that the principal components of a spatiotemporal dataset only capture temporal signals.
+
+I will then use nonlinear regression (generalized additive models for beta-distributed data \cite{Wood2006a}) to determine whether the patterns of interaction strength from the SWSN database are significantly related to the patterns of variability captured in the EOFs (Figure \ref{fig:eofs}). I will compare the following hypotheses:
+
+Null Hypothesis -- Social networks are not related to climate patterns, and the strength of interaction between any two sites is solely a function of their relative sizes and the distance between them.
+Hypothesis 1 -- Interactions between sites in opposing EOFs are significantly stronger than would be expected by distance alone.
+Hypothesis 2 -- Interactions between sites experiencing different mean growing-season climates are significantly stronger than would be expected by distance alone.
