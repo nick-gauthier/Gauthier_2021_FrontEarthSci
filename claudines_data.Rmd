@@ -1,0 +1,109 @@
+---
+title: "Untitled"
+author: "Nick Gauthier"
+date: "June 20, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+```
+
+```{r}
+trans <- function(x) x + t(x)
+net_in <- function(x){
+  read.csv(x, row.names = 1, check.names = F) %>% 
+  as.matrix %>% 
+  replace_na(0) %>% 
+  trans %>%
+  as_tbl_graph(directed = T) %>%
+  mutate(strength = centrality_degree(weights = weight, mode = 'out'),
+         neighbors = centrality_degree(mode = 'out')) %E>%
+  mutate(frac_weight = weight / .N()$strength[from])
+}
+
+sites <- net_in('~/Downloads/Sites.csv')
+
+art <- net_in('~/Downloads/Art.csv')
+```
+
+```{r}
+ggraph(sites) +
+  geom_edge_link(aes(alpha = weight)) +
+  geom_node_point(aes(size = strength, color = strength)) +
+  theme_void()
+ggraph(sites) +
+  geom_edge_link(aes(alpha = weight)) +
+  geom_node_point(aes(size = strength, color = strength)) +
+  theme_void()
+```
+
+```{r}
+art %E>% 
+  full_join(., as_tibble(activate(sites, 'edges')), by = c('from','to'), suffix = c('_art', '_real')) %>%
+  as_tibble %>%
+  replace_na(list(weight_art = 0, weight_real = 0, frac_weight_real = 0, frac_weight_art = 0)) %>%
+  ggplot(aes(frac_weight_art, frac_weight_real)) +
+  geom_point()
+```
+```{r}
+lans <- function(g){
+
+  g_filtered <- g %E>% 
+    as_tibble %>% 
+    group_by(from) %>%
+  nest %>%
+  mutate(fractionals = map(data, ~.$frac_weight)) %>%
+  unnest(data, .preserve = fractionals) %>%
+  mutate(ecdf = map2(frac_weight, fractionals, ~.x >= .y)) %>%
+  mutate(test = map_dbl(ecdf,sum)) %>%
+  mutate(outs =  map_dbl(ecdf, length)) %>%
+  mutate(local_significance = 1 - test / outs) %>%
+  select(from, to, local_significance)
+  
+  g %E>%
+    left_join(g_filtered) %>%
+  return
+}
+```
+
+```{r}
+full_join(as_tibble(art),as_tibble(sites), by = c('from', 'to'))
+
+test <- art %E>%
+  lans %>%
+  full_join(., as_tibble(activate(sites, 'edges')), by = c('from','to'), suffix = c('_art', '_real')) %>%
+  as_tibble %>%
+  select(from, to, weight_art, weight_real, local_significance)
+test %>%
+  filter(local_significance <= .1)
+
+tibble(df = map(1:100, ~test), alpha = seq(.01, 1, by = .01)) %>%
+  mutate(df = map2(df, alpha, ~filter(.x, local_significance <= .y)),
+         false_pos = map_dbl(df, ~pull(summarise(., sum(is.na(weight_real))/82))),
+         false_neg = 1 - map_dbl(df, nrow) / 70 + 12/82) %>%
+  ggplot(aes(alpha)) +
+  geom_line(aes(y = false_pos)) +
+  geom_line(aes(y = false_neg), color = 'red')
+
+filter(local_significance <= .05) %>%
+  summarise(sum(is.na(weight_real))/70)
+
+
+  ggplot(aes(weight_real, weight_art)) +
+  geom_point(aes(color = local_significance)) +
+    scale_color_distiller(palette = 'Spectral', direction = 1)
+
+  ggraph() +
+  geom_edge_fan(aes(color = local_significance)) +
+
+  as_tibble %>%
+  qplot(fractional_weight_from, fractional_weight_to, data = ., geom = 'point')
+```
+
