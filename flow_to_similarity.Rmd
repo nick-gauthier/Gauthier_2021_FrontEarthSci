@@ -1,0 +1,136 @@
+---
+title: "Converting a flow matrix to a similarity matrix and back again"
+author: "Nicolas Gauthier"
+date: "July 20, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+```
+
+The goal of this notebook is to examine how much information is lost when we convert a directed flow network, in which the edges are counts of people moving from site i to j, and an undirected similarity network, in which the edges are the brainard robinson similarity between the population makeups of both sites. The key question is whether we can reconstruct the underlying directed flow network from the similarity network, or whether too much data is lost in the process to get meaningful estimates.
+
+
+First create a simple sample network. It has 5 nodes, each with 100 people initially. Sites 1 and 3 each have bidirectional connections to site 2, but not to each other. This allows us to estimate how much the similarity matrix is biased in comparison to the flow matrix (i.e. do sites 1 and 3 become similar to one another by virtue of sharing a link with site 2?). 
+
+```{r}
+set.seed(3)
+net <- tbl_graph(edges = expand.grid(from = 1:5, to = 1:5),
+                 nodes = tibble(size = 100,
+                                attractiveness = 1,
+                                x = runif(5, max = 100),
+                                y = runif(5, max = 100),
+                                composition = list(c(1, 0, 0, 0, 0),
+                                                   c(0, 1, 0, 0, 0),
+                                                   c(0, 0, 1, 0, 0),
+                                                   c(0, 0, 0, 1, 0),
+                                                   c(0, 0, 0, 0, 1)))) %E>%
+  filter(!edge_is_loop()) %>%
+  mutate(distance = sqrt((.N()$x[from] - .N()$x[to]) ^ 2 + 
+                           (.N()$y[from] - .N()$y[to]) ^ 2))
+
+locations <- net %N>%
+  select(x:y) %>%
+  as_tibble
+```
+
+```{r}
+alpha <- 1.05
+beta <- .05
+
+interact <- function(net){
+  net %E>%
+    mutate(interaction_strength = .N()$attractiveness[to] ^ alpha * exp(-beta * distance))  %N>%
+    mutate(outflow = size / centrality_degree(weights = interaction_strength, mode = 'out', loops = F)) %E>%
+    mutate(flow = .N()$outflow[from] * interaction_strength) %N>%
+    mutate(inflow = centrality_degree(weights = flow, mode = 'in', loops = F)) %>%
+    mutate(attractiveness = attractiveness + .01 * (inflow  - attractiveness)) %>%
+    mutate(size = 500 * attractiveness / sum(attractiveness))
+}
+```
+
+```{r}
+interact_diffuse <- function(net){
+  flownet <- net %E>%
+    mutate(interaction_strength = .N()$attractiveness[to] ^ alpha * exp(-beta * distance))  %N>%
+    mutate(outflow = size / centrality_degree(weights = interaction_strength, mode = 'out', loops = F)) %E>%
+    mutate(flow = .N()$outflow[from] * interaction_strength) 
+  
+  flow_composition <- flownet %E>% 
+    mutate(source_comp = .N()$composition[from],
+    flow_comp = map2(source_comp, flow, ~.x * .y)) %>%
+    as_tibble %>%
+    group_by(to) %>%
+    nest %>%
+    mutate(test = map(data, ~reduce(.x$flow_comp, `+`))) %>%
+    pull(test)
+  
+  flownet %N>%
+    mutate(inflow = centrality_degree(weights = flow, mode = 'in', loops = F)) %>%
+    mutate(attractiveness = attractiveness + .01 * (inflow  - attractiveness)) %>%
+    mutate(size = 500 * attractiveness / sum(attractiveness)) %>%
+    mutate(flow_comp = flow_composition) %>%
+    mutate(composition = pmap(list(flow_comp, inflow, outflow, composition, size), ~..1 / ..2 - ..3 * ..4 + ..5 * ..4))
+  
+  ### this doesn't do what i want it to because we are not account for the renormalization to constrain population to max population, which means i'm using the unscaled flows 
+}
+```
+
+
+```{r}
+net_sim <- accumulate(1:500, ~interact_diffuse(.x), .init = net)
+```
+
+```{r}
+plot_net <- function(net){
+  net %E>%
+  arrange(interaction_strength) %>%
+ggraph('manual', node.positions = locations) +
+  geom_edge_fan(n = 1000, aes(alpha = interaction_strength, width = ..index.., color = interaction_strength)) +
+  geom_node_point(aes(size = size)) +
+  theme_void() +
+  scale_size_area(limits = c(0, 500), max_size = 20) +
+  scale_edge_colour_distiller(palette = 'Spectral') +
+  coord_equal() +
+  scale_alpha_continuous() +
+  ggtitle('Simulated interaction strength') +
+  theme(legend.position="none")
+}
+```
+
+```{r}
+plot_net(net_sim[[2]])
+plot_net(net_sim[[100]])
+```
+
+```{r}
+library(philentropy)
+t1 <- net_sim[[100]] %>% as_tibble %>% .$composition
+(200 - sum(abs(t1[[1]] - t1[[2]]))) / 200
+
+
+
+
+distance(t1 %>% bind_cols %>% t, method = 'jensen-shannon', est.prob = 'empirical')
+dist.diversity(t1 %>% bind_cols %>% t)
+
+
+
+p <- t1[[1]][1:2]
+q <- t1[[2]][1:2]
+m <- 0.5 * (p + q)
+JS <- 0.5 * (sum(p * log(p / m)) + sum(q * log(q / m)))
+JS
+
+net %E>%
+  mutate(similarity = (200 - 
+                         (abs(100 * .N()$from_1[from] / .N()$size[from] - 100 * .N()$from_1[to] / .N()$size[to]) + 
+                          abs(100 * .N()$from_2[from] / .N()$size[from] - 100 * .N()$from_2[to] / .N()$size[to]))) / 200)
+```
+
+
+

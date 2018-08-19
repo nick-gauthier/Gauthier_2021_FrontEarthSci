@@ -31,11 +31,12 @@ dir <- as_tbl_graph(flow_mat, directed = T) %>%
 ```{r}
 undir <- (flow_mat + t(flow_mat)) %>%
   as_tbl_graph(directed = F) %>%
-  mutate(centrality = centrality_eigen(weights = weight))
+  mutate(eigen = centrality_eigen(weights = weight),
+         degree = centrality_degree(weights = weight))
 ```
 
 ```{r}
-plt <- create_layout(dat_dir, layout = 'nicely')
+plt <- create_layout(dir, layout = 'nicely')
 ggraph(plt) +
   geom_edge_fan(aes(color = weight, alpha = weight, width = weight)) +
   geom_node_point(aes(size = centrality)) +
@@ -50,11 +51,104 @@ ggraph(plt) +
 ```{r}
 ggraph(undir) +
   geom_edge_fan(aes(color = weight, alpha = weight, width = weight)) +
-  geom_node_point(aes(size = centrality)) +
+  geom_node_point(aes(size = degree)) +
   scale_size_area() +
   scale_edge_colour_distiller(palette = 'Spectral') +
   theme_void() +
   ggtitle('Directed UK commuting flows') +
   theme(legend.position="none")
 ```
+
+```{r}
+undir 
+
+corrected <- (flow_mat + t(flow_mat)) %>%
+  as_tbl_graph(directed = T) %>%
+  mutate(degree = centrality_degree(weights = weight),
+         eigen = centrality_eigen(weights = weight)) %E>%
+  mutate(degree_from = .N()$degree[from],
+         degree_to = .N()$degree[to],
+         rel_degree = degree_from / (degree_to + degree_from),
+         weight_corrected1 = weight * rel_degree,
+         weight_corrected2 = weight * degree_to / degree_from) %>%
+  as_tibble
+```
+
+```{r}
+test <- corrected %>%  
+  select(from, to, weight_corrected1, weight_corrected2) %>%
+  left_join(as_tibble(activate(dir, edges))) 
+
+qplot(weight, weight_corrected1, data = test, geom = 'point') +
+  geom_smooth(method = 'lm')
+qplot(weight, weight_corrected2, data = test, geom = 'point') +
+  geom_smooth(method = 'lm')
+```
+
+```{r}
+library(mgcv)
+m1 <- gam(weight ~ s(weight_corrected1), data = test, family = gaussian(link = 'log'))
+
+summary(m1)
+plot(m1, residuals = T)
+gam.check(m1)
+
+vis.gam(m1)
+```
+
+
+
+```{r}
+cor(test$weight_corrected2, test$weight, use = 'complete.obs')
+summary(lm(weight_corrected2 ~ weight, data = test))$r.squared
+```
+
+```{r}
+corrected %>%
+  as_tibble()
+```
+
+```{r}
+(flow_mat + t(flow_mat)) %>%
+  as_tbl_graph(directed = T) %E>%
+  as_tibble %>%
+  left_join(as_tibble(activate(dir, edges)), by = c('from', 'to')) %>%
+  qplot(weight.x * .5, weight.y, data = ., geom = 'point') +
+  geom_smooth(method = 'lm')
+```
+
+```{r}
+plot(((flow_mat + t(flow_mat)) / 2)[lower.tri(flow_mat)],
+((flow_mat - t(flow_mat)) / 2)[lower.tri(flow_mat)])
+```
+
+```{r}
+library(sna)
+
+cor(c(flow_mat),
+c(make.stochastic((flow_mat + t(flow_mat)), mode = 'row')))
+test <- read.csv('Data/Sim/AD1200sim.csv', row.names = 1, check.names = FALSE) %>%
+    as.matrix
+diag(test) <- 0
+t2 <- make.stochastic(test, mode = 'row')
+summary(c(t2))
+qplot(x = qlogis(c(test[test>0])), geom = 'density')
+```
+
+```{r}
+read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>% pull(nij)  %>% qlogis %>% hist
+read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>% 
+  as_tbl_graph(nodes = NULL, directed = F) %>%
+  ggraph() +
+  geom_edge_link(aes(alpha = nij)) +
+  geom_node_point(color = 'red')
+
+test <- dat %>% mutate(to = as.numeric(to))
+read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>%
+  rename(from = src, to = trg) %>%
+  left_join(filter(test, time == 1200)) %>%
+  qplot(distance,qlogis(score), data = ., geom = 'point') +
+  geom_smooth()
+```
+
 
