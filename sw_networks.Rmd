@@ -135,8 +135,8 @@ elev <- raster('~/Downloads/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>%
 
 
 
-```{r}
-devtools::install_github("tylermorganwall/rayshader")
+```{r eval = FALSE}
+#devtools::install_github("tylermorganwall/rayshader")
 library(rayshader)
 
 
@@ -151,20 +151,55 @@ elmat %>%
 
 ```
 
-
-```{r eval = FALSE}
+Calculate the difference in elevation between each cell and its 8 neighbors.
+```{r height_difference, cache = TRUE}
 altDiff <- function(x){x[2] - x[1]}
 hd <- transition(elev, altDiff, 8, symm = FALSE)
-cell.targets <- Which(!is.na(elev), cells = TRUE)
-adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = TRUE, directions = 8)
 ```
 
-```{r eval = FALSE}
+```{r, echo = FALSE}
+# these routines can be memory intensive, so periodically free up some space
+gc()
+```
+
+Divide the height differences by the horizontal distances between cells, resulting in slopes.
+```{r slope, cache = TRUE}
 slope_c <- geoCorrection(hd, type = 'c')
+```
+
+```{r echo = FALSE}
+rm(hd);gc()
+```
+
+Figure out which cells are adjacent to one another, queen's case.
+```{r}
+cell.targets <- Which(!is.na(aggregate(elev, fact = 2)), cells = TRUE) # can't go to water cells
+adj <- adjacent(aggregate(elev, fact = 2), cells = cell.targets, target = cell.targets, pairs = TRUE, directions = 8)
+```
+
+```{r echo = FALSE}
+rm(cell.targets);gc()
+```
+
+Use Tobler's hiking function to calculate walking speed from slope.
+```{r speed, cache = TRUE}
 speed_c <- slope_c
 speed_c[adj] <- 6 * exp(-3.5 * abs(slope_c[adj] + 0.05))
+```
+
+```{r echo = FALSE}
+rm(slope_c, adj);gc()
+```
+
+Again divide by intercell distance, resulting in our final conductance matrix.
+```{r conductance, cache = TRUE}
 conductance_c <- geoCorrection(speed_c, type = 'c')
 ```
+
+```{r echo = FALSE}
+rm(speed_c);gc()
+```
+
 
 
 ```{r eval = FALSE}
@@ -174,12 +209,8 @@ speed_r[adj] <- 6 * exp(-3.5 * abs(slope_r[adj] + 0.05))
 conductance_r <- geoCorrection(speed_r, type = 'r')
 ```
 
-```{r eval = FALSE, echo = FALSE}
-rm(elev, hd, slope_c, slope_r, adj, speed_c, speed_r)
-gc()
-```
 
-```{r echo = FALSE}
+```{r echo = FALSE, eval=FALSE}
 conductance_c <- readRDS('conductance.RDS')
 conductance_c %>%
   raster %>%
@@ -209,42 +240,68 @@ distances <- swsn %N>%
   mutate(distance = replace_na(distance, 0))
 saveRDS(distances, 'distances.rds')
 ```
+```{r distance_matrix, cache = TRUE}
+dist_mat <- pts %>%
+  as.matrix %>%
+  costDistance(conductance_c, .) %>%
+  `+`(., t(.)) %>%
+  `/`(2)
+```
 
-```{r echo = FALSE, eval = FALSE}
-gc()
+```{r eval = FALSE}
+saveRDS(dist_mat, 'distance_matrix.rds')
+```
+
+```{r echo = FALSE, eval = TRUE}
+rm(conductance_c);gc()
 ```
 
 ```{r}
-distances <- readRDS('distances.rds')
+dist_mat <- readRDS('distance_matrix.rds')
+time_mat <- dist_mat %>%
+  as_tbl_graph(directed = FALSE) %E>%
+  rename(distance = weight) %>%
+  filter(distance <= 3600 * 5)
 
-distances %>%
+ggraph(time_mat_6, 'manual', node.positions = pts) +
+  geom_edge_link(alpha = .1) +
+  theme_void() +
+  coord_equal()
+
+paths <- time_mat %>%
+  as_tibble %>%
   group_by(from) %>%
-  top_n(-10, distance) %>%
-  nest# select the closest 10 neighbors to each site
-```
-```{r}
-paths <- distances %>%
-  group_by(from) %>%
-  top_n(-10, distance) %>% # select the closest 10 neighbors to each site
-  select(-distance) %>%
   nest %>%
-  mutate(to = map(data, ~c(.) %>% unlist)) %>%
+  mutate(to = map(data, ~c(.$to) %>% unlist)) %>%
   mutate(paths = map2(from, to, 
                       ~shortestPath(conductance_c, as.matrix(pts)[.x,], as.matrix(pts)[.y,], output = 'SpatialLines')))
 
-plot(crop(elev, extent(c(-111, -110, 32, 33))))
-lines(test)
-for(i in 1:nrow(swsn.pts)){
-  origin <- swsn.pts[i,]
-  
-  shortestPath(Conductance.c, origin, swsn.pts, output = 'SpatialLines')
-}
-#make a TransitionLayer for further calculations
-sPath2 <- shortestPath(T, c1, c2)
-plot(raster(sPath2))
+```
+```{r}
 
 plot(elev)
 lines(do.call(bind, paths$paths))
+merged.path <-do.call(bind, (paths$paths))
+
+paths
+
+
+swsn %E>%
+  right_join(as_tibble(activate(time_mat, 'edges') %>% mutate(id = 1:n()))) %>%
+  as_tibble() %>%
+  filter(time == 1250) %>%
+  mutate(id = as.character(id)) %>%
+  right_join(fortify(SpatialLinesDataFrame(merged.path, data = data.frame(id = 1:13264)))) %>%
+  ggplot(aes(long, lat, group = group)) +
+  geom_path(alpha = .1, aes (color = similarity)) +
+  scale_color_viridis_c() +
+  coord_equal() +
+  theme_void()
+```
+
+```{r}
+fortify(merged.path) %>%
+  ggplot()
 ```
 
 # Climate Analysis
@@ -309,7 +366,7 @@ spei_recon %>%
 ```
 
 ## Empiricial Orthogonal Functions
-We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reocnstructed drought dynamics.
+We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reconstructed drought dynamics.
 
 Now we calculate the rotated empirical orthogonal functions for both the observed and reconstructed drought maps. For the observations, we see that the leading 5 eofs explain 85% of the variance in the series, so we'll retain those for rotation.
 ```{r plot_variance_prism, echo = FALSE}
