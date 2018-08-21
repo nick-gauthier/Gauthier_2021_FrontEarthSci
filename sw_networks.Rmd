@@ -130,19 +130,20 @@ Import the elevation dataset.
 bbox <- extent(c(-113.5, -106.5, 31, 37.5))
 
 elev <- raster('~/Downloads/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>%
-  crop(bbox)
+  crop(bbox) %>% 
+  aggregate(fact  = 4)
 ```
 
 
 
-```{r eval = FALSE}
+```{r}
 #devtools::install_github("tylermorganwall/rayshader")
 library(rayshader)
 
 
 #And convert it to a matrix:
-elmat =  matrix(raster::extract(aggregate(elev, fact = 2),raster::extent(aggregate(elev, fact = 2)),buffer=1000),
-               nrow=ncol(aggregate(elev, fact = 2)),ncol=nrow(aggregate(elev, fact = 2)))
+elmat =  matrix(raster::extract(elev,raster::extent(elev),buffer=1000),
+               nrow=ncol(elev),ncol=nrow(elev))
 
 #We use another one of rayshader's built-in textures:
 elmat %>%
@@ -152,66 +153,43 @@ elmat %>%
 ```
 
 Calculate the difference in elevation between each cell and its 8 neighbors.
-```{r height_difference, cache = TRUE}
-altDiff <- function(x){x[2] - x[1]}
-hd <- transition(elev, altDiff, 8, symm = FALSE)
-```
-
-```{r, echo = FALSE}
-# these routines can be memory intensive, so periodically free up some space
-gc()
+```{r height_difference}
+altDiff <- function(x){abs(x[2] - x[1])}
+hd <- transition(elev, altDiff, 16, symm = TRUE)
 ```
 
 Divide the height differences by the horizontal distances between cells, resulting in slopes.
-```{r slope, cache = TRUE}
+```{r slope}
 slope_c <- geoCorrection(hd, type = 'c')
-```
-
-```{r echo = FALSE}
-rm(hd);gc()
 ```
 
 Figure out which cells are adjacent to one another, queen's case.
 ```{r}
-cell.targets <- Which(!is.na(aggregate(elev, fact = 2)), cells = TRUE) # can't go to water cells
-adj <- adjacent(aggregate(elev, fact = 2), cells = cell.targets, target = cell.targets, pairs = TRUE, directions = 8)
-```
-
-```{r echo = FALSE}
-rm(cell.targets);gc()
+cell.targets <- Which(!is.na(elev), cells = TRUE) # can't go to water cells
+adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = TRUE, directions = 16)
 ```
 
 Use Tobler's hiking function to calculate walking speed from slope.
-```{r speed, cache = TRUE}
+```{r speed}
 speed_c <- slope_c
-speed_c[adj] <- 6 * exp(-3.5 * abs(slope_c[adj] + 0.05))
-```
-
-```{r echo = FALSE}
-rm(slope_c, adj);gc()
+speed_c[adj] <- 6 * exp(-3.5 * 2.15 * slope_c[adj])
 ```
 
 Again divide by intercell distance, resulting in our final conductance matrix.
-```{r conductance, cache = TRUE}
+```{r conductance}
 conductance_c <- geoCorrection(speed_c, type = 'c')
 ```
-
-```{r echo = FALSE}
-rm(speed_c);gc()
-```
-
 
 
 ```{r eval = FALSE}
 slope_r <- geoCorrection(hd, type = 'r')
 speed_r <- slope_r
-speed_r[adj] <- 6 * exp(-3.5 * abs(slope_r[adj] + 0.05))
+speed_r[adj] <- 6 * exp(-3.5 * 2.15 * slope_r[adj])
 conductance_r <- geoCorrection(speed_r, type = 'r')
 ```
 
 
-```{r echo = FALSE, eval=FALSE}
-conductance_c <- readRDS('conductance.RDS')
+```{r echo = FALSE}
 conductance_c %>%
   raster %>%
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
@@ -224,76 +202,92 @@ conductance_c %>%
 
 Calculate the least cost distance matrix between all sites and turn into a graph.
 ```{r eval = FALSE}
-pas <- passage(conductance_r, as.matrix(pts), as.matrix(pts), theta = .05)
-pts
+pas <- passage(conductance_r, as.matrix(pts)[1:10,], as.matrix(pts)[200:210,], theta = .05)
 commute_dist <- pts %>%
   as.matrix %>%
   rSPDistance(conductance_r, ., ., theta = 0.05) 
-distances <- swsn %N>%
-  select(lon, lat) %>%
-  as_tibble %>%
-  as.matrix %>%
-  costDistance(conductance, .) %>%
-  as_tbl_graph(directed = TRUE) %E>%
-  rename(distance = weight) %>%
-  as_tibble %>%
-  mutate(distance = replace_na(distance, 0))
-saveRDS(distances, 'distances.rds')
 ```
-```{r distance_matrix, cache = TRUE}
+
+```{r distance_matrix}
 dist_mat <- pts %>%
   as.matrix %>%
-  costDistance(conductance_c, .) %>%
-  `+`(., t(.)) %>%
-  `/`(2)
-```
-
-```{r eval = FALSE}
-saveRDS(dist_mat, 'distance_matrix.rds')
-```
-
-```{r echo = FALSE, eval = TRUE}
-rm(conductance_c);gc()
+  costDistance(conductance_c, .)
 ```
 
 ```{r}
-dist_mat <- readRDS('distance_matrix.rds')
 time_mat <- dist_mat %>%
+  as.matrix %>%
   as_tbl_graph(directed = FALSE) %E>%
   rename(distance = weight) %>%
   filter(distance <= 3600 * 5)
+```
 
-ggraph(time_mat_6, 'manual', node.positions = pts) +
+```{r echo = FALSE}
+ggraph(time_mat, 'manual', node.positions = pts) +
   geom_edge_link(alpha = .1) +
   theme_void() +
   coord_equal()
+```
 
-paths <- time_mat %>%
+```{r}
+nn_mat <- dist_mat %>%
+  as.matrix %>%
+  as_tbl_graph(directed = TRUE) %E>%
+  rename(distance = weight) %>%
+  group_by(from) %>%
+  top_n(-15, distance) %>%
+  as.undirected(mode = 'collapse') %>%
+  as_tbl_graph()
+```
+
+```{r, echo = FALSE}
+ggraph(nn_mat, 'manual', node.positions = pts) +
+  geom_edge_link(alpha = .1) +
+  theme_void() +
+  coord_equal()
+```
+
+```{r}
+paths <- nn_mat %E>%
   as_tibble %>%
   group_by(from) %>%
   nest %>%
   mutate(to = map(data, ~c(.$to) %>% unlist)) %>%
   mutate(paths = map2(from, to, 
                       ~shortestPath(conductance_c, as.matrix(pts)[.x,], as.matrix(pts)[.y,], output = 'SpatialLines')))
-
 ```
+
 ```{r}
+plot(elev);lines(do.call(bind, paths$paths))
+```
 
-plot(elev)
-lines(do.call(bind, paths$paths))
-merged.path <-do.call(bind, (paths$paths))
+Merge all the lines into one object.
+```{r}
+merged.path <- do.call(bind, (paths$paths))
+```
 
-paths
-
+```{r}
+## need to get rid of nonexistenct connectionsnintroduced by the join
+test <- swsn %E>%
+  right_join(as_tibble(activate(time_mat, 'edges') %>% mutate(id = 1:n()))) %>%
+  as_tibble() %>%
+  mutate(id = as.character(group_indices(., from, to))) %>%
+  inner_join(fortify(SpatialLinesDataFrame(merged.path, data = data.frame(id = 1:13264))))
+ swsn %E>%
+  right_join(as_tibble(activate(time_mat, 'edges') %>% mutate(id = 1:n()))) %>% filter(is.na(time))
+ 
+ 
 
 swsn %E>%
   right_join(as_tibble(activate(time_mat, 'edges') %>% mutate(id = 1:n()))) %>%
   as_tibble() %>%
-  filter(time == 1250) %>%
-  mutate(id = as.character(id)) %>%
-  right_join(fortify(SpatialLinesDataFrame(merged.path, data = data.frame(id = 1:13264)))) %>%
+  mutate(id = as.character(group_indices(., from, to))) %>%
+  inner_join(fortify(SpatialLinesDataFrame(merged.path, data = data.frame(id = 1:14322)))) %>%
+  arrange(similarity) %>%
   ggplot(aes(long, lat, group = group)) +
-  geom_path(alpha = .1, aes (color = similarity)) +
+  geom_path(aes(color = similarity, alpha = similarity), size = 1) +
+  #geom_raster(data = as.data.frame(elev, xy = T, na.rm = T), aes(x, y, fill = )) +
+  facet_wrap(~time, nrow = 1) +
   scale_color_viridis_c() +
   coord_equal() +
   theme_void()
