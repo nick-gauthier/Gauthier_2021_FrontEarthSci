@@ -43,6 +43,8 @@ library(ggraph) # network plotting
 library(mgcv) # GAM fitting
 library(mgcViz) # GAM plotting
 library(dismo)
+library(sf)
+library(smoothr)
 ```
 
 ```{r include = FALSE}
@@ -62,7 +64,7 @@ knitr::kable(
 )
 ```
 
-Next import the edge data. Our data come in the form of similarity matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a ddirected graph. We then filter out seeelf loops, calculate eigenvector centrality for each of the nodes, then for each edge record the time period and centralities of the neighboring nodes.
+Next import the edge data. Our data come in the form of similarity matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a directed graph. We then filter out self loops, calculate eigenvector centrality for each of the nodes, then for each edge record the time period and centralities of the neighboring nodes.
 ```{r echo = FALSE, fig.margin = TRUE, fig.cap = 'Example 6x6 simililarity matrix. Note the symmetry'}
 sim_tmp <- read.csv('data/Sim/AD1200sim.csv', row.names = 1, check.names = FALSE) %>%
   as.matrix %>%
@@ -80,14 +82,14 @@ read_swsn <- function(net, time){
     rename(similarity = weight) %>%
     filter(!edge_is_loop()) %N>%
     mutate(centrality = centrality_eigen(weights = similarity)) %E>%
-    mutate(time = 1150 + 50 * time,
-           centrality_from = .N()$centrality[from],
-           centrality_to = .N()$centrality[to]) %N>%
+    mutate(time = 1150 + 50 * time) %N>%#,
+           #centrality_from = .N()$centrality[from],
+           #centrality_to = .N()$centrality[to]) %N>%
     select(-centrality)
 }
 ```
 
-Next we map this function over a lists of simlaritity matrices..Get a list of the similarity files, map the above function over them, reduce to a single graph.  Use reduce and gjin to combiine all of these networks inito a single neetwtork, rataiining the edge weightss sfr eac  separate period.
+Next we map this function over a lists of simlaritity matrices. Get a list of the similarity files, map the above function over them, reduce to a single graph.  Use reduce and graph join to combiine all of these networks into a single netwtork, retaining the edge weights for each  separate period.
 ```{r swsn_import}
 swsn <- list.files('data/Sim', full.names = TRUE) %>%
   imap(read_swsn) %>%
@@ -106,53 +108,33 @@ pts <- swsn %N>%
   data.frame
 ```
 
-
-```{r network_plot, eval = FALSE, echo = FALSE}
-states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = TRUE, plot = FALSE)
-
-swsn %E>%
-  arrange(similarity) %>%
-ggraph('manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  geom_node_point() +#aes(size = centrality, color = centrality)) +
-  facet_edges(~time) +
-  scale_edge_alpha() +
-  coord_equal() +
-  theme_graph()
-```
-
 # Least Cost Distances
 
 Import the elevation dataset.
 
 ```{r}
-bbox <- extent(c(-113.5, -106.5, 31, 37.5))
+bbox <- extent(c(-113, -107, 31, 37.5))#extent(c(-113.5, -106.5, 31, 37.5))
 
 elev <- raster('~/Downloads/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>%
   crop(bbox) %>% 
-  aggregate(fact  = 4)
+  aggregate(fact  = 2)
 ```
 
 
-
-```{r}
+The topography is very rugged.
+```{r rayshader, echo = FALSE}
 #devtools::install_github("tylermorganwall/rayshader")
 library(rayshader)
 
-
-#And convert it to a matrix:
 elmat =  matrix(raster::extract(elev,raster::extent(elev),buffer=1000),
                nrow=ncol(elev),ncol=nrow(elev))
 
-#We use another one of rayshader's built-in textures:
 elmat %>%
   sphere_shade(texture = "imhof1", zscale = 10) %>%
   plot_map()
-
 ```
 
-Calculate the difference in elevation between each cell and its 8 neighbors.
+Calculate the difference in elevation between each cell and its 16 neighbors.
 ```{r height_difference}
 altDiff <- function(x){abs(x[2] - x[1])}
 hd <- transition(elev, altDiff, 16, symm = TRUE)
@@ -165,8 +147,7 @@ slope_c <- geoCorrection(hd, type = 'c')
 
 Figure out which cells are adjacent to one another, queen's case.
 ```{r}
-cell.targets <- Which(!is.na(elev), cells = TRUE) # can't go to water cells
-adj <- adjacent(elev, cells = cell.targets, target = cell.targets, pairs = TRUE, directions = 16)
+adj <- adjacent(elev, cells = 1:ncell(elev), directions = 16)
 ```
 
 Use Tobler's hiking function to calculate walking speed from slope.
@@ -189,17 +170,6 @@ conductance_r <- geoCorrection(speed_r, type = 'r')
 ```
 
 
-```{r echo = FALSE}
-conductance_c %>%
-  raster %>%
-  as.data.frame(xy = TRUE, na.rm = TRUE) %>%
-  ggplot(aes(x, y)) +
-  geom_raster(aes(fill = layer)) +
-  scale_fill_viridis_c() +
-  theme_void() +
-  coord_quickmap()
-```
-
 Calculate the least cost distance matrix between all sites and turn into a graph.
 ```{r eval = FALSE}
 pas <- passage(conductance_r, as.matrix(pts)[1:10,], as.matrix(pts)[200:210,], theta = .05)
@@ -208,6 +178,7 @@ commute_dist <- pts %>%
   rSPDistance(conductance_r, ., ., theta = 0.05) 
 ```
 
+Calculate the full pairwise least cost distance matrix.
 ```{r distance_matrix}
 dist_mat <- pts %>%
   as.matrix %>%
@@ -217,82 +188,123 @@ dist_mat <- pts %>%
 ```{r}
 time_mat <- dist_mat %>%
   as.matrix %>%
+  replace(. == 0, 60) %>%
   as_tbl_graph(directed = FALSE) %E>%
+  filter(!edge_is_loop()) %>%
   rename(distance = weight) %>%
-  filter(distance <= 3600 * 5)
+  filter(distance <= 3600 * 6) %>%
+  #mutate(max_dist = case_when(
+  #    distance <= 3600 * 1 ~'1 Hours',
+  #    distance <= 3600 * 2 ~'2 Hours',
+  #    distance <= 3600 * 3 ~'3 Hours',
+  #    distance <= 3600 * 4 ~'4 Hours',
+  #    distance <= 3600 * 5 ~'5 Hours',
+  #    distance <= 3600 * 6 ~'6 Hours',
+  #    distance <= 3600 * 7 ~'7 Hours',
+  #    distance <= 3600 * 8 ~'8 Hours')) %>%
+  as_tibble %>%
+  inner_join(activate(swsn, edges), ., by = c('from', 'to'))
 ```
 
 ```{r echo = FALSE}
 ggraph(time_mat, 'manual', node.positions = pts) +
   geom_edge_link(alpha = .1) +
   theme_void() +
+  facet_edges(~time, nrow = 1) +
   coord_equal()
 ```
 
 ```{r}
 nn_mat <- dist_mat %>%
   as.matrix %>%
+    replace(. == 0, 60) %>%
   as_tbl_graph(directed = TRUE) %E>%
+  filter(!edge_is_loop()) %>%
   rename(distance = weight) %>%
+  as_tibble %>%
+  left_join(activate(swsn, edges), ., copy = TRUE, by = c('from', 'to')) %>%
+  morph(to_split, time, split_by = 'edges') %>%
   group_by(from) %>%
-  top_n(-15, distance) %>%
-  as.undirected(mode = 'collapse') %>%
-  as_tbl_graph()
+  top_n(-15, distance) %>% 
+  crystallize %>%
+  pull(graph) %>%
+  map(as.undirected, mode = 'collapse', edge.attr.comb = 'first') %>%
+  map(as_tbl_graph) %>% 
+  reduce(graph_join)
 ```
 
 ```{r, echo = FALSE}
 ggraph(nn_mat, 'manual', node.positions = pts) +
   geom_edge_link(alpha = .1) +
+  facet_edges(~time, nrow = 1) +
   theme_void() +
   coord_equal()
 ```
 
-```{r}
-paths <- nn_mat %E>%
+```{r shortest_paths}
+path_dat <- nn_mat %E>%
   as_tibble %>%
+  select(from,to) %>%
+  distinct %>%
   group_by(from) %>%
   nest %>%
   mutate(to = map(data, ~c(.$to) %>% unlist)) %>%
-  mutate(paths = map2(from, to, 
-                      ~shortestPath(conductance_c, as.matrix(pts)[.x,], as.matrix(pts)[.y,], output = 'SpatialLines')))
+  select(-data) %>%
+  mutate(paths = map2(from, to, ~shortestPath(conductance_c, 
+                                    as.matrix(pts)[.x,], as.matrix(pts)[.y,], 
+                                    output = 'SpatialLines')))
 ```
 
-```{r}
-plot(elev);lines(do.call(bind, paths$paths))
-```
 
 Merge all the lines into one object.
 ```{r}
-merged.path <- do.call(bind, (paths$paths))
+paths_sf <- path_dat %>% 
+  mutate(paths = map(paths, st_as_sf)) %>% 
+  pull(paths) %>% 
+  do.call(rbind, .) %>%
+  bind_cols((path_dat %>% select(-paths) %>% unnest), .) %>%
+  st_sf %>%
+  filter(., st_is_valid(.)) %>%
+  smooth(method = 'ksmooth', smoothness = 20) 
 ```
 
 ```{r}
-## need to get rid of nonexistenct connectionsnintroduced by the join
-test <- swsn %E>%
-  right_join(as_tibble(activate(time_mat, 'edges') %>% mutate(id = 1:n()))) %>%
-  as_tibble() %>%
-  mutate(id = as.character(group_indices(., from, to))) %>%
-  inner_join(fortify(SpatialLinesDataFrame(merged.path, data = data.frame(id = 1:13264))))
- swsn %E>%
-  right_join(as_tibble(activate(time_mat, 'edges') %>% mutate(id = 1:n()))) %>% filter(is.na(time))
- 
- 
+paths_sf %>%
+  inner_join(activate(swsn, 'edges') %>% as_tibble, .) %>%
+  ggplot() +
+  geom_sf(alpha = .1) +
+  facet_wrap(~time, nrow = 1)
 
-swsn %E>%
-  right_join(as_tibble(activate(time_mat, 'edges') %>% mutate(id = 1:n()))) %>%
-  as_tibble() %>%
-  mutate(id = as.character(group_indices(., from, to))) %>%
-  inner_join(fortify(SpatialLinesDataFrame(merged.path, data = data.frame(id = 1:14322)))) %>%
-  arrange(similarity) %>%
-  ggplot(aes(long, lat, group = group)) +
-  geom_path(aes(color = similarity, alpha = similarity), size = 1) +
-  #geom_raster(data = as.data.frame(elev, xy = T, na.rm = T), aes(x, y, fill = )) +
+paths_sf %>%
+  inner_join(activate(swsn, 'edges') %>% as_tibble, .) %>%
+  st_sf %>%
+  as_Spatial %>%
+  fortify(region = 'id') %>%
+  left_join(inner_join(activate(swsn, 'edges') %>% as_tibble, paths_sf) %>% mutate(id = as.character(1:n())) %>% select(-geometry)) %>%
+ggplot(aes(long, lat)) +
+  geom_raster(data = as.data.frame(aggregate(raster(conductance_c), fact = 2), xy = T, na.rm = T), aes(x, y, fill = layer)) +
+  geom_path(aes(group = group), alpha = .4) +
+  scale_fill_viridis_c() +
   facet_wrap(~time, nrow = 1) +
-  scale_color_viridis_c() +
-  coord_equal() +
-  theme_void()
+  theme_void() +
+  coord_equal()
 ```
 
+
+```{r network_plot, eval = FALSE, echo = FALSE}
+states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = TRUE, plot = FALSE)
+
+swsn %E>%
+  arrange(similarity) %>%
+ggraph('manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  geom_node_point() +#aes(size = centrality, color = centrality)) +
+  facet_edges(~time) +
+  scale_edge_alpha() +
+  coord_equal() +
+  theme_graph()
+```
 ```{r}
 fortify(merged.path) %>%
   ggplot()
