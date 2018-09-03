@@ -45,6 +45,8 @@ library(mgcViz) # GAM plotting
 library(dismo)
 library(sf)
 library(smoothr)
+#devtools::install_github('tylermorganwall/rayshader')
+library(rayshader)
 ```
 
 ```{r include = FALSE}
@@ -52,7 +54,7 @@ theme_set(theme_bw())
 ```
 
 # Archaeological network data
-Now we move on to the archaeological social network proxies^[Go to http://www.southwestsocialnetworks.net for more information on this dataset and the project]. First we read in a csv file containing information for all of the archaeological sites in the database, including spatial location and number of rooms present from each time period. These will become the node-level data for the network.
+Now we move on to the archaeological social network proxies.^[Go to http://www.southwestsocialnetworks.net for more information on this dataset and the project] First we read in a csv file containing information for all of the archaeological sites in the database, including spatial location and number of rooms present from each time period. These will become the node-level data for the network.
 ```{r}
 node_data <- read_csv('data/attributes_orig.csv') %>%
   select(-c(SWSN_ID,GKPM:Periods, N0S1))
@@ -60,82 +62,90 @@ node_data <- read_csv('data/attributes_orig.csv') %>%
 
 ```{r, echo = FALSE}
 knitr::kable(
-  node_data[1:6,1:8], caption = 'A subset of the node level data.'
+  node_data[1:3,1:7], caption = 'A subset of the node level data.'
 )
 ```
 
 Next import the edge data. Our data come in the form of similarity matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a directed graph. We then filter out self loops, calculate eigenvector centrality for each of the nodes, then for each edge record the time period and centralities of the neighboring nodes.
-```{r echo = FALSE, fig.margin = TRUE, fig.cap = 'Example 6x6 simililarity matrix. Note the symmetry'}
-sim_tmp <- read.csv('data/Sim/AD1200sim.csv', row.names = 1, check.names = FALSE) %>%
-  as.matrix %>%
-  .[1:5,1:5]
-knitr::kable(sim_tmp, caption = 'Example similarity matrix')
-```
-
 ```{r read_swsn}
 read_swsn <- function(net, time){
-  read.csv(net, row.names = 1, check.names = FALSE) %>%
-    as.matrix %>%
-    replace(. == 0, 999) %>%
-    as_tbl_graph(directed = TRUE) %E>%
-    mutate(weight = if_else(weight == 999, 0, weight)) %>%
-    rename(similarity = weight) %>%
-    filter(!edge_is_loop()) %N>%
-    mutate(centrality = centrality_eigen(weights = similarity)) %E>%
-    mutate(time = 1150 + 50 * time) %N>%#,
-           #centrality_from = .N()$centrality[from],
-           #centrality_to = .N()$centrality[to]) %N>%
-    select(-centrality)
+  read.csv(net, row.names = 1, check.names = FALSE) %>% # import the similarity matrix
+    as.matrix %>% # convert to a matrix
+    replace(. == 0, 999) %>% # replace 0 values with 999 temporarily
+    as_tbl_graph(directed = TRUE) %E>% # convert to directed graph
+    mutate(weight = if_else(weight == 999, 0, weight)) %>% # convert 999 values back to 0
+    rename(similarity = weight) %>% # rename the edge weights
+    filter(!edge_is_loop()) %>% # remove self loops
+    mutate(time = 1150 + 50 * time) %>% # set the time period
+    activate('nodes') # activate node data
 }
 ```
 
 Next we map this function over a lists of simlaritity matrices. Get a list of the similarity files, map the above function over them, reduce to a single graph.  Use reduce and graph join to combiine all of these networks into a single netwtork, retaining the edge weights for each  separate period.
 ```{r swsn_import}
-swsn <- list.files('data/Sim', full.names = TRUE) %>%
-  imap(read_swsn) %>%
-  reduce(graph_join, by = 'name') %>%
-  left_join(node_data, by = c('name' = 'SWSN_Site'))
+swsn <- list.files('data/Sim', full.names = TRUE) %>% # get a list of all the similarity data
+  imap(read_swsn) %>% # map the read_swsn function over these files
+  reduce(graph_join, by = 'name') %>% # combine into a single graph
+  left_join(node_data, by = c('name' = 'SWSN_Site')) # join to node data by site name
 ```
+
+```{r echo = FALSE, fig.margin = TRUE, fig.cap = 'Example 6x6 simililarity matrix. Note the symmetry'}
+sim_tmp <- read.csv('data/Sim/AD1200sim.csv', row.names = 1, check.names = FALSE) %>%
+  as.matrix %>%
+  .[1:3,1:3]
+knitr::kable(sim_tmp, caption = 'Example similarity matrix')
+```
+
 
 Create a separate spatial points object, storing the locations of the sites. Convert the coordinates from utm to lat lon, and add back to the original data
 ```{r site_points}
-pts <- swsn %N>% 
-  select(x = EASTING, y = NORTHING) %>%
-  as_tibble %>%
-  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=NAD27")) %>%
-  spTransform(CRS("+proj=longlat +datum=WGS84")) %>% 
-  coordinates %>%
-  data.frame
+pts <- swsn %N>% # start with the full SWSN data
+  select(x = EASTING, y = NORTHING) %>% # pull the spatial information
+  as_tibble %>% # convert to a tibble
+  SpatialPoints(proj4string=CRS("+proj=utm +zone=12 +datum=NAD27")) %>% # points are in UTM
+  spTransform(CRS("+proj=longlat +datum=WGS84")) %>%  # convert to lat lon
+  coordinates %>% # extract the coordinates
+  data.frame # turn into a data frame
 ```
 
 # Least Cost Distances
 
-Import the elevation dataset.
+Next we calculate the impact of rugged terrain on the potential flow of people and information between the sites in the SWSN database. For this we need to use the SRTM digital elevation model. From the height data in the DEM, we calculate slope, accounting for cognitive biases people have when assessing the steepness of high slopes (people tend to exaggerate slopes above a certain threshold). From this map of perceived slope, we calculate "perceived walking speeds", using Tobler's hiking function. We uses these perceived walking speeds as a measure of the perceived, symmetric costs of traveling between two locations on the landscape, and from these estimate the least cost paths from every site to every site. From there, we extract the 15 nearest neighbors of each site in each time period, and use this nearest neighbor network as a spatial network, from which to estimate new travel costs (limited to paths along this nearest neighbor network).
 
+First import the elevation dataset, crop to the study area, and resample.
 ```{r elevation}
-bbox <- extent(c(-113, -107, 31, 37.5))#extent(c(-113.5, -106.5, 31, 37.5))
+bbox <- extent(c(-113, -107, 31, 37.5)) # define our study area
 
-elev <- raster('~/SRTM_NE_250m_TIF/SRTM_W_250m.tif') %>%
-  crop(bbox) %>% 
-  aggregate(fact  = 3)
+elev <- raster('~/SRTM_NE_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
+  crop(bbox) %>% # crop to study area
+  aggregate(fact  = 3) # aggregate to 750m resolution
 ```
 
 
-The topography is very rugged.
-```{r rayshader, echo = FALSE}
-#devtools::install_github("tylermorganwall/rayshader")
-library(rayshader)
-
-elmat <-  matrix(raster::extract(elev,raster::extent(elev),buffer=1000),
-               nrow=ncol(elev),ncol=nrow(elev))
-
-elmat %>%
-  sphere_shade(texture = "imhof1", zscale = 10) %>%
+The topography is very rugged. Plot it out with some vertical exaggeration to see.
+```{r rayshader, echo = FALSE, fig.margin = TRUE}
+matrix(raster::extract(elev,raster::extent(elev),buffer=1000),
+               nrow=ncol(elev),ncol=nrow(elev)) %>%
+  sphere_shade(texture = "imhof1", zscale = 10, progbar = FALSE) %>%
   plot_map()
 ```
 
+```{r}
+tobler_adjusted <- function(x){
+  6 * exp(-3.5 * 2.15 * x)
+}
+```
+
+```{fig.margin = TRUE, echo = FALSE}
+slope <- seq(-1, 1, .01)
+qplot(slope, tobler_adjusted(slope), geom = 'line' ) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(x = 'Slope (rise over run)', y = 'Walking speed (m/s)', title = "Tobler's hiking function") +
+  theme_classic(base_size = 20)
+```
+Now we use the package *gdistance* to calculate our LCPs. This package uses a transition matrix approach, whereby we work with matrices that contain the costs or transmissiveness of travel from each cell to its immediate 16 neighbor cells. This allows for a sparse matrix representation, because there is no possible connection to non neighboring cells, which considerable reduces the computational burden.
 ```{r conductance, cache = TRUE, dependson='elevation'}
-# Calculate the difference in elevation between each cell and its 16 neighbors.
+# Calculate the absolute difference in elevation between each cell and its 16 neighbors.
 altDiff <- function(x){abs(x[2] - x[1])}
 hd <- transition(elev, altDiff, 16, symm = TRUE)
 
@@ -147,7 +157,7 @@ adj <- adjacent(elev, cells = 1:ncell(elev), directions = 16)
 
 # Use Tobler's hiking function to calculate walking speed from *cognitive* slope.
 speed_c <- slope_c
-speed_c[adj] <- 6 * exp(-3.5 * 2.15 * slope_c[adj])
+speed_c[adj] <- tobler_adjusted(slope_c[adj])
 
 # Again divide by intercell distance, resulting in our final conductance matrix.
 conductance_c <- geoCorrection(speed_c, type = 'c')
@@ -166,17 +176,18 @@ commute_dist <- pts %>%
   rSPDistance(conductance_r, ., ., theta = 0.05) 
 ```
 
-Calculate the full pairwise least cost distance matrix.
+Using the conductance matrix, calculate the full pairwise least cost distance matrix.
 ```{r distance_matrix, cache = TRUE, dependson=c('site_points','conductance')}
-dist_mat <- pts %>%
-  as.matrix %>%
-  costDistance(conductance_c, .)
+dist_mat <- pts %>% # start with all the site locations
+  as.matrix %>% # convert to a matrix of x and y points
+  costDistance(conductance_c, .) %>% # calculate the least cost distances
+  as.matrix %>% # convert to a matrix
+  replace(. == 0, 60) # make close sites close instead of overlapping
 ```
 
-```{r}
+Now we prune the full pairwise distance matrix to only include each site's 15 nearest neighbors.^[This is assuming each site has a conserved amount of potential short distance travel destinations, rather than a fixed travel threshold.] In the case where the path from site i to j is in i's shortest paths but not in j's, the path is included anyway.
+```{r time_mat, fig.margin = TRUE, echo = FALSE}
 time_mat <- dist_mat %>%
-  as.matrix %>%
-  replace(. == 0, 60) %>%
   as_tbl_graph(directed = FALSE) %E>%
   filter(!edge_is_loop()) %>%
   rename(distance = weight) %>%
@@ -192,44 +203,41 @@ time_mat <- dist_mat %>%
   #    distance <= 3600 * 8 ~'8 Hours')) %>%
   as_tibble %>%
   inner_join(activate(swsn, edges), ., by = c('from', 'to'))
-```
 
-```{r echo = FALSE}
 ggraph(time_mat, 'manual', node.positions = pts) +
   geom_edge_link(alpha = .1) +
   theme_void() +
-  facet_edges(~time, nrow = 1) +
+  facet_edges(~time) +
   coord_equal()
 ```
 
-```{r}
-nn_mat <- dist_mat %>% # start with the gdistance output
-  as.matrix %>% # convert to a matrix
-  replace(. == 0, 60) %>% # make close sites close instead of overlapping
+```{r nearest_neighbor}
+nn_mat <- dist_mat %>% # start with the distance matrix
   as_tbl_graph(directed = TRUE) %E>% # turn into a graph
   filter(!edge_is_loop()) %>% # remove self loops
   rename(distance = weight) %>% # rename weight column
   as_tibble %>% # extract edges into a tibble
-  left_join(activate(swsn, edges), ., copy = TRUE, by = c('from', 'to')) %>%
-  morph(to_split, time, split_by = 'edges') %>%
-  group_by(from) %>%
-  top_n(-15, distance) %>% 
-  crystallize %>%
-  pull(graph) %>%
-  map(as.undirected, mode = 'collapse', edge.attr.comb = 'first') %>%
-  map(as_tbl_graph) %>% 
-  reduce(graph_join)
+  left_join(activate(swsn, edges), ., copy = TRUE, by = c('from', 'to')) %>% # join full SWSN edge data
+  morph(to_split, time, split_by = 'edges') %>% # split the graph into subgraphs by time period
+  group_by(from) %>% # group by each edge's from node
+  top_n(-15, distance) %>% # retain the top 15 smallest (i.e. shortest) edges
+  crystallize %>% # make new graphs from the transformed graphs
+  pull(graph) %>% # extract just the graph information
+  map(as.undirected, mode = 'collapse', edge.attr.comb = 'first') %>% # turn into undirected again
+  map(as_tbl_graph) %>% # convert back to tidygraph objects
+  reduce(graph_join) # rejoin the subgraphs from each period into a single graph
 ```
 
-```{r, echo = FALSE}
+```{r, echo = FALSE, fig.fullwidth = TRUE, fig.width=10}
 ggraph(nn_mat, 'manual', node.positions = pts) +
   geom_edge_link(alpha = .1) +
   facet_edges(~time, nrow = 1) +
   theme_void() +
-  coord_equal()
+  coord_equal() +
+  ggtitle('Nearest neighbor network', 'k = 15')
 ```
 
-```{r eval = FALSE}
+```{r eval = FALSE, echo = FALSE}
 shortest_path <- function(graph, src, dest){
   path <- suppressWarnings(get.shortest.paths(graph, src, dest))
   path <- names(path$vpath[[1]])
@@ -294,24 +302,13 @@ k_shortest_yen <- function(graph, src, dest, k){
 
 k_shortest_yen(as.directed(nn_mat %E>% filter(time == 1200), mode = 'mutual'), 1, 12, 10)
 ```
-```{r eval = FALSE}
-set.seed(1)
-g <- erdos.renyi.game(100,.2)
-
-plist <- do.call(c, lapply(V(g), function(v) get.shortest.paths(g,v,V(g), output ='epath')$epath))
-psize <- data.frame(i = 1:length(plist), plength = sapply(plist, length))
-top10 <- head(psize[order(-psize$plength),],10)
-elist <- unlist(plist[top10$i])
-finalg <- subgraph.edges(g, elist)
-plot(g);plot(finalg)
-```
 
 ```{r eval = FALSE}
 
 all_shortest_paths(graph= spatial_net, from = 1, to = 12, mode = 'all', weights = as_tibble(spatial_net, activate = 'edges')$distance)
 ```
 
-```{r, eval = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 #devtools::install_github('ecohealthalliance/yenpathy')
 library(yenpathy)
 spatial_net <- nn_mat %E>%
@@ -356,9 +353,9 @@ nn_mat %E>%
 
 
 ```{r shortest_paths, eval = FALSE}
-path_dat <- nn_mat %E>%
-  as_tibble %>%
-  select(from,to) %>%
+path_dat <- nn_mat %E>% # get the neighbor matrix edgelist
+  as_tibble %>% # convert to tibble
+  select(from,to) %>% # extract the node ids for each edge pair
   distinct %>% # limit to distinct edges
   group_by(from) %>% # group by origin node
   nest %>% # nest by origin node
@@ -383,7 +380,7 @@ paths_sf <- path_dat %>%
   smooth(method = 'ksmooth', smoothness = 20) 
 ```
 
-```{r eval = FALSE}
+```{r eval = FALSE, include = FALSE}
 paths_sf %>%
   inner_join(activate(swsn, 'edges') %>% as_tibble, .) %>%
   ggplot() +
@@ -487,7 +484,7 @@ spei_recon %>%
 We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reconstructed drought dynamics.
 
 Now we calculate the rotated empirical orthogonal functions for both the observed and reconstructed drought maps. For the observations, we see that the leading 5 eofs explain 85% of the variance in the series, so we'll retain those for rotation.
-```{r plot_variance_prism, echo = FALSE}
+```{r plot_variance_prism, fig.margin = TRUE, echo = FALSE}
 #this code is the same as the eofNum function above, but needs a slight adjustment here because that function assumes more time than spatial indices
 eigs <- prcomp(t(as.data.frame(spei_obs, na.rm = TRUE)), scale. = FALSE)[["sdev"]]^2
 eigs.pct <- 100 * eigs/sum(eigs)
@@ -533,7 +530,7 @@ spei_obs %>%
   pull(value) %>%
   acf
 ```
-It looks like there is some autocorrelaiton, will have to adjust in the future.
+It looks like there is some autocorrelation, will have to adjust in the future.
 
 
 Now, calculate the eofs for both fields, retaining the 4 leading components in each case for rotation
@@ -808,12 +805,14 @@ env_rasters <- clim_pca$map %>%
 plot(env_rasters)
 ```
 
-```{r}
+```{r eval = FALSE}
 pairs(env_rasters)
 ```
+
 ```{r}
 knitr::knit_exit()
 ```
+
 
 # Model fitting
 Now that we have all the data imported and preprocessed, let's put it all together into a data frame.
@@ -822,9 +821,9 @@ dat <- swsn %N>%
   mutate(ID = 1:n(),
          lon = pts$x, 
          lat = pts$y) %>%
-  left_join(raster::extract(env_rasters, pts, df = TRUE), 
-            by = 'ID') %E>%
-  left_join(distances, by = c('from', 'to')) %>%
+  left_join(raster::extract(env_rasters, pts, df = TRUE), by = 'ID') %E>%
+  left_join((dist_mat %>% as_tbl_graph(directed = T) %E>% filter(!edge_is_loop()) %>% as_tibble %>% rename(distance = weight))
+, by = c('from', 'to')) %>%
   mutate(size_from = case_when(time == 1200 ~ .N()$P1room[from],
                                time == 1250 ~ .N()$P2room[from],
                                time == 1300 ~ .N()$P3room[from],
@@ -870,9 +869,8 @@ dat <- swsn %N>%
          reof4_from = .N()$reof4[from],
          reof4_to = .N()$reof4[to]) %>%
   as_tibble %>%
-  filter(centrality_from >= centrality_to)
-  #mutate(rel_sim = similarity * (centrality_to / centrality_from),
-  #       to = as.factor(to))
+  group_by(time) %>%
+  filter(from < to)
 ```
 
 ```{r, echo = FALSE}
@@ -915,9 +913,6 @@ ggplot(dat, aes(x = similarity, y = time, group = time, fill = ..x..)) +
                       point_shape = '|', point_size = 3, alpha = 0.7) +
   scale_fill_viridis()+
   theme_ridges()
-
-ggplot(dat, aes(x=similarity, group=time, fill=time)) + 
-    geom_density(adjust=1.5, position="stack")
 ```
 We can confirm this by looking at the number of edges from each time period.
 ```{r}
@@ -952,7 +947,7 @@ eof_data <- raster::extract(reof_raster, pts, df=TRUE) %>%
 
 First, how does similarity of two settlements vary as a function of the distance between them?
 ```{r echo = FALSE, fig.width = 6, fig.height = 4.5, fig.fullwidth=TRUE}
-ggplot(dat, aes(distance, rel_sim)) +
+ggplot(dat, aes(distance, similarity)) +
   geom_point(alpha = .1) +
   geom_smooth() +
   labs(title = 'Empirical distance decay function', x = 'Distance', y = 'Similarity') +
@@ -1066,7 +1061,7 @@ geo_models[[4,3]] %>%
 ```
 
 ```{r}
-#devtools::install_github("nspope/corMLPE")
+#devtools::install_github('nspope/corMLPE')
 library(corMLPE)
 test <- dat %>%
   filter(similarity > 0 & similarity < 1) %>%
