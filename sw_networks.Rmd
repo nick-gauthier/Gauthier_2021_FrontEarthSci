@@ -815,58 +815,39 @@ knitr::knit_exit()
 
 
 # Model fitting
+
 Now that we have all the data imported and preprocessed, let's put it all together into a data frame.
-```{r}
+```{r data_preparation}
 dat <- swsn %N>%
   mutate(ID = 1:n(),
          lon = pts$x, 
          lat = pts$y) %>%
   left_join(raster::extract(env_rasters, pts, df = TRUE), by = 'ID') %E>%
   left_join((dist_mat %>% as_tbl_graph(directed = T) %E>% filter(!edge_is_loop()) %>% as_tibble %>% rename(distance = weight)), by = c('from', 'to')) %>%
-  mutate(size_from = case_when(time == 1200 ~ .N()$P1room[from],
-                               time == 1250 ~ .N()$P2room[from],
-                               time == 1300 ~ .N()$P3room[from],
-                               time == 1350 ~ .N()$P4room[from],
-                               time == 1400 ~ .N()$P5room[from]),
-         size_to = case_when(time == 1200 ~ .N()$P1room[to],
-                             time == 1250 ~ .N()$P2room[to],
-                             time == 1300 ~ .N()$P3room[to],
-                             time == 1350 ~ .N()$P4room[to],
-                             time == 1400 ~ .N()$P5room[to]),
-         from_x = .N()$lon[from],
-         from_y = .N()$lat[from],
-         to_x = .N()$lon[to],
-         to_y = .N()$lat[to],
-         macro_from = .N()$Macro[from],
-         macro_to =.N()$Macro[to],
-         macro_same = macro_from == macro_to,
-         micro_from = .N()$Micro[from],
-         micro_to = .N()$Micro[to],
-         micro_same = micro_from == micro_to,
-         pc1_from = .N()$pc1[from],
-         pc1_to = .N()$pc1[to],
-         pc2_from = .N()$pc2[from],
-         pc2_to = .N()$pc2[to],
-         pc3_from = .N()$pc3[from],
-         pc3_to = .N()$pc3[to],
-         pc4_from = .N()$pc4[from],
-         pc4_to = .N()$pc4[to],
-         eof1_from = .N()$eof1[from],
-         eof1_to = .N()$eof1[to],
-         eof2_from = .N()$eof2[from],
-         eof2_to = .N()$eof2[to],
-         eof3_from = .N()$eof3[from],
-         eof3_to = .N()$eof3[to],
-         eof4_from = .N()$eof4[from],
-         eof4_to = .N()$eof4[to],
-         reof1_from = .N()$reof1[from],
-         reof1_to = .N()$reof1[to],
-         reof2_from = .N()$reof2[from],
-         reof2_to = .N()$reof2[to],
-         reof3_from = .N()$reof3[from],
-         reof3_to = .N()$reof3[to],
-         reof4_from = .N()$reof4[from],
-         reof4_to = .N()$reof4[to]) %>%
+  mutate(
+    size = case_when(time == 1200 ~ .N()$P1room[from] * .N()$P1room[to],
+                     time == 1250 ~ .N()$P2room[from] * .N()$P2room[to],
+                     time == 1300 ~ .N()$P3room[from] * .N()$P3room[to],
+                     time == 1350 ~ .N()$P4room[from] * .N()$P4room[to],
+                     time == 1400 ~ .N()$P5room[from] * .N()$P5room[to]),
+   from_x = .N()$lon[from],
+   from_y = .N()$lat[from],
+   to_x = .N()$lon[to],
+   to_y = .N()$lat[to],
+   macro_same = .N()$Macro[from] == .N()$Macro[to],
+   micro_same = .N()$Micro[from] == .N()$Micro[to],
+   pc1 = abs(.N()$pc1[from] - .N()$pc1[to]),
+   pc2 = abs(.N()$pc2[from] - .N()$pc2[to]),
+   pc3 = abs(.N()$pc3[from] - .N()$pc3[to]),
+   pc4 = abs(.N()$pc4[from] - .N()$pc4[to]),
+   eof1 = abs(.N()$eof1[from] - .N()$eof1[to]),
+   eof2 = abs(.N()$eof2[from] - .N()$eof2[to]),
+   eof3 = abs(.N()$eof3[from] - .N()$eof3[to]),
+   eof4 = abs(.N()$eof4[from] - .N()$eof4[to]),
+   reof1 = abs(.N()$reof1[from] - .N()$reof1[to]),
+   reof2 = abs(.N()$reof2[from] - .N()$reof2[to]),
+   reof3 = abs(.N()$reof3[from] - .N()$reof3[to]),
+   reof4 = abs(.N()$reof4[from] - .N()$reof4[to])) %>%
   as_tibble %>%
   group_by(time) %>%
   filter(from < to) %>%
