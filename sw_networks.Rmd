@@ -45,7 +45,6 @@ library(mgcViz) # GAM plotting
 library(dismo)
 library(sf)
 library(smoothr)
-#devtools::install_github('tylermorganwall/rayshader')
 library(rayshader)
 ```
 
@@ -69,7 +68,7 @@ knitr::kable(
 Next import the edge data. Our data come in the form of similarity matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a directed graph. We then filter out self loops, calculate eigenvector centrality for each of the nodes, then for each edge record the time period and centralities of the neighboring nodes.
 ```{r read_swsn}
 read_swsn <- function(net, time){
-  read.csv(net, row.names = 1, check.names = FALSE) %>% # import the similarity matrix
+  read.csv(net, row.names = 1, check.names = FALSE) %>% 
     as.matrix %>% # convert to a matrix
     replace(. == 0, 999) %>% # replace 0 values with 999 temporarily
     as_tbl_graph(directed = TRUE) %E>% # convert to directed graph
@@ -212,18 +211,18 @@ ggraph(time_mat, 'manual', node.positions = pts) +
 ```
 
 ```{r nearest_neighbor}
-nn_mat <- dist_mat %>% # start with the distance matrix
-  as_tbl_graph(directed = TRUE) %E>% # turn into a graph
+nn_mat <- dist_mat %>% 
+  as_tbl_graph(directed = TRUE) %E>%
   filter(!edge_is_loop()) %>% # remove self loops
-  rename(distance = weight) %>% # rename weight column
-  as_tibble %>% # extract edges into a tibble
+  rename(distance = weight) %>% 
+  as_tibble %>% 
   left_join(activate(swsn, edges), ., copy = TRUE, by = c('from', 'to')) %>% # join full SWSN edge data
-  morph(to_split, time, split_by = 'edges') %>% # split the graph into subgraphs by time period
-  group_by(from) %>% # group by each edge's from node
+  morph(to_split, time, split_by = 'edges') %>% # split into subgraphs
+  group_by(from) %>% 
   top_n(-15, distance) %>% # retain the top 15 smallest (i.e. shortest) edges
   crystallize %>% # make new graphs from the transformed graphs
   pull(graph) %>% # extract just the graph information
-  map(as.undirected, mode = 'collapse', edge.attr.comb = 'first') %>% # turn into undirected again
+  map(as.undirected, mode = 'collapse', edge.attr.comb = 'first') %>%
   map(as_tbl_graph) %>% # convert back to tidygraph objects
   reduce(graph_join) # rejoin the subgraphs from each period into a single graph
 ```
@@ -809,9 +808,7 @@ plot(env_rasters)
 pairs(env_rasters)
 ```
 
-```{r}
-knitr::knit_exit()
-```
+
 
 
 # Model fitting
@@ -856,6 +853,11 @@ dat <- swsn %N>%
   mutate(tie = similarity > 0)
 ```
 
+```{r}
+saveRDS(dat, 'dat')
+dat <- readRDS('dat')
+```
+
 ```{r, echo = FALSE}
 knitr::kable(
   dat[1:6,], caption = 'A subset of the edge level data.'
@@ -895,7 +897,9 @@ Let's just isolate the distributions from the first time period. Clearly these a
 Since we'll be using a logit link in the regressions, check the logit transform
 
 ```{r}
-ggplot(dat, aes(x = qlogis(similarity), y = as.factor(time), fill = ..x.., height = ..density..)) +
+library(ggridges)
+ggplot(dat %>%
+  mutate(similarity = if_else(similarity == 1, 1 - .000001, if_else(similarity == 0, .000001, similarity))), aes(x = qlogis(similarity), y = as.factor(time), fill = ..x.., height = ..density..)) +
   geom_density_ridges_gradient(stat = 'density', scale = 1.5) +
   scale_fill_viridis(guide = F) +
   theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
@@ -909,14 +913,7 @@ ggplot(filter(dat, similarity > 0 & similarity < 1), aes(x = qlogis(similarity),
 
 
 By adding a rug plot, we can see that this is likely because the small number of edges sampled overall in the final period. Possibly this has additional meaning due to something like the salado phenomenon, by which ceramic assemblage similarities take on a different meaning?
-```{r, fig.margin = TRUE}
-ggplot(dat, aes(x = similarity, y = time, group = time, fill = ..x..)) +
-  geom_density_ridges_gradient(jittered_points = TRUE,
-                      position = position_points_jitter(width = 0.05, height = 0),
-                      point_shape = '|', point_size = 3, alpha = 0.7) +
-  scale_fill_viridis()+
-  theme_ridges()
-```
+
 We can confirm this by looking at the number of edges from each time period.
 ```{r}
 dat %>%
@@ -941,36 +938,134 @@ eof_data <- raster::extract(reof_raster, pts, df=TRUE) %>%
 
 ## Distance modeling
 
+```{r}
+hist(log(dat$distance))
+hist(log(dat$size))
+```
 
 Do the fits to distance change with time? a little bit, but seems more to have to do with the decrease in sample size with time.
 ```{r echo=FALSE, distance_time_plot}
-ggplot(dat, aes(distance, similarity)) +
+ggplot(dat, aes(distance, qlogis(similarity))) +
   geom_point(alpha = .1, aes(color = time)) +
     scale_color_brewer(palette = 'Spectral', direction = 1) +
   geom_smooth(aes(group = time, color = time)) +
   geom_smooth() +
   theme_minimal()
 ```
-```{r, logistic-model, include = FALSE}
-m1 <-  bam(tie ~ s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + s(time, bs = 're', k = 5), discrete = T,
-         family = binomial,
-         data = dat)
-summary(m1)
-plot(m1)
+```{r}
+knitr::knit_exit()
 ```
+
+
+Our data have a lot of zeros in them. To do this, we'll actually fit two models: a logistic regression for the presence or absence of any material culture similarity between two sites, and a beta regression for the intensity of the interaction when it does exist. 
+
+First we predict the presence of a tie via logistic regression. Should we include size as a default predictor in the model? It doesn't increase the deviance explaned at all, but AIC says yes
+
+Now we write out a list of potential model structures, and fit gams using all of them. Calculate the AICs for each formula, link function combination, and reorder the amount from the lowest AIC
+```{r}
+ctrl <- gam.control(nthreads = 2)
+
+fit_gam_presence <- function(x){
+  gam(x, method = 'ML', 
+         family = binomial(link = 'logit'),
+         control = ctrl,
+         data = filter(dat))
+}
+```
+
+```{r logistic_models, cache = TRUE}
+logistic_models <- c(
+  "s(distance, bs = 'tp', m = 2) +
+  s(distance, by = time, bs = 'ts', m = 1) + 
+  s(log(size), bs = 'tp', m = 2) + 
+  s(log(size), by = time, bs = 'ts', m = 1) + 
+  time + macro_same",
+  "s(distance, bs = 'tp', m = 2) + 
+  s(distance, by = time, bs = 'ts', m = 1) + 
+  s(log(size), bs = 'tp', m = 2) + 
+  s(log(size), by = time, bs = 'ts', m = 1) +
+  s(pc1, bs = 'ts', m = 2) + s(pc1, by = time, bs = 'ts', m = 1) + 
+  s(pc2, bs = 'ts', m = 2) + s(pc2, by = time, bs = 'ts', m = 1) +
+  s(pc3, bs = 'ts', m = 2) + s(pc3, by = time, bs = 'ts', m = 1) + 
+  s(pc4, bs = 'ts', m = 2) + s(pc4, by = time, bs = 'ts', m = 1) +
+  time + macro_same",
+  "s(distance, bs = 'tp', m = 2) + 
+  s(distance, by = time, bs = 'ts', m = 1) + 
+  s(log(size), bs = 'tp', m = 2) + 
+  s(log(size), by = time, bs = 'ts', m = 1) +
+  s(reof1, bs = 'ts', m = 2) + s(reof1, by = time, bs = 'ts', m = 1) + 
+  s(reof2, bs = 'ts', m = 2) + s(reof2, by = time, bs = 'ts', m = 1) +
+  s(reof3, bs = 'ts', m = 2) + s(reof3, by = time, bs = 'ts', m = 1) + 
+  s(reof4, bs = 'ts', m = 2) + s(reof4, by = time, bs = 'ts', m = 1) + 
+  time + macro_same"
+   ) %>%
+  paste('tie ~', .) %>%
+  tibble(formula_chr = .) %>%
+  mutate(formula = purrr::map(formula_chr, as.formula), 
+         model = purrr::map(formula, fit_gam_presence)) %>%
+  mutate(aic = map_dbl(model, AIC)) %>%
+  arrange(aic)
+```
+
+```{r}
+logistic_models
+```
+
+We fit 3 models to predict the prsence of an interaction tie between two sites. The best performing model including distance, size, and reofs as predictors, with an aic of `r logistic_models[[1,4]]`. In second is the model with distance, size, and reofs as predictors, with an aic of `r logistic_models[[2,4]]`. Third is the base geographic model with distance and size, with an AIC of `r logistic_models[[3,4]]`. That said, even the best fitting model only captures 30% of the variance in tie presence. This means we are still missing key variables that drive the presence or absence of social relations.
+
+```{r}
+plot(logistic_models[[1,3]], scale= 0)
+summary(logistic_models[[1,3]])
+gam.check(logistic_models[[1,3]])
+```
+
+Next model the interaction intensities.
 
 Define a function that, when applied to a dataset and a gam formula, will fit a gam of that formula.
 ```{r fit_gam}
-ctrl <- gam.control(nthreads = 3)
-
-fit_gam <- function(x){
+fit_gam_similarity <- function(x){
   gam(x, method = 'ML', 
          family = betar(link = 'logit'),
          control = ctrl,
-         eps = .0001,
-         data = dat)#filter(dat, similarity > 0 & similarity < 1))#(dat * (nrow(dat) - 1) + .5) / nrow(dat))
+         eps = .001,
+         data = filter(dat, similarity > 0))
 }
 ```
+
+```{r}
+beta_models <- c(
+  "s(distance, bs = 'tp', m = 2) +
+  s(distance, by = time, bs = 'ts', m = 1) + 
+  s(log(size), bs = 'tp', m = 2) + 
+  s(log(size), by = time, bs = 'ts', m = 1) + 
+  time + macro_same",
+  "s(distance, bs = 'tp', m = 2) + 
+  s(distance, by = time, bs = 'ts', m = 1) + 
+  s(log(size), bs = 'tp', m = 2) + 
+  s(log(size), by = time, bs = 'ts', m = 1) +
+  s(pc1, bs = 'ts', m = 2) + s(pc1, by = time, bs = 'ts', m = 1) + 
+  s(pc2, bs = 'ts', m = 2) + s(pc2, by = time, bs = 'ts', m = 1) +
+  s(pc3, bs = 'ts', m = 2) + s(pc3, by = time, bs = 'ts', m = 1) + 
+  s(pc4, bs = 'ts', m = 2) + s(pc4, by = time, bs = 'ts', m = 1) +
+  time + macro_same",
+  "s(distance, bs = 'tp', m = 2) + 
+  s(distance, by = time, bs = 'ts', m = 1) + 
+  s(log(size), bs = 'tp', m = 2) + 
+  s(log(size), by = time, bs = 'ts', m = 1) +
+  s(reof1, bs = 'ts', m = 2) + s(reof1, by = time, bs = 'ts', m = 1) + 
+  s(reof2, bs = 'ts', m = 2) + s(reof2, by = time, bs = 'ts', m = 1) +
+  s(reof3, bs = 'ts', m = 2) + s(reof3, by = time, bs = 'ts', m = 1) + 
+  s(reof4, bs = 'ts', m = 2) + s(reof4, by = time, bs = 'ts', m = 1) + 
+  time + macro_same"
+   ) %>%
+  paste('similarity ~', .) %>%
+  tibble(formula_chr = .) %>%
+  mutate(formula = purrr::map(formula_chr, as.formula), 
+         model = purrr::map(formula, fit_gam_presence)) %>%
+  mutate(aic = map_dbl(model, AIC)) %>%
+  arrange(aic)
+```
+
 
 Now we write out a list of potential model structures, and fit gams using all of them. Calculate the AICs for each formula, link function combination, and reorder the amount from the lowest AIC
 ```{r geo_models}
@@ -980,11 +1075,24 @@ geo_models <- c(
     "s(distance, time, bs = 'fs', m = 2)",
     "s(distance, by = time, bs = 'tp', m = 2) + s(time, bs = 're', k = 5)",
     "s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + s(time, bs = 're', k = 5)"
-  #"s(distance, bs = 'cr') + s(to, bs = 're')",
-    #"s(distance, bs = 'cr') + s(size_from, bs = 'cr') + s(size_to, bs = 'cr') + s(to, bs = 're')",
-    #"s(distance, bs = 'cr') + log(size_from) + log(size_to) + s(to, bs = 're')",
-    #"s(distance, bs = 'cr') + te(size_from, size_to) + s(to, bs = 're')",
-    #"s(distance, bs = 'cr') + s(size_from, size_to) + s(to, bs = 're')"
+   ) %>%
+  paste('similarity ~', .) %>%
+  tibble(formula_chr = .) %>%
+  mutate(formula = purrr::map(formula_chr, as.formula), 
+         model = purrr::map(formula, fit_gam_similarity)) %>%
+  mutate(aic = map_dbl(model, AIC)) %>%
+  arrange(aic)
+```
+
+Best fitting size model has log of distance and size, second best has log of sie but not distance
+```{r}
+size_models <-  c(
+      "s(distance, by = time, bs = 'ts', m = 2) + s(time, bs = 're', k = 5)",
+    "s(distance, by = time, bs = 'ts', m = 2) + s(time, bs = 're', k = 5) + s(size, by = time, bs = 'ts', m = 2)",
+    "s(distance, by = time, bs = 'ts', m = 2) + s(time, bs = 're', k = 5) + s(log(size), by = time, bs = 'ts', m = 2)",
+      "s(log(distance), by = time, bs = 'ts', m = 2) + s(time, bs = 're', k = 5)",
+    "s(log(distance), by = time, bs = 'ts', m = 2) + s(time, bs = 're', k = 5) + s(size, by = time, bs = 'ts', m = 2)",
+    "s(log(distance), by = time, bs = 'ts', m = 2) + s(time, bs = 're', k = 5) + s(log(size), by = time, bs = 'ts', m = 2)"
    ) %>%
   paste('similarity ~', .) %>%
   tibble(formula_chr = .) %>%
@@ -992,8 +1100,11 @@ geo_models <- c(
          model = purrr::map(formula, fit_gam)) %>%
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
-```
 
+size_models
+summary(size_models[[1,3]])
+plot(size_models[[1,3]])
+```
 
 Here we can see that the best model includes distance, centrality, and size in a purely additive structure with a logit link function. This model gives an adjusted R2 of ~70%.
 ```{r}
@@ -1010,54 +1121,272 @@ geo_models[[1,3]] %>%
   plot %>%
   print(pages = 1)
 ```
-```{r}
-expand.grid(distance = seq(0, 100000, by = 100), time = as.factor(c(1200, 1250, 1300, 1350, 1400))) %>%
-  mutate(., pred = predict(geo_models[[1,3]], ., type = 'response')) %>%
-  ggplot(aes(distance, pred, group = time, color = time)) +
-  geom_line()
-```
+
 
 ```{r}
 #devtools::install_github('nspope/corMLPE')
 library(corMLPE)
-test <- dat %>%
+
+test <-  dat %>%
   filter(similarity > 0 & similarity < 1) %>%
-  filter(time == 1200) %>%
-  mutate(from = as.character(from), to = as.character(to)) %>%
-  gamm(qlogis(similarity) ~ s(distance, bs = 'cr'), 
-         family = gaussian(link='identity'),
+  filter(time == 1300) %>%
+  gamm(qlogis(similarity) ~ s(distance, bs = 'cr') + 
+         s(log(size), bs = 'cr'),
+  # s(reof1, by = time, bs = 'ts', m = 2) + 
+   #s(reof2, by = time, bs = 'ts', m = 2) +
+   #s(reof3, by = time, bs = 'ts', m = 2) + 
+  #s(reof4, by = time, bs = 'ts', m = 2) + 
+  #s(time, bs = 're', k = 5), 
          correlation = corMLPE(form = ~from + to),
          data = .)
-
+test
 plot(test$gam)
+summary(qlogis(dat$similarity))
+plot(test$gam)
+summary(test$gam)
+
+test <- lme(qlogis(similarity) ~ distance, random = ~distance|time, correlation = corMLPE(form = ~from + to | time), data = dat %>%
+  mutate(similarity = if_else(similarity == 1, 1 - .0001, if_else(similarity == 0, .0001, similarity)), from = as.character(from), to = 
+    as.character(to)))
+test
+hist(plogis(filter(dat,similarity > 0 & similarity < 1)$similarity))
+cbind(filter(dat,similarity > 0 & similarity < 1)$similarity, plogis(qlogis(filter(dat,similarity > 0 & similarity < 1)$similarity)))
+plot(test)
 ```
 
 
 So let's select this model as our baseline geographic model.
-```{r real_geo_mod}
-mod <- bam(similarity ~ s(distance, bs = 'cr'),
-            method = 'REML', select = TRUE, 
-          family = betar(link = 'logit', eps = .001),
-          data = filter(dat, similarity > 0 & similarity < 1))
-inv.logit <-  function(x) exp(x)/(1+exp(x))
-plot(mod, scheme = 1, shift = -.833739, trans = inv.logit, residuals = F)
-summary(mod)
 
-gam.check(mod)
+```{r}
+expand.grid(distance = seq(0, 100000, by = 100), 
+            time = as.factor(c(1200, 1250, 1300, 1350, 1400)), 
+            macro_same = c(T, F), micro_same = c(T,F),
+            size = 500,
+            pc1 = 0, pc2 = 0, pc3 = 0, pc4 = 0, reof1 = 0, reof2 = 0, reof3 = 0, reof4 = 0) %>%
+  mutate(., pred = predict(test$gam, ., type = 'response')) %>%
+  ggplot(aes(distance, plogis(pred), group = time, color = time)) +
+  facet_grid(macro_same ~ micro_same) +
+  geom_line()
+
+expand.grid(distance = 100000, 
+            time = as.factor(c(1200, 1250, 1300, 1350, 1400)), 
+            macro_same = F, micro_same = F,
+            size = 500,
+            pc1 = seq(0,1,.01), pc2 = 0, pc3 = 0, pc4 = 0, reof1 = 0, reof2 = 0, reof3 = 0, reof4 = 0) %>%
+  mutate(., pred = predict(mod, ., type = 'response')) %>%
+  ggplot(aes(pc1, pred, group = time, color = time)) +
+  facet_grid(macro_same ~ micro_same) +
+  geom_line()
+
+expand.grid(distance = 100000, 
+            time = as.factor(c(1200, 1250, 1300, 1350, 1400)), 
+            macro_same = F, micro_same = F,
+            size = 1000,
+            pc1 = 0, pc2 = 0, pc3 = 0, pc4 = 0, reof1 = 0, reof2 = 0, reof3 = 0, reof4 = seq(0,.5,.01)) %>%
+  mutate(., pred = predict(all_models[[1,3]], ., type = 'response')) %>%
+  ggplot(aes(reof4, pred, group = time, color = time)) +
+  facet_grid(macro_same ~ micro_same) +
+  geom_line()
 ```
 
 ```{r}
-dat %>%
-  mutate(resid = residuals(geo_models[[1,3]], type = 'response')) %>%
-ggplot(aes(size_from * size_to, qlogis(resid))) +
-  geom_point(aes(color = time), alpha = .2) +
-  geom_smooth(aes(group = time, color= time)) +
-  geom_smooth() +
-  scale_color_brewer(palette = 'Spectral', direction = 1) +
-  theme_bw()
+mod <- bam(similarity ~ 
+  s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + 
+  s(size, bs = 'ts', m = 2) + s(size, by = time, bs = 'ts', m = 1) + 
+  s(pc1, bs = 'ts', m = 2) + s(pc1, by = time, bs = 'ts', m = 1) + 
+  s(pc2, bs = 'ts', m = 2) + s(pc2, by = time, bs = 'ts', m = 1) +
+  s(pc3, bs = 'ts', m = 2) + s(pc3, by = time, bs = 'ts', m = 1) + 
+  s(pc4, bs = 'ts', m = 2) + s(pc4, by = time, bs = 'ts', m = 1) +
+  s(reof1, bs = 'ts', m = 2) + s(reof1, by = time, bs = 'ts', m = 1) + 
+  s(reof2, bs = 'ts', m = 2) + s(reof2, by = time, bs = 'ts', m = 1) +
+  s(reof3, bs = 'ts', m = 2) + s(reof3, by = time, bs = 'ts', m = 1) + 
+  s(reof4, bs = 'ts', m = 2) + s(reof4, by = time, bs = 'ts', m = 1) +
+  micro_same + macro_same + s(time, bs = 're', k = 5),
+  family = betar(eps = 0.0001),
+  nthreads = 3,
+  discrete = TRUE,
+  data = dat)
+
+summary(mod)
+plot(mod)
+```
+```{r}
+concurvity(geo_models[[1,3]])
+concurvity(mod)
+```
+
+```{r}
+mod3 <- bam(similarity ~ 
+   s(distance, time, bs = 'fs', m = 2) + 
+   s(log(size), time, bs = 'fs', m = 2) + 
+   s(reof1, time, bs = 'fs', m = 2) + 
+   s(reof2, time, bs = 'fs', m = 2) +
+   s(reof3, time, bs = 'fs', m = 2) + 
+  s(reof4, time, bs = 'fs', m = 2),
+  family = betar(eps = 0.0001),
+  nthreads = 3,
+  discrete = TRUE,
+  data = dat)
+
+summary(mod3)
+plot(mod3)
 ```
 
 
+```{r}
+mod2 <- bam(similarity ~ 
+   s(distance, by = time, bs = 'cr') + 
+   s(log(size), by = time, bs = 'cr') + 
+   s(reof1, by = time, bs = 'cr') + 
+   s(reof2, by = time, bs = 'cr') +
+   s(reof3, by = time, bs = 'cr') + 
+  s(reof4, by = time, bs = 'cr') +
+    s(time, bs = 're', k = 5),
+  family = betar(eps = 0.0001),
+  select = TRUE,
+  discrete = TRUE,
+  nthreads = 3,
+  data = dat)
+dat
+summary(mod2)
+plot(mod2, residuals = TRUE)
+gam.check(mod2)
+```
+```{r}
+all_models <- c(
+    "s(distance, bs = 'ts') + s(time, bs = 're', k = 5)",
+    "s(distance, bs = 'ts', m = 2) + s(distance, time, bs = 'fs', m = 2)",
+    "s(distance, time, bs = 'fs', m = 2)",
+    "s(distance, by = time, bs = 'tp', m = 2) + s(time, bs = 're', k = 5)",
+    "s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + s(time, bs = 're', k = 5)",
+    "s(distance, by = time, bs = 'ts', m = 2) + 
+   s(pc1, by = time, bs = 'ts', m = 2) + 
+   s(pc2, by = time, bs = 'ts', m = 2) +
+   s(pc3, by = time, bs = 'ts', m = 2) + 
+  s(pc4, by = time, bs = 'ts', m = 2) +
+  s(time, bs = 're', k = 5)",
+ "s(distance, time, bs = 'fs', m = 2) + 
+   s(pc1, time, bs = 'fs', m = 2) + 
+   s(pc2, time, bs = 'fs', m = 2) +
+   s(pc3, time, bs = 'fs', m = 2) + 
+  s(pc4, time, bs = 'fs', m = 2)",
+  "s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + 
+  s(pc1, bs = 'ts', m = 2) + s(pc1, by = time, bs = 'ts', m = 1) + 
+  s(pc2, bs = 'ts', m = 2) + s(pc2, by = time, bs = 'ts', m = 1) +
+  s(pc3, bs = 'ts', m = 2) + s(pc3, by = time, bs = 'ts', m = 1) + 
+  s(pc4, bs = 'ts', m = 2) + s(pc4, by = time, bs = 'ts', m = 1) +
+ s(time, bs = 're', k = 5)",
+  "s(distance, bs = 'ts', m = 2) + s(distance, time, bs = 'fs', m = 2) + 
+  s(pc1, bs = 'ts', m = 2) +   s(pc1, time, bs = 'fs', m = 2) + 
+  s(pc2, bs = 'ts', m = 2) +  s(pc2, time, bs = 'fs', m = 2) +
+  s(pc3, bs = 'ts', m = 2) +     s(pc3, time, bs = 'fs', m = 2) +
+  s(pc4, bs = 'ts', m = 2) +  s(pc4, time, bs = 'fs', m = 2)",
+  "s(distance, bs = 'ts') + 
+  s(pc1, bs = 'ts') + 
+  s(pc2, bs = 'ts') + 
+  s(pc3, bs = 'ts') + 
+  s(pc4, bs = 'ts') + 
+  s(time, bs = 're', k = 5)",
+     "s(distance, by = time, bs = 'ts', m = 2) + 
+   s(reof1, by = time, bs = 'ts', m = 2) + 
+   s(reof2, by = time, bs = 'ts', m = 2) +
+   s(reof3, by = time, bs = 'ts', m = 2) + 
+  s(reof4, by = time, bs = 'ts', m = 2) + 
+  s(time, bs = 're', k = 5)",
+ "s(distance, time, bs = 'fs', m = 2) + 
+   s(reof1, time, bs = 'fs', m = 2) + 
+   s(reof2, time, bs = 'fs', m = 2) +
+   s(reof3, time, bs = 'fs', m = 2) + 
+  s(reof4, time, bs = 'fs', m = 2)",
+  "s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + 
+  s(reof1, bs = 'ts', m = 2) + s(reof1, by = time, bs = 'ts', m = 1) + 
+  s(reof2, bs = 'ts', m = 2) + s(reof2, by = time, bs = 'ts', m = 1) +
+  s(reof3, bs = 'ts', m = 2) + s(reof3, by = time, bs = 'ts', m = 1) + 
+  s(reof4, bs = 'ts', m = 2) + s(reof4, by = time, bs = 'ts', m = 1) + 
+ s(time, bs = 're', k = 5)",
+  "s(distance, bs = 'ts', m = 2) + s(distance, time, bs = 'fs', m = 2) + 
+  s(reof1, bs = 'ts', m = 2) +  s(reof1, time, bs = 'fs', m = 2) + 
+  s(reof2, bs = 'ts', m = 2) +  s(reof2, time, bs = 'fs', m = 2) +
+  s(reof3, bs = 'ts', m = 2) + s(reof3, time, bs = 'fs', m = 2) + 
+  s(reof4, bs = 'ts', m = 2) +  s(reof4, time, bs = 'fs', m = 2)",
+  "s(distance, bs = 'ts') + 
+  s(reof1, bs = 'ts') + 
+  s(reof2, bs = 'ts') + 
+  s(reof3, bs = 'ts') + 
+  s(reof4, bs = 'ts') +
+  s(time, bs = 're', k = 5)"
+   ) %>%
+  paste('similarity ~', .) %>%
+  tibble(formula_chr = .) %>%
+  mutate(formula = purrr::map(formula_chr, as.formula), 
+         model = purrr::map(formula, fit_gam)) %>%
+  mutate(aic = map_dbl(model, AIC)) %>%
+  arrange(aic)
+```
+```{r}
+saveRDS(all_models, 'all_models')
+```
+
+```{r}
+all_models <- readRDS('all_models')
+all_models
+```
+```{r}
+summary(all_models[[1,3]]);summary(all_models[[6,3]])
+plot(all_models[[2,3]], scale = -1)
+```
+
+
+```{r}
+    "s(distance, by = time, bs = 'ts', m = 2) + 
+   s(pc1, by = time, bs = 'ts', m = 2) + 
+   s(pc2, by = time, bs = 'ts', m = 2) +
+   s(pc3, by = time, bs = 'ts', m = 2) + 
+  s(pc4, by = time, bs = 'ts', m = 2) +
+   s(reof1, by = time, bs = 'ts', m = 2) + 
+   s(reof2, by = time, bs = 'ts', m = 2) +
+   s(reof3, by = time, bs = 'ts', m = 2) + 
+  s(reof4, by = time, bs = 'ts', m = 2) + 
+  s(time, bs = 're', k = 5)",
+ "s(distance, time, bs = 'fs', m = 2) + 
+   s(pc1, time, bs = 'fs', m = 2) + 
+   s(pc2, time, bs = 'fs', m = 2) +
+   s(pc3, time, bs = 'fs', m = 2) + 
+  s(pc4, time, bs = 'fs', m = 2) +
+   s(reof1, time, bs = 'fs', m = 2) + 
+   s(reof2, time, bs = 'fs', m = 2) +
+   s(reof3, time, bs = 'fs', m = 2) + 
+  s(reof4, time, bs = 'fs', m = 2)",
+  "s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + 
+  s(pc1, bs = 'ts', m = 2) + s(pc1, by = time, bs = 'ts', m = 1) + 
+  s(pc2, bs = 'ts', m = 2) + s(pc2, by = time, bs = 'ts', m = 1) +
+  s(pc3, bs = 'ts', m = 2) + s(pc3, by = time, bs = 'ts', m = 1) + 
+  s(pc4, bs = 'ts', m = 2) + s(pc4, by = time, bs = 'ts', m = 1) +
+  s(reof1, bs = 'ts', m = 2) + s(reof1, by = time, bs = 'ts', m = 1) + 
+  s(reof2, bs = 'ts', m = 2) + s(reof2, by = time, bs = 'ts', m = 1) +
+  s(reof3, bs = 'ts', m = 2) + s(reof3, by = time, bs = 'ts', m = 1) + 
+  s(reof4, bs = 'ts', m = 2) + s(reof4, by = time, bs = 'ts', m = 1) + 
+ s(time, bs = 're', k = 5)",
+  "s(distance, bs = 'ts', m = 2) + s(distance, time, bs = 'fs', m = 2) + 
+  s(pc1, bs = 'ts', m = 2) +   s(pc1, time, bs = 'fs', m = 2) + 
+  s(pc2, bs = 'ts', m = 2) +  s(pc2, time, bs = 'fs', m = 2) +
+  s(pc3, bs = 'ts', m = 2) +     s(pc3, time, bs = 'fs', m = 2) +
+  s(pc4, bs = 'ts', m = 2) +  s(pc4, time, bs = 'fs', m = 2) +
+  s(reof1, bs = 'ts', m = 2) +  s(reof1, time, bs = 'fs', m = 2) + 
+  s(reof2, bs = 'ts', m = 2) +  s(reof2, time, bs = 'fs', m = 2) +
+  s(reof3, bs = 'ts', m = 2) + s(reof3, time, bs = 'fs', m = 2) + 
+  s(reof4, bs = 'ts', m = 2) +  s(reof4, time, bs = 'fs', m = 2)",
+  "s(distance, bs = 'ts') + 
+  s(pc1, bs = 'ts') + 
+  s(pc2, bs = 'ts') + 
+  s(pc3, bs = 'ts') + 
+  s(pc4, bs = 'ts') + 
+  s(reof1, bs = 'ts') + 
+  s(reof2, bs = 'ts') + 
+  s(reof3, bs = 'ts') + 
+  s(reof4, bs = 'ts') +
+  s(time, bs = 're', k = 5)"
+```
 
 ```{r}
 ggplot(dat, aes(abs(reof1_from - reof1_to), similarity)) +
