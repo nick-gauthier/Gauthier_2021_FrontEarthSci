@@ -969,7 +969,7 @@ fit_gam_presence <- function(x){
   gam(x, method = 'ML', 
          family = binomial(link = 'logit'),
          control = ctrl,
-         data = filter(dat))
+         data = dat)
 }
 ```
 
@@ -1021,6 +1021,7 @@ gam.check(logistic_models[[1,3]])
 
 Next model the interaction intensities.
 
+
 Define a function that, when applied to a dataset and a gam formula, will fit a gam of that formula.
 ```{r fit_gam}
 fit_gam_similarity <- function(x){
@@ -1061,11 +1062,15 @@ beta_models <- c(
   paste('similarity ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
-         model = purrr::map(formula, fit_gam_presence)) %>%
+         model = purrr::map(formula, fit_gam_similarity)) %>%
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
 ```
 
+```{r}
+beta_models
+plot(beta_models[[1,3]])
+```
 
 Now we write out a list of potential model structures, and fit gams using all of them. Calculate the AICs for each formula, link function combination, and reorder the amount from the lowest AIC
 ```{r geo_models}
@@ -1126,32 +1131,67 @@ geo_models[[1,3]] %>%
 ```{r}
 #devtools::install_github('nspope/corMLPE')
 library(corMLPE)
-
-test <-  dat %>%
-  filter(similarity > 0 & similarity < 1) %>%
-  filter(time == 1300) %>%
-  gamm(qlogis(similarity) ~ s(distance, bs = 'cr') + 
-         s(log(size), bs = 'cr'),
+library(tidyverse)
+library(mgcv)
+test2 <-  dat %>%
+  filter(similarity > 0) %>%
+  mutate(similarity = if_else(similarity >= .999, 0.999, similarity)) %>%
+  group_by(time)%>%
+  sample_n(886) %>%
+ # filter(time %in% c(1250,1300, 1350, 1400)) %>%
+  gamm(qlogis(similarity) ~ te(distance, as.numeric(time), k = 4),
   # s(reof1, by = time, bs = 'ts', m = 2) + 
    #s(reof2, by = time, bs = 'ts', m = 2) +
    #s(reof3, by = time, bs = 'ts', m = 2) + 
-  #s(reof4, by = time, bs = 'ts', m = 2) + 
-  #s(time, bs = 're', k = 5), 
-         correlation = corMLPE(form = ~from + to),
+  #s(reof4, by = time, bs = 'ts', m = 2), 
+         correlation = corMLPE(form = ~from + to|time),
+  method = 'REML',
+         data = .)
+
+test <-  dat %>%
+  filter(similarity > 0) %>%
+  mutate(similarity = if_else(similarity >= .999, 0.999, similarity)) %>%
+  group_by(time)%>%
+  sample_frac(.) %>%
+  gamm(qlogis(similarity) ~  s(distance, bs = 'cr') + time +
+  s(pc1, bs = 'cs') + 
+  s(pc2, bs = 'cs') + 
+   s(pc3, bs = 'cs') +
+    s(pc4,  bs = 'cs') +
+  s(reof1, bs = 'cs') + 
+   s(reof2,  bs = 'cs') +
+    s(reof3,  bs = 'cs') + 
+   s(reof4, bs = 'cs'), 
+         correlation = corMLPE(form = ~from + to|time),
+  method = 'REML',
          data = .)
 test
-plot(test$gam)
+
+test <-  dat %>%
+  filter(similarity > 0) %>%
+  mutate(similarity = if_else(similarity >= .999, 0.999, similarity)) %>%
+  group_by(time)%>%
+  sample_frac(.6) %>%
+  gamm(qlogis(similarity) ~  s(distance, bs = 'cr') + time +
+  s(eof1, bs = 'cs') + 
+   s(eof2,  bs = 'cs') +
+    s(eof3,  bs = 'cs') + 
+   s(eof4, bs = 'cs'), 
+         correlation = corMLPE(form = ~from + to|time),
+  method = 'REML',
+         data = .)
+
+plot(test$gam, trans = plogis)
+plot(test2$gam, scheme = 1)
 summary(qlogis(dat$similarity))
 plot(test$gam)
 summary(test$gam)
 
+concurvity(test$gam)
+
 test <- lme(qlogis(similarity) ~ distance, random = ~distance|time, correlation = corMLPE(form = ~from + to | time), data = dat %>%
-  mutate(similarity = if_else(similarity == 1, 1 - .0001, if_else(similarity == 0, .0001, similarity)), from = as.character(from), to = 
+  mutate(similarity = if_else(similarity == 1.0, 1 - .0001, if_else(similarity == 0, .0001, similarity)), from = as.character(from), to = 
     as.character(to)))
-test
-hist(plogis(filter(dat,similarity > 0 & similarity < 1)$similarity))
-cbind(filter(dat,similarity > 0 & similarity < 1)$similarity, plogis(qlogis(filter(dat,similarity > 0 & similarity < 1)$similarity)))
-plot(test)
 ```
 
 
