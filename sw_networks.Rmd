@@ -465,7 +465,7 @@ We calculate the leading Empirical Orthogonal Functions of a ~100 year series of
 Now we calculate the rotated empirical orthogonal functions for both the observed and reconstructed drought maps. For the observations, we see that the leading 5 eofs explain 85% of the variance in the series, so we'll retain those for rotation.
 ```{r plot_variance_prism, fig.margin = TRUE, echo = FALSE}
 #this code is the same as the eofNum function above, but needs a slight adjustment here because that function assumes more time than spatial indices
-eigs <- prcomp(t(as.data.frame(spei_obs, na.rm = TRUE)), scale. = FALSE)[["sdev"]]^2
+eigs <- prcomp(t(as.data.frame(spei_obs %>% crop(bbox), na.rm = TRUE)), scale. = FALSE)[["sdev"]]^2
 eigs.pct <- 100 * eigs/sum(eigs)
 eigs.lo <- eigs * (1 - sqrt(2/104))
 eigs.hi <- eigs * (1 + sqrt(2/104))
@@ -517,12 +517,12 @@ Now, calculate the eofs for both fields, retaining the 4 leading components in e
 # Decide how many modes to retain
 n_modes <- 4 
 
-obs_eof <- spei_obs %>%
+obs_reof <- spei_obs %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
   eof(n_modes, scale. = FALSE)
 
-recon_eof <- spei_recon %>%
+recon_reof <- spei_recon %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
   eof(n_modes, scale. = FALSE)
@@ -536,9 +536,9 @@ eof <- eigenvec %*% diag(sqrt(eigenval), 4, 4)
 scores <- pr[["x"]][, 1:4]
 amp <- scale(scores)
 attributes(amp)$`scaled:center` <- attributes(amp)$`scaled:scale` <- NULL
-eof_obs <- as.matrix(eof)
-colnames(eof_obs) <- colnames(amp) <- paste("EOF", 1:4, sep = "")
-rownames(eof_obs) <- colnames(t(as.data.frame(spei_obs, na.rm = T)))
+obs_eof <- as.matrix(eof)
+colnames(obs_eof) <- colnames(amp) <- paste("EOF", 1:4, sep = "")
+rownames(obs_eof) <- colnames(t(as.data.frame(spei_obs, na.rm = T)))
 
 pr <- prcomp(t(as.data.frame(spei_recon, na.rm = TRUE)), scale. = FALSE)
 eigenval <- pr[["sdev"]][1:4]^2
@@ -547,15 +547,15 @@ eof <- eigenvec %*% diag(sqrt(eigenval), 4, 4)
 scores <- pr[["x"]][, 1:4]
 amp <- scale(scores)
 attributes(amp)$`scaled:center` <- attributes(amp)$`scaled:scale` <- NULL
-eof_recon <- as.matrix(eof)
-colnames(eof_recon) <- colnames(amp) <- paste("EOF", 1:4, sep = "")
-rownames(eof_recon) <- colnames(t(as.data.frame(spei_recon, na.rm = T)))
+recon_eof <- as.matrix(eof)
+colnames(recon_eof) <- colnames(amp) <- paste("EOF", 1:4, sep = "")
+rownames(recon_eof) <- colnames(t(as.data.frame(spei_recon, na.rm = T)))
 ```
 
 
 Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 4 leading modes.
-```{r plot_reof_recons, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
-as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_eof$REOF) %>%
+```{r plot_rrecon_eofs, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
+as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
   select(-3) %>%
   gather(eof, value, 3:(n_modes+2)) %>%
   ggplot(aes(x,y)) +
@@ -566,8 +566,8 @@ as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_eof$REOF
   coord_quickmap()
 ```
 
-```{r plot_eof_recons, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
-as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(eof_recon) %>%
+```{r plot_recon_eofs, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
+as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_eof) %>%
   select(-3) %>%
   gather(eof, value, 3:(4+2)) %>%
   ggplot(aes(x,y)) +
@@ -578,9 +578,9 @@ as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(eof_recon) %>%
   coord_quickmap()
 ```
 
-```{r plot_eof_obs, echo = FALSE, fig.width = 6, fig.height = 4, fig.cap = 'Observed drought REOFs'}
+```{r plot_obs_eof, echo = FALSE, fig.width = 6, fig.height = 4, fig.cap = 'Observed drought REOFs'}
 as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
-  cbind(eof_obs) %>%
+  cbind(obs_eof) %>%
   select(-3) %>%
   gather(eof, value, 3:(4 + 2)) %>%
   ggplot(aes(x,y)) +
@@ -595,9 +595,9 @@ as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   theme(legend.position = "bottom")
 ```
 
-```{r plot_reof_obs, echo = FALSE, fig.width = 6, fig.height = 4, fig.cap = 'Observed drought REOFs'}
+```{r plot_robs_eof, echo = FALSE, fig.width = 6, fig.height = 4, fig.cap = 'Observed drought REOFs'}
 as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
-  cbind(obs_eof$REOF) %>%
+  cbind(obs_reof$REOF) %>%
   select(-3) %>%
   mutate(EOF1 = -1 * EOF1) %>%
   gather(eof, value, 3:(n_modes + 2)) %>%
@@ -620,12 +620,12 @@ A key assumption here is that the REOFs calculated from both the observations an
 To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
 ```{r amplitudes}
 amplitudes <- left_join(
-  recon_eof$amplitude %>%
+  recon_reof$amplitude %>%
     .[797:900,] %>%
     as_tibble %>%
     mutate(year = 1896:1999) %>%
     gather(eof, recon, 1:n_modes),
-  obs_eof$amplitude %>%
+  obs_reof$amplitude %>%
     as_tibble %>%
     mutate(year = 1896:1999) %>%
     gather(eof, obs, 1:n_modes))
@@ -651,7 +651,7 @@ sst_jja <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
   stackApply(rep(1:104, each = 3), mean) %>%
   anomalize
 
-test <- calc(sst_jja, fun=function(x) cor(x,obs_eof$amplitude[,1]))
+test <- calc(sst_jja, fun=function(x) cor(x,obs_reof$amplitude[,1]))
 plot(test)
 cor(sst_jja[1,1], t1$EOF1)
 
@@ -664,7 +664,7 @@ sst_ann <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
 
 Now let's fit these models in practice. First create a data frame of past amplitudes.
 ```{r past_amplitudes}
-past_amplitudes <- recon_eof$amplitude %>%
+past_amplitudes <- recon_reof$amplitude %>%
     as_tibble %>%
     mutate(year = 1100:1999) %>%
     gather(eof, recon, 1:n_modes) %>%
@@ -757,14 +757,14 @@ bio_clim %>%
 ```{r reof_raster}
 reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   select(x:y) %>%
-  cbind(obs_eof$REOF) %>%
+  cbind(obs_reof$REOF) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
   `names<-`(c('reof1', 'reof2', 'reof3', 'reof4')) %>%
   projectRaster(bio_clim)
 eof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   select(x:y) %>%
-  cbind(eof_obs) %>%
+  cbind(obs_eof) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
   `names<-`(c('eof1', 'eof2', 'eof3', 'eof4')) %>%
@@ -781,7 +781,33 @@ env_rasters <- clim_pca$map %>%
 ```
 
 ```{r}
-plot(env_rasters)
+plot(reof_raster%>% crop(bbox))
+brick(c(reof_raster, env_rasters[[9:12]])) %>% crop(bbox) %>% as.data.frame(xy = T, na.rm = T) %>% gather(reof, value, 3:10) %>% ggplot(aes(x, y)) + geom_raster(aes(fill = value)) +facet_wrap(~reof, nrow = 4) + coord_quickmap() +   scale_fill_distiller(palette = 'BrBG', direction = -1, limits = c(-1,1)) 
+pairs(env_rasters[[c(1:4,9:12)]] %>% crop(bbox)) 
+pairs(env_rasters[[1:8]] %>% crop(bbox)) 
+brick(c(reof_raster, env_rasters[[9:12]])) %>% crop(bbox) %>% pairs
+plot(env_rasters[[1:4]])
+cor(env_rasters[[1]], env_rasters[[2]])
+dat %>%select(reof1:reof4, pc1:pc4) %>% pairs
+```
+```{r}
+as.data.frame(env_rasters[[1:4]], xy = TRUE, na.rm = TRUE) %>% 
+ # mutate(EOF1 = -1 * EOF1) %>%
+  gather(pc, value, 3:(n_modes + 2)) %>%
+  #mutate(value = value * -1) %>%
+  group_by(pc) %>%
+  mutate(value = scale(value)) %>% 
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+  scale_fill_distiller(palette = 'BrBG', direction = -1) +
+  #scale_fill_viridis_c(option = 'magma', limits = c(-1, 1)) +
+  facet_wrap(~pc) +
+  theme_void() +
+  coord_quickmap(xlim = c(-124, -106), ylim = c(31, 40)) +
+  geom_polygon(data =  map_data("state"), aes(x = long, y = lat, group = group), color = 'darkgrey', fill = NA) +
+  ggtitle('Leading 4 rotated empirical orthogonal functions',
+          'SPEI') +
+  theme(legend.position = "bottom")
 ```
 
 ```{r eval = FALSE}
@@ -1053,11 +1079,84 @@ plot(similarity_models[[3, 5]]$gam, trans = plogis)
 summary(t1[[6,5]]$gam)
 similarity_models[[3,5]]
 
-sum(is.na(dat$pc4))
+library(modelr)
 
-dat %>%
-  select(-from, -to, -from_x, -from_y, -to_x, -to_y, -tie) %>%
-  pairs
+similarity_models[[3,5]]$gam %>% glance
+
+t2 <- t1[c(1,4,8,11,14),] %>%
+  select(time, data, model) %>%
+  mutate(model = map(model, ~.$gam),
+         preds = map2(data, model, add_predictions))
+
+t2 %>%
+  select(time, preds) %>%
+  unnest %>%
+  mutate(pred = plogis(pred)) %>%
+  ggplot(aes(pc4, pred, group = time, color = time)) +
+  geom_point()
+  geom_smooth()
+```
+
+```{r}
+
+t1[[1,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
+t1[[4,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
+t1[[8,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
+t1[[11,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
+t1[[14,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
+
+
+t1[[1,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
+t1[[4,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
+t1[[8,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
+t1[[11,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
+t1[[14,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
+
+t1[[1,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
+t1[[4,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
+t1[[8,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
+t1[[11,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
+t1[[14,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
+
+t1[[1,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
+t1[[4,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
+t1[[8,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
+t1[[11,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
+t1[[14,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
+```
+
+```{r}
+t1[[2,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+t1[[5,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+t1[[7,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+t1[[10,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+t1[[13,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+
+t1[[2,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[5,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[7,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[10,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[13,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+
+t1[[2,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[5,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[7,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[10,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[13,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+
+t1[[2,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+t1[[5,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+t1[[7,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+t1[[10,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+t1[[13,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+```
+```{r}
+t1[[10,5]]$gam %>% getViz %>% plot(allTerms = T) %>% print(pages=1)
+t1[[13,5]]$gam %>% getViz %>% plot(allTerms = T, trans = plogis) %>% print(pages=1)
+t1[[7,5]]$gam %>% getViz %>% plot(allTerms = T, trans = plogis) %>% print(pages=1)
+t1[[5,5]]$gam %>% getViz %>% plot(allTerms = T, trans = plogis) %>% print(pages=1)
+t1[[2,5]]$gam %>% getViz %>% plot(allTerms = T, trans = plogis) %>% print(pages=1)
+
 ```
 
 
@@ -1493,106 +1592,6 @@ ggplot(aes(abs(pc4_from - pc4_to), resid)) +
   theme_bw()
 ```
 
-```{r}
-
-mod1 <- gam(similarity ~ s(distance, bs = 'cr') + 
-            s(size_from, bs = 'cr') + 
-            s(size_to, bs = 'cr') + 
-            s(centrality_from, bs = 'cr') + 
-            s(centrality_to, bs = 'cr'), 
-            method = 'REML', select = TRUE, 
-          family = betar(link = 'logit', eps = .001),
-          data = dat)
-
-mod15 <- bam(similarity ~ s(distance, bs = 'cr') + 
-            s(size_from, bs = 'cr') + 
-            s(size_to, bs = 'cr') + 
-            s(centrality_from, bs = 'cr') + 
-            s(centrality_to, bs = 'cr'), 
-            method = 'REML', select = TRUE, 
-          family = betar(link = 'logit', eps = .001),
-          data = dat)
-
-mod2 <- bam(similarity ~ s(distance, bs = 'cr') + 
-            s(centrality_from, bs = 'cr') +
-            s(centrality_to, bs = 'cr') +
-            s(pc1_from, bs = 'cr') + 
-            s(pc1_to, bs = 'cr') + 
-            s(pc2_from, bs = 'cr') +
-            s(pc2_to, bs = 'cr') + 
-            s(pc3_from, bs = 'cr') +
-            s(pc3_to, bs = 'cr') + 
-            s(pc4_from, bs = 'cr') +
-            s(pc4_to, bs = 'cr') + 
-            s(reof1_from, bs = 'cr') + 
-            s(reof1_to, bs = 'cr') + 
-            s(reof2_from, bs = 'cr') +
-            s(reof2_to, bs = 'cr') + 
-            s(reof3_from, bs = 'cr') +
-            s(reof3_to, bs = 'cr') + 
-            s(reof4_from, bs = 'cr') +
-            s(reof4_to, bs = 'cr'),
-            method = 'REML', select = TRUE, 
-          family = betar(link = 'logit', eps = .001),
-          data = dat)
-
-mod3 <- bam(similarity ~ s(distance, bs = 'cr') + 
-            s(centrality_from, bs = 'cr') +
-            s(centrality_to, bs = 'cr') +
-            s(pc1_from, bs = 'cr') + 
-            s(pc1_to, bs = 'cr') + 
-            s(pc2_from, bs = 'cr') +
-            s(pc2_to, bs = 'cr') + 
-            s(pc3_from, bs = 'cr') +
-            s(pc3_to, bs = 'cr') + 
-            s(pc4_from, bs = 'cr') +
-            s(pc4_to, bs = 'cr'),
-            method = 'REML', select = TRUE, 
-          family = betar(link = 'logit', eps = .001),
-          data = dat)
-
-mod4 <- bam(similarity ~ s(distance, bs = 'cr') + 
-            s(centrality_from, bs = 'cr') +
-            s(centrality_to, bs = 'cr') +
-            s(reof1_from, bs = 'cr') + 
-            s(reof1_to, bs = 'cr') + 
-            s(reof2_from, bs = 'cr') +
-            s(reof2_to, bs = 'cr') + 
-            s(reof3_from, bs = 'cr') +
-            s(reof3_to, bs = 'cr') + 
-            s(reof4_from, bs = 'cr') +
-            s(reof4_to, bs = 'cr'),
-            method = 'REML', select = TRUE, 
-          family = betar(link = 'logit', eps = .001),
-          data = dat)
-
-mod5 <- bam(similarity ~ s(distance, bs = 'cr') + 
-            s(centrality_from, centrality_to) +
-            s(reof1_from, reof1_to) + 
-            s(reof2_from, reof2_to) + 
-            s(reof3_from, reof3_to) + 
-            s(reof4_from, reof4_to),
-            method = 'REML', select = TRUE, 
-          family = betar(link = 'logit', eps = .001),
-          data = dat)
-
-mod6 <- bam(similarity ~ s(distance, bs = 'cr') + 
-            s(centrality_from, centrality_to) +
-            s(pca1_from, pca1_to) + 
-            s(pca2_from, pca2_to) + 
-            s(pca3_from, pca3_to) + 
-            s(pca4_from, pca4_to),
-            method = 'REML', select = TRUE, 
-          family = betar(link = 'logit', eps = .001),
-          data = dat)
-
-plot(mod2)
-summary(mod2)
-
-
-summary(mod3);summary(mod4)
-```
-
 
 ## Cultural costs
 Higher than average similarity within macroregions, but not significantly when you control for distance. Looks like there are a lot of outliers withhigh simliarity between macroregion that we're not yet capturing. the difference shrinks when we control for difference, because the "same macrogregion" will covary with distance
@@ -1879,22 +1878,22 @@ swsn %E>%
 
 ```{r echo = FALSE, eval = FALSE}
 phyda <- ncdf4::nc_open('data/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc')
-cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,1])
-cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,2])
-cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_eof$amplitude[,4])
+cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_reof$amplitude[,1])
+cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_reof$amplitude[,2])
+cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_reof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'PacDelSST_mn')[1100:1999], recon_reof$amplitude[,4])
 
-plot(ncdf4::ncvar_get(phyda, 'Pac130_mn')[1100:1999], recon_eof$amplitude[,2])
-plot(ncdf4::ncvar_get(phyda, 'Pac130_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,2])
-cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_eof$amplitude[,4])
-cor(ncdf4::ncvar_get(phyda, 'amo_mn')[1100:1999], recon_eof$amplitude[,2])
-cor(ncdf4::ncvar_get(phyda, 'amo_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,1])
-cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,2])
-cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_eof$amplitude[,3])
-cor(ncdf4::ncvar_get(phyda, 'EPac_mn')[1100:1999], recon_eof$amplitude[,4])
+plot(ncdf4::ncvar_get(phyda, 'Pac130_mn')[1100:1999], recon_reof$amplitude[,2])
+plot(ncdf4::ncvar_get(phyda, 'Pac130_mn')[1100:1999], recon_reof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_reof$amplitude[,2])
+cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_reof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'Pac160_mn')[1100:1999], recon_reof$amplitude[,4])
+cor(ncdf4::ncvar_get(phyda, 'amo_mn')[1100:1999], recon_reof$amplitude[,2])
+cor(ncdf4::ncvar_get(phyda, 'amo_mn')[1100:1999], recon_reof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_reof$amplitude[,1])
+cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_reof$amplitude[,2])
+cor(ncdf4::ncvar_get(phyda, 'Atl_mn')[1100:1999], recon_reof$amplitude[,3])
+cor(ncdf4::ncvar_get(phyda, 'EPac_mn')[1100:1999], recon_reof$amplitude[,4])
 ```
 
 # References {#references .unnumbered}
