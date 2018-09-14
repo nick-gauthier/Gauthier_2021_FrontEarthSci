@@ -535,7 +535,7 @@ It looks like there is some autocorrelation in phyda but not in the observations
 Now, calculate the eofs for both fields, retaining the 4 leading components in each case for rotation
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes <- 5
+n_modes <- 4
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
@@ -550,18 +550,7 @@ recon_reof <- spei_recon %>%
   eof(n_modes, scale. = FALSE)
 ```
 
-```{r reof_raster}
-reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
-  select(x:y) %>%
-  cbind(obs_reof$REOF) %>%
-  rasterFromXYZ %>%
-  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
-  `names<-`(c('reof1', 'reof2', 'reof3', 'reof4','reof5')) %>%
-  projectRaster(bio_clim %>% crop(bbox))
 
-plot(which.max(abs(reof_raster)))
-plot(reof_raster)
-```
 
 Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 4 leading modes.
 ```{r plot_recon_reofs, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
@@ -690,7 +679,7 @@ get_normals <- function(var){
   list.files(pattern = '\\.asc$', full.names = TRUE) %>%
   .[1:12] %>% # the last file in the list is annual values, drop it
   purrr::map(raster) %>% # load the rasters from file list
-  purrr::map(crop, bbox_wus) %>% # crop to study area
+  purrr::map(crop, bbox) %>% # crop to study area
   brick # combine list of rasters into a brick
 }
 ```
@@ -707,7 +696,7 @@ bio_clim <- biovars(prec, tmin, tmax)
 
 Reduce the dimensionality of the bioclimatic data using an R-mode PCA.
 ```{r cache = TRUE}
-clim_pca <- RStoolbox::rasterPCA(bio_clim %>% crop(bbox), spca = TRUE, nComp = 4)
+clim_pca <- RStoolbox::rasterPCA(bio_clim, spca = TRUE, nComp = 4)
 ```
 PC1 is general heat and dryness of the summer, pc2 is the seasonality index, pc3 is an index of diurnal variability. So its basically 3 different time scales.
 ```{r}
@@ -724,7 +713,18 @@ screeplot(clim_pca$model, npcs = 10, type = 'lines')
 #  eofNum(scale. = TRUE)
 ```
 
+```{r reof_raster}
+reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
+  select(x:y) %>%
+  cbind(obs_reof$REOF) %>%
+  rasterFromXYZ %>%
+  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
+  `names<-`(c('reof1', 'reof2', 'reof3', 'reof4')) %>%
+  projectRaster(bio_clim %>% crop(bbox))
 
+plot(which.max(abs(reof_raster)))
+plot(reof_raster)
+```
 
 ```{r raster_reprojection}
 env_rasters <- clim_pca$map %>%
@@ -736,10 +736,6 @@ env_rasters <- clim_pca$map %>%
 
 ```{r}
 pairs(env_rasters)
-```
-
-```{r}
-knitr::knit_exit()
 ```
 
 
@@ -862,20 +858,7 @@ eof_data <- raster::extract(reof_raster, pts, df=TRUE) %>%
 
 ## Distance modeling
 
-```{r}
-hist(log(dat$distance))
-hist(log(dat$size))
-```
 
-Do the fits to distance change with time? a little bit, but seems more to have to do with the decrease in sample size with time.
-```{r echo=FALSE, distance_time_plot}
-ggplot(dat, aes(distance, qlogis(similarity))) +
-  geom_point(alpha = .1, aes(color = time)) +
-    scale_color_brewer(palette = 'Spectral', direction = 1) +
-  geom_smooth(aes(group = time, color = time)) +
-  geom_smooth() +
-  theme_minimal()
-```
 ```{r}
 knitr::knit_exit()
 ```
@@ -977,7 +960,7 @@ test <- dat %>%
   filter(similarity > 0) %>%
   mutate(similarity = if_else(similarity >= .999, 0.999, similarity)) %>%
   group_by(time) %>%
-  sample_frac(.6) %>%
+  sample_frac(.5) %>%
   nest
 
 similarity_models <- map_df(seq_len(5), ~model_list) %>%
@@ -994,87 +977,112 @@ plot(similarity_models[[3, 5]]$gam, trans = plogis)
 summary(t1[[6,5]]$gam)
 similarity_models[[3,5]]
 
-library(modelr)
+```
 
-similarity_models[[3,5]]$gam %>% glance
 
-t2 <- t1[c(1,4,8,11,14),] %>%
-  select(time, data, model) %>%
-  mutate(model = map(model, ~.$gam),
-         preds = map2(data, model, add_predictions))
+```{r}
+t1[[14,5]]$gam %>% getViz %>% plot %>% print(pages=1) 
+t1[[11,5]]$gam %>% getViz %>% plot %>% print(pages=1)
+t1[[7,5]]$gam %>% getViz %>% plot %>% print(pages=1)
+t1[[4,5]]$gam %>% getViz %>% plot %>% print(pages=1)
+t1[[1,5]]$gam %>% getViz %>% plot %>% print(pages=1)
 
-t2 %>%
-  select(time, preds) %>%
-  unnest %>%
-  mutate(pred = plogis(pred)) %>%
-  ggplot(aes(pc4, pred, group = time, color = time)) +
-  geom_point()
-  geom_smooth()
+t1[[13,5]]$gam %>% getViz %>% plot %>% print(pages=1)
+t1[[10,5]]$gam %>% getViz %>% plot %>% print(pages=1)
+t1[[8,5]]$gam %>% getViz %>% plot %>% print(pages=1)
+t1[[4,5]]$gam %>% getViz %>% plot %>% print(pages=1)
+t1[[2,5]]$gam %>% getViz %>% plot %>% print(pages =1)
 ```
 
 ```{r}
+test <- dat %>%
+  filter(similarity > 0 & similarity <1) %>%
+  #filter(time %in% c(1200,1250,1300)) %>%
+  #group_by(time) %>%
+  sample_frac(.5) %>%
+  mutate(time_num = as.numeric(time))
 
-t1[[1,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
-t1[[4,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
-t1[[8,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
-t1[[11,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
-t1[[14,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,6))
+test
+test1 <- gamm(qlogis(similarity) ~  s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1, k = 4) + 
+  s(pc1, bs = 'tp', m = 2) + s(pc1, by = time, bs = 'ts', m = 1) + 
+  s(pc2, bs = 'tp', m = 2) + s(pc2, by = time, bs = 'ts', m = 1) +
+  s(pc3, bs = 'tp', m = 2) + s(pc3, by = time, bs = 'ts', m = 1) + 
+  s(pc4, bs = 'tp', m = 2) + s(pc4, by = time, bs = 'ts', m = 1) +
+  time, method = 'REML', 
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to|time),
+      data = test)
 
+test2 <- gamm(qlogis(similarity) ~  te(distance, time_num) +
+  te(pc1, time_num) +
+  te(pc2, time_num) +
+  te(pc3, time_num) +
+  te(pc4, time_num),
+  method = 'REML', 
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to),
+      data = test)
 
-t1[[1,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
-t1[[4,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
-t1[[8,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
-t1[[11,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
-t1[[14,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,4))
+test3 <- gamm(qlogis(similarity) ~  te(distance, time) +
+  te(pc1, time_num) +
+  te(pc2, time_num) +
+  te(pc3, time_num) +
+  te(pc4, time_num),
+  method = 'REML', 
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to|time),
+      data = test)
 
-t1[[1,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
-t1[[4,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
-t1[[8,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
-t1[[11,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
-t1[[14,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,5))
+gam.check(test1$gam)
 
-t1[[1,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
-t1[[4,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
-t1[[8,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
-t1[[11,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
-t1[[14,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,2))
+plot(test1$gam, scheme = 1)
+ test1$gam %>% getViz %>% plot %>% print(pages =1)
+test1$gam %>% predict.gam(newdata = tibble(distance = 0, reof1=seq(0,.6,.01),reof2=0,reof3=0, reof4=0), type = 'response', se.fit = T) %>% bind_cols %>%
+  mutate(lower = fit - 2 * se.fit, upper = fit + 2 * se.fit) %>%
+ mutate_at(vars(fit,lower, upper), plogis) %>% ggplot(aes(seq(0,.6,.01), fit)) +  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = .2) +
+geom_line() +
+  scale_y_continuous(limits = c(0,1))
+gc()
 ```
+
 
 ```{r}
-t1[[2,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
-t1[[5,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
-t1[[7,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
-t1[[10,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
-t1[[13,5]]$gam %>% getViz %>% sm(2) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+devtools::install_github("gavinsimpson/gratia")
+library(gratia)
+evaluate_smooth(t1[[4,5]]$gam, 's(distance)')  %>% draw()
+evaluate_smooth(t1[[4,5]]$gam, 's(distance)') %>% 
+  mutate(est_trans = plogis(est),
+         se_trans = est_trans * (1-est_trans)* se) %>%
+  mutate(lower = est - 2 * se, upper = est + 2 * se) %>%
+   mutate(lower_trans = est_trans - 2 * se_trans, upper_trans = est_trans + 2 * se_trans) %>%
+ mutate_at(vars(lower, upper), plogis) %>%
+  ggplot(aes(x = distance)) +
+  geom_ribbon(aes(y = est_trans, ymin = lower, ymax = upper), alpha = .2, color = 'red') +
+   geom_ribbon(aes(y = est_trans, ymin = lower_trans, ymax = upper_trans), alpha = .2, color = 'blue') +
+  geom_line(aes(y = est_trans))
+#draw(t1[[4,5]]$gam) 
 
-t1[[2,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
-t1[[5,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
-t1[[7,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
-t1[[10,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
-t1[[13,5]]$gam %>% getViz %>% sm(3) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+t1[[4,5]]$gam %>% getViz %>% sm(1) %>%  plot(trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)
 
-t1[[2,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
-t1[[5,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
-t1[[7,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
-t1[[10,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
-t1[[13,5]]$gam %>% getViz %>% sm(4) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.4))
+predict.gam
+plot(qlogis(1:10))
 
-t1[[2,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
-t1[[5,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
-t1[[7,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
-t1[[10,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)+ scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
-t1[[13,5]]$gam %>% getViz %>% sm(5) %>% plot(allTerms = T, trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))+ scale_x_continuous(limits = c(0,.6))
+
+plot.mgcv.smooth.1D
 ```
 ```{r}
-t1[[10,5]]$gam %>% getViz %>% plot(allTerms = T) %>% print(pages=1)
-t1[[13,5]]$gam %>% getViz %>% plot(allTerms = T, trans = plogis) %>% print(pages=1)
-t1[[7,5]]$gam %>% getViz %>% plot(allTerms = T, trans = plogis) %>% print(pages=1)
-t1[[5,5]]$gam %>% getViz %>% plot(allTerms = T, trans = plogis) %>% print(pages=1)
-t1[[2,5]]$gam %>% getViz %>% plot(allTerms = T, trans = plogis) %>% print(pages=1)
 
+
+predict(t1[[2,5]]$gam %>% predict.gam(newdata = tibble(distance = 0:7000), exclude = 's(pc1)', type = 'response', newdata.guaranteed = FALSE)
+, newdata = tibble(distance = seq(min(test$distance), max(test$distance), 1000), x0 = 0, x1 = 0, x3 = 0),type = 'response', se.fit = TRUE ) %>% bind_cols %>%  
+  mutate(lower = fit - 2 * se.fit, upper = fit + 2 * se.fit) %>%
+ mutate_at(vars(fit,lower, upper), plogis) %>% ggplot(aes(seq(min(test$distance), max(test$distance), 1000), fit)) +   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = .2) +
+geom_line()
+
+
+draw(bm2)
 ```
-
-
+for our plots, its important to back transform the confidence intervals: https://stats.stackexchange.com/questions/163824/different-ways-to-produce-a-confidence-interval-for-odds-ratio-from-logistic-reg 
 ```{r}
 beta_models <- c(
   "s(distance, bs = 'tp', m = 2) +
