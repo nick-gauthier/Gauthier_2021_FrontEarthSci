@@ -495,47 +495,73 @@ Now we calculate the rotated empirical orthogonal functions for both the observe
 
 we want to look for separation in the error bars. eofs that are not well separate can be considered effective multiplets, and hsould not be split in truncation.
 ```{r plot_variance_prism, fig.margin = TRUE, echo = FALSE}
-#this code is the same as the eofNum function above, but needs a slight adjustment here because that function assumes more time than spatial indices
-eigs <- prcomp(t(as.data.frame(area_weight(spei_obs), na.rm = TRUE)), scale. = FALSE)[["sdev"]]^2
-eigs.pct <- 100 * eigs/sum(eigs)
-eigs.lo <- eigs * (1 - sqrt(2/n_effective(spei_obs)))
-eigs.hi <- eigs * (1 + sqrt(2/n_effective(spei_obs)))
-cumvar <- round(cumsum(eigs.pct), 1)
-p <- 104
-d <- data.frame(rank = factor(1:p), eigs, eigs.lo, eigs.hi, 
-        cumvar)
-d <- within(d, cumvar.line <- eigs.hi + 0.02 * max(eigs.hi))
-d <- d[1:min(p, 15), ]
-ggplot(data = d, aes(x = rank, y = eigs)) + geom_errorbar(aes(x = rank, 
-        ymin = eigs.lo, ymax = eigs.hi), width = 0.3) + geom_point(size = 3) + 
-        geom_text(aes(x = rank, y = cumvar.line, label = cumvar), 
-            size = 3, vjust = 0) + labs(list(x = "Rank", y = "Eigenvalue")) + 
-        theme(panel.grid.minor = element_blank()) + scale_y_continuous(trans = 'log')
-
-eigs <- prcomp(t(as.data.frame(area_weight(spei_recon), na.rm = TRUE)), scale. = FALSE)[["sdev"]]^2
-eigs.pct <- 100 * eigs/sum(eigs)
-eigs.lo <- eigs * (1 - sqrt(2/n_effective(spei_recon)))
-eigs.hi <- eigs * (1 + sqrt(2/n_effective(spei_recon)))
-cumvar <- round(cumsum(eigs.pct), 1)
-p <- 62
-d <- data.frame(rank = factor(1:p), eigs, eigs.lo, eigs.hi, 
-        cumvar)
-d <- within(d, cumvar.line <- eigs.hi + 0.02 * max(eigs.hi))
-d <- d[1:min(p, 30), ]
-ggplot(data = d, aes(x = rank, y = eigs)) + geom_errorbar(aes(x = rank, 
-        ymin = eigs.lo, ymax = eigs.hi), width = 0.3) + geom_point(size = 3) + 
-        geom_text(aes(x = rank, y = cumvar.line, label = cumvar), 
-            size = 3, vjust = 0) + labs(list(x = "Rank", y = "Eigenvalue")) + 
-        theme(panel.grid.minor = element_blank()) + scale_y_continuous(trans = 'log')
-```
-using the log linear test, keep 7 of recon and 6 for obs
-Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
-```{r plot_variance_phyda, fig.margin=TRUE, echo = FALSE,fig.cap = 'Variance explained'}
-spei_recon %>%
+#this code is the same as the eofNum function above, but needs a slight adjustment here because that function assumes more time than spatial indices. these are adpatedf from wql and sinkr
+test <- spei_obs %>%
   area_weight %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>%
-  eofNum(n = n_effective(spei_recon), scale. = FALSE)
+  prcomp(scale. = FALSE) %>% # work on the covariance matrix
+  .[['sdev']] %>% # get the sd of the PCs
+  `^`(2) %>% # square to get the eigenvalues 
+  tibble(rank = 1:length(.), eigenvalues = .) %>%
+  mutate(eig_pct = 100 * eigenvalues / sum(eigenvalues),
+         error = sqrt(2 / n_effective(spei_obs)),
+         low =  eigenvalues * (1 - error) * 100 / sum(eigenvalues),
+         hi = eigenvalues * (1 + error) * 100 / sum(eigenvalues),
+         cumvar = round(cumsum(eig_pct), 1),
+         cumvar_line = hi + 0.02 * max(hi))
+
+
+test2 <- spei_recon %>%
+  area_weight %>%
+  as.data.frame(na.rm = TRUE) %>%
+  t %>%
+  prcomp(scale. = FALSE) %>% # work on the covariance matrix
+  .[['sdev']] %>% # get the sd of the PCs
+  `^`(2) %>% # square to get the eigenvalues 
+  tibble(rank = 1:length(.), eigenvalues = .) %>%
+  mutate(eig_pct = 100 * eigenvalues / sum(eigenvalues),
+         error = sqrt(2 / n_effective(spei_recon)),
+         low =  eigenvalues * (1 - error) * 100 / sum(eigenvalues),
+         hi = eigenvalues * (1 + error) * 100 / sum(eigenvalues),
+         cumvar = round(cumsum(eig_pct), 1),
+         cumvar_line = hi + 0.02 * max(hi))
+```
+
+```{r}
+test %>%
+  mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
+          test = cumsum(separated))%>%
+  .[1:30,] %>%
+ggplot(aes(x = rank, y = eig_pct)) +
+  geom_errorbar(aes(x = rank, ymin = low, ymax = hi), width = 0.4) +
+  geom_point(size = 3, aes(color = as.factor(test))) + 
+  geom_text(aes(x = rank, y = cumvar_line, label = cumvar), size = 3, vjust = 0) +
+  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + 
+  theme_bw() + scale_y_continuous(trans = 'log')
+  #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
+
+test2 %>%
+  mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
+          test = cumsum(separated))%>%
+  .[1:15,] %>%
+ggplot(aes(x = rank, y = eig_pct)) +
+  geom_errorbar(aes(x = rank, ymin = low, ymax = hi), width = 0.4) +
+  geom_point(size = 3, aes(color = as.factor(test))) + 
+  geom_text(aes(x = rank, y = cumvar_line, label = cumvar), size = 3, vjust = 0) +
+  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + scale_y_continuous(trans = 'log') +
+  theme_bw()
+```
+
+```{r}
+gam(eigs ~ s(as.numeric(rank), k = 10, bs= 'ps', m = 0), data = d) %>% plot
+```
+
+
+using the log linear test, keep 7 of recon and 6 for obs
+Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
+```{r plot_variance_phyda, fig.margin=TRUE, echo = FALSE,fig.cap = 'Variance explained'}
+
 ```
 Repeat for the prism observations. Again, we'll retain the leading four modes.
 
@@ -546,8 +572,8 @@ It looks like there is some autocorrelation in phyda but not in the observations
 Now, calculate the eofs for both fields, retaining the 4 leading components in each case for rotation
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes_obs <- 6
-n_modes_recon <- 6
+n_modes_obs <- 2
+n_modes_recon <- 2
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
@@ -636,7 +662,7 @@ reof_dat<-  left_join(recon_reof$amplitude %>%
     as_tibble %>%
     mutate(year = 1896:1999), by = 'year')
 
-t1 <- gam(EOF2.y ~ s(EOF1.x) + s(EOF2.x) + s(EOF3.x) + s(EOF4.x) + s(EOF5.x) + s(EOF6.x),
+t1 <- gam(EOF1.y ~ s(EOF1.x) + s(EOF2.x) + s(EOF3.x) + s(EOF4.x) + s(EOF5.x) + s(EOF6.x),
     method = 'REML', select = T, data = reof_dat)
 
 summary(t1)
