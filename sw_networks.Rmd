@@ -406,12 +406,11 @@ First we define a boundary box covering much of the western United States, rangi
 ```{r bbox_map, fig.margin=TRUE, echo = FALSE, fig.cap = 'Locations of 2 bounding boxes.'}
 #bbox_wus <- extent(c(-119, -101, 28, 41))
 bbox_wus <- extent(c(-124, -102, 31, 42))
-bbox <- extent(c(-115, -105, 31, 38))
 bb1 <- as(bbox_wus, 'SpatialPolygons') %>%
   fortify
 bb2 <- as(bbox, 'SpatialPolygons') %>%
   fortify
-states$range
+
 map_data("usa") %>%
   ggplot(aes(x = long, y = lat, group = group)) + 
   geom_polygon(color = 'darkgrey', fill = NA) + 
@@ -529,35 +528,38 @@ test2 <- spei_recon %>%
 ```
 
 ```{r}
-test %>%
+test %>% 
+  filter(eigenvalues > 1) %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
-          test = cumsum(separated))%>%
-  .[1:30,] %>%
-ggplot(aes(x = rank, y = eig_pct)) +
-  geom_errorbar(aes(x = rank, ymin = low, ymax = hi), width = 0.4) +
-  geom_point(size = 3, aes(color = as.factor(test))) + 
-  geom_text(aes(x = rank, y = cumvar_line, label = cumvar), size = 3, vjust = 0) +
-  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + 
-  theme_bw() + scale_y_continuous(trans = 'log')
-  #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
-
-test2 %>%
-  mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
-          test = cumsum(separated))%>%
-  .[1:15,] %>%
+                   test = cumsum(separated),
+         weights = if_else(rank < 3, 0, 1))%>%
 ggplot(aes(x = rank, y = eig_pct)) +
   geom_errorbar(aes(x = rank, ymin = low, ymax = hi), width = 0.4) +
   geom_point(size = 3, aes(color = as.factor(test))) + 
   geom_text(aes(x = rank, y = cumvar_line, label = cumvar), size = 3, vjust = 0) +
   labs(list(x = "Rank", y = "Normalized Eigenvalue")) + scale_y_continuous(trans = 'log') +
-  theme_bw()
+  theme_bw() + stat_smooth(aes(weight = weights), method = 'lm') 
+  #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
+
+test2 %>%
+  mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
+          test = cumsum(separated),
+         weights = if_else(rank < 3, 0, 1))%>%
+ggplot(aes(x = rank, y = eig_pct)) +
+  geom_errorbar(aes(x = rank, ymin = low, ymax = hi), width = 0.4) +
+  geom_point(size = 3, aes(color = as.factor(test))) + 
+  geom_text(aes(x = rank, y = cumvar_line, label = cumvar), size = 3, vjust = 0) +
+  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + scale_y_continuous(trans = 'log') +
+  theme_bw() + stat_smooth(aes(weight = weights), method = 'lm') +
+  scale_x_continuous(limits = c(0, 75)) +
+  guides(color = FALSE)
 ```
 
 ```{r}
 gam(eigs ~ s(as.numeric(rank), k = 10, bs= 'ps', m = 0), data = d) %>% plot
 ```
 
-
+the overlaps mean these are effective multpliets. the real eof can be some linear combination of these. This won't in practice impact our successive results, as long as we don't truncate within these multplets, but only between them.
 using the log linear test, keep 7 of recon and 6 for obs
 Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
 ```{r plot_variance_phyda, fig.margin=TRUE, echo = FALSE,fig.cap = 'Variance explained'}
@@ -572,8 +574,8 @@ It looks like there is some autocorrelation in phyda but not in the observations
 Now, calculate the eofs for both fields, retaining the 4 leading components in each case for rotation
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes_obs <- 2
-n_modes_recon <- 2
+n_modes_obs <-9# choose 2, 4, 6, 9
+n_modes_recon <- 9
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
@@ -609,18 +611,17 @@ The colors here are eigenvecotrs weighted by the sqare root of the associated ei
 as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
   cbind(obs_reof$REOF) %>%
   select(-3) %>%
-  #mutate(EOF6 = EOF6 * -1) %>%
+  mutate(EOF1 = EOF1 * -1, EOF2 = EOF2 * -1, EOF7 = EOF7 * -1) %>%
   gather(eof, value, 3:(n_modes_obs + 2)) %>%
   #mutate(value = value * -1) %>%
   ggplot(aes(x,y)) +
   geom_raster(aes(fill = value)) +
-  scale_fill_distiller(palette = 'BrBG', direction = -1, limits = c(-1,1)) +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1,1)) +
   #scale_fill_viridis_c(option = 'A') +
   facet_wrap(~eof) +
   theme_void() +
     geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap() +
-  #geom_polygon(data =  map_data("state"), aes(x = long, y = lat, group = group), color = 'darkgrey', fill = NA) +
   ggtitle(paste('Leading', n_modes_obs, 'rotated empirical orthogonal functions'),
           'SPEI') +
   theme(legend.position = "bottom")
@@ -642,6 +643,52 @@ amplitudes <- left_join(
     gather(reof, obs, 1:n_modes_obs))
 ```
 
+```{r}
+obs_reof$amplitude %>%
+    as_tibble %>%
+    mutate(year = 1896:1999) %>%
+    gather(reof, obs, 1:n_modes_obs) %>%
+  group_by(reof) %>%
+  filter(obs == max(obs) | obs == min(obs))
+```
+
+```{r}
+plot(spei_obs[[20]])
+plot(spei_obs[[101]])
+#eof1 is scaled correctly, ie if amplitude is negative it is in fact a drought
+
+plot(spei_obs[[23]])
+plot(spei_obs[[80]])
+#ditto eof2, positive amplitude is a wet year
+
+plot(spei_obs[[53]])
+plot(spei_obs[[82]])
+# eof3 should be reversed
+
+plot(spei_obs[[29]])
+plot(spei_obs[[63]])
+#reverse
+
+
+plot(spei_obs[[16]])
+plot(spei_obs[[52]])
+#reverse
+
+#6 is reversed too
+
+plot(spei_obs[[14]])
+plot(spei_obs[[82]])
+# 7 is ok
+
+plot(spei_obs[[10]])
+plot(spei_obs[[26]]) 
+# 8 reverse
+
+plot(spei_obs[[17]])
+plot(spei_obs[[93]])
+#not sure, but maybe reverse
+```
+
 ```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
 ggplot(amplitudes, aes(recon, obs)) +
   geom_point(aes(color = year)) +
@@ -653,22 +700,55 @@ ggplot(amplitudes, aes(recon, obs)) +
   coord_fixed() +
   theme(legend.position = "bottom")
 ```
+
 ```{r}
-reof_dat<-  left_join(recon_reof$amplitude %>%
+reof_dat <- left_join(recon_reof$amplitude %>%
     .[797:900,] %>%
     as_tibble %>%
     mutate(year = 1896:1999),
   obs_reof$amplitude %>%
     as_tibble %>%
-    mutate(year = 1896:1999), by = 'year')
+    mutate(year = 1896:1999), by = 'year', suffix = c('_recon','_obs'))%>%
+  gather(eof_num, amplitude, (n_modes_recon+2):(n_modes_recon*2+1)) %>% 
+  mutate(eof_num = as.factor(eof_num)) %>%
+  mutate(new_eof = eof_num != lag(eof_num))
 
-t1 <- gam(EOF1.y ~ s(EOF1.x) + s(EOF2.x) + s(EOF3.x) + s(EOF4.x) + s(EOF5.x) + s(EOF6.x),
-    method = 'REML', select = T, data = reof_dat)
-
+t1 <- paste0('s(EOF',1:9, '_recon, by = eof_num, k = 4)') %>% 
+  paste(collapse = ' + ') %>% 
+  paste('amplitude', ., sep = ' ~ ') %>% 
+  as.formula %>% 
+  bam(method = 'fREML', select = T, data = reof_dat, AR.start = new_eof)
 summary(t1)
-plot(t1, residuals = T)
+plot(t1)
 
-paste0('s(',1:10, ')') %>% paste(collapse = ' + ') %>% paste('reof_dat$EOF1.y', ., sep = ' ~ ') %>% as.formula %>% gam(method = 'REML', select = T, data = test_dat)
+reof_dat %>%
+  mutate(., preds = predict(t1,.)) %>%
+  ggplot(aes(value, preds)) +
+  geom_point(aes(color = year)) +
+  geom_smooth(method = 'lm') +
+  scale_color_viridis() +
+  facet_wrap(~eof_num, nrow = 1) +
+  ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
+  theme_minimal() +
+  coord_fixed() +
+  theme(legend.position = "bottom")
+
+recon_reof$amplitude %>%
+    as_tibble %>%
+    rename_all(funs(paste0(.,'_recon'))) %>%
+    mutate(year = 1100:1999) %>%
+  slice(rep(1:n(), each = 9)) %>%
+  mutate(eof_num = rep(levels(reof_dat$eof_num), 900)) %>% mutate(., preds = predict(t1, .)) %>%
+  select(year:preds) %>%
+  filter(year >= 1100 & year <=1500) %>%
+  ggplot(aes(year, preds, group = eof_num)) +
+  geom_line(aes(color = eof_num), alpha = .7) +
+  #geom_line(aes(y = amp_smooth)) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~eof_num) +
+  theme_minimal()+
+  theme(legend.position = "bottom") +  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
+
 ```
 
 
@@ -686,6 +766,7 @@ past_amplitudes <- recon_reof$amplitude %>%
 
 We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
 ```{r recon_amplitudes}
+reof_dat
 recon_amplitudes <- amplitudes %>%
   group_by(reof) %>%
   nest %>%
@@ -798,7 +879,8 @@ env_rasters <- clim_pca$map %>%
 ```
 
 ```{r}
-pairs(env_rasters)
+plot(crop(env_rasters, bbox))
+pairs(crop(env_rasters, bbox))
 ```
 
 
