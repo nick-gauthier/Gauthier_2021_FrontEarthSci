@@ -384,7 +384,7 @@ ggplot(aes(long, lat)) +
 
 
 ```{r network_plot, eval = FALSE, echo = FALSE}
-states <- maps::map('state', regions = c('arizona', 'new mexico'), fill = TRUE, plot = FALSE)
+states <- maps::map('state', regions = c('arizona', 'new mexico', 'colorado', 'california', 'utah', 'nevada'), fill = TRUE, plot = FALSE)
 
 swsn %E>%
   arrange(similarity) %>%
@@ -402,15 +402,16 @@ ggraph('manual', node.positions = pts) +
 First we estimate present and past climate patterns.
 
 ## Study Area
-First we define a boundary box covering much of the western United States, ranging between W$124\deg$ and W$105\deg$ and N$31\deg$ and N$41\deg$, which we'll use to constrain all subsequent climate analyses. This study area is significantly larger than the one we'll define in the next section for the network analysis. This allows us to sample a much wider range of climatic variability, while still remaining within the broader western US climate zone. This ensures that both A) our statistical analyses will be more robust to sampling error and B) the results will be less sensitive to the exact location and dimensions of our study area.
+First we define a boundary box covering much of the western United States, ranging between W$124\deg$ and W$-104\deg$ and N$31\deg$ and N$41\deg$, which we'll use to constrain all subsequent climate analyses. This study area is significantly larger than the one we'll define in the next section for the network analysis. This allows us to sample a much wider range of climatic variability, while still remaining within the broader western US climate zone. This ensures that both A) our statistical analyses will be more robust to sampling error and B) the results will be less sensitive to the exact location and dimensions of our study area.
 ```{r bbox_map, fig.margin=TRUE, echo = FALSE, fig.cap = 'Locations of 2 bounding boxes.'}
-bbox_wus <- extent(c(-124, -105, 31, 41))
-bbox <- extent(c(-115, -103, 31, 38))
+#bbox_wus <- extent(c(-119, -101, 28, 41))
+bbox_wus <- extent(c(-124, -102, 31, 42))
+bbox <- extent(c(-115, -105, 31, 38))
 bb1 <- as(bbox_wus, 'SpatialPolygons') %>%
   fortify
 bb2 <- as(bbox, 'SpatialPolygons') %>%
   fortify
-
+states$range
 map_data("usa") %>%
   ggplot(aes(x = long, y = lat, group = group)) + 
   geom_polygon(color = 'darkgrey', fill = NA) + 
@@ -421,7 +422,7 @@ map_data("usa") %>%
 ```
 
 ```{r bbox}
-bbox_wus <- extent(c(-124, -105, 31, 41))
+#bbox_wus <- extent(c(-124, -104, 31, 41))
 ```
 
 ## Climate Data
@@ -432,7 +433,7 @@ Import high resolution SPEI maps generated from PRISM data. Calculate the averag
 spei_obs <- ((brick('data/spei12_6_PRISM.nc') + 
               brick('data/spei12_7_PRISM.nc') + 
               brick('data/spei12_8_PRISM.nc')) / 3) %>%
-  crop(bbox) %>% # crop to the study area bounding box
+  crop(bbox_wus) %>% # crop to the study area bounding box
   `names<-`(1895:2017) %>% # add year names
   .[[2:105]] # SPEI calculated on 12 month lag, so drop 1st year
 ```
@@ -504,20 +505,30 @@ p <- 104
 d <- data.frame(rank = factor(1:p), eigs, eigs.lo, eigs.hi, 
         cumvar)
 d <- within(d, cumvar.line <- eigs.hi + 0.02 * max(eigs.hi))
-d <- d[1:min(p, 10), ]
+d <- d[1:min(p, 15), ]
 ggplot(data = d, aes(x = rank, y = eigs)) + geom_errorbar(aes(x = rank, 
         ymin = eigs.lo, ymax = eigs.hi), width = 0.3) + geom_point(size = 3) + 
         geom_text(aes(x = rank, y = cumvar.line, label = cumvar), 
             size = 3, vjust = 0) + labs(list(x = "Rank", y = "Eigenvalue")) + 
-        theme(panel.grid.minor = element_blank())
-```
-```{r}
-eof
-```
-```{r}
-denoise
-```
+        theme(panel.grid.minor = element_blank()) + scale_y_continuous(trans = 'log')
 
+eigs <- prcomp(t(as.data.frame(area_weight(spei_recon), na.rm = TRUE)), scale. = FALSE)[["sdev"]]^2
+eigs.pct <- 100 * eigs/sum(eigs)
+eigs.lo <- eigs * (1 - sqrt(2/n_effective(spei_recon)))
+eigs.hi <- eigs * (1 + sqrt(2/n_effective(spei_recon)))
+cumvar <- round(cumsum(eigs.pct), 1)
+p <- 62
+d <- data.frame(rank = factor(1:p), eigs, eigs.lo, eigs.hi, 
+        cumvar)
+d <- within(d, cumvar.line <- eigs.hi + 0.02 * max(eigs.hi))
+d <- d[1:min(p, 30), ]
+ggplot(data = d, aes(x = rank, y = eigs)) + geom_errorbar(aes(x = rank, 
+        ymin = eigs.lo, ymax = eigs.hi), width = 0.3) + geom_point(size = 3) + 
+        geom_text(aes(x = rank, y = cumvar.line, label = cumvar), 
+            size = 3, vjust = 0) + labs(list(x = "Rank", y = "Eigenvalue")) + 
+        theme(panel.grid.minor = element_blank()) + scale_y_continuous(trans = 'log')
+```
+using the log linear test, keep 7 of recon and 6 for obs
 Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
 ```{r plot_variance_phyda, fig.margin=TRUE, echo = FALSE,fig.cap = 'Variance explained'}
 spei_recon %>%
@@ -535,19 +546,20 @@ It looks like there is some autocorrelation in phyda but not in the observations
 Now, calculate the eofs for both fields, retaining the 4 leading components in each case for rotation
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes <- 4
+n_modes_obs <- 6
+n_modes_recon <- 6
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
-  eof(n_modes, scale. = FALSE)
+  eof(n_modes_obs, scale. = FALSE) # we don't rescale (ie we use the covariance matrix, because spei is already normalized and rescaled)
 
 recon_reof <- spei_recon %>%
   area_weight %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
-  eof(n_modes, scale. = FALSE)
+  eof(n_modes_recon, scale. = FALSE)
 ```
 
 
@@ -556,31 +568,34 @@ Let's map out the spatial and temporal patterns in the REOFs. First we'll look a
 ```{r plot_recon_reofs, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
 as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
   select(-3) %>%
-  gather(eof, value, 3:(n_modes+2)) %>%
+  gather(eof, value, 3:(n_modes_recon+2)) %>%
   ggplot(aes(x,y)) +
   geom_raster(aes(fill = value)) +
     scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
   facet_wrap(~eof) +
   theme_void() + 
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap()
 ```
 
-
-```{r plot_robs_eof, echo = FALSE, fig.width = 6, fig.height = 6, fig.cap = 'Observed drought REOFs'}
+The colors here are eigenvecotrs weighted by the sqare root of the associated eigenvalue, sothese loadings represent the covariance between each grid cell and each amplitdue (principal component)
+```{r plot_robs_eof, echo = FALSE, fig.width = 12, fig.height = 8, fig.cap = 'Observed drought REOFs'}
 as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
   cbind(obs_reof$REOF) %>%
   select(-3) %>%
-  mutate(EOF1 = -1 * EOF1, EOF4 = -1 * EOF4) %>%
-  gather(eof, value, 3:(n_modes + 2)) %>%
+  #mutate(EOF6 = EOF6 * -1) %>%
+  gather(eof, value, 3:(n_modes_obs + 2)) %>%
   #mutate(value = value * -1) %>%
   ggplot(aes(x,y)) +
   geom_raster(aes(fill = value)) +
-    scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
+  scale_fill_distiller(palette = 'BrBG', direction = -1, limits = c(-1,1)) +
+  #scale_fill_viridis_c(option = 'A') +
   facet_wrap(~eof) +
   theme_void() +
-  coord_quickmap(xlim = c(-115, -103), ylim = c(31, 38)) +
-  geom_polygon(data =  map_data("state"), aes(x = long, y = lat, group = group), color = 'darkgrey', fill = NA) +
-  ggtitle('Leading 4 rotated empirical orthogonal functions',
+    geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  #geom_polygon(data =  map_data("state"), aes(x = long, y = lat, group = group), color = 'darkgrey', fill = NA) +
+  ggtitle(paste('Leading', n_modes_obs, 'rotated empirical orthogonal functions'),
           'SPEI') +
   theme(legend.position = "bottom")
 ```
@@ -594,11 +609,11 @@ amplitudes <- left_join(
     .[797:900,] %>%
     as_tibble %>%
     mutate(year = 1896:1999) %>%
-    gather(reof, recon, 1:n_modes),
+    gather(reof, recon, 1:n_modes_recon),
   obs_reof$amplitude %>%
     as_tibble %>%
     mutate(year = 1896:1999) %>%
-    gather(reof, obs, 1:n_modes))
+    gather(reof, obs, 1:n_modes_obs))
 ```
 
 ```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
@@ -612,6 +627,23 @@ ggplot(amplitudes, aes(recon, obs)) +
   coord_fixed() +
   theme(legend.position = "bottom")
 ```
+```{r}
+reof_dat<-  left_join(recon_reof$amplitude %>%
+    .[797:900,] %>%
+    as_tibble %>%
+    mutate(year = 1896:1999),
+  obs_reof$amplitude %>%
+    as_tibble %>%
+    mutate(year = 1896:1999), by = 'year')
+
+t1 <- gam(EOF2.y ~ s(EOF1.x) + s(EOF2.x) + s(EOF3.x) + s(EOF4.x) + s(EOF5.x) + s(EOF6.x),
+    method = 'REML', select = T, data = reof_dat)
+
+summary(t1)
+plot(t1, residuals = T)
+
+paste0('s(',1:10, ')') %>% paste(collapse = ' + ') %>% paste('reof_dat$EOF1.y', ., sep = ' ~ ') %>% as.formula %>% gam(method = 'REML', select = T, data = test_dat)
+```
 
 
 
@@ -620,7 +652,7 @@ Now let's fit these models in practice. First create a data frame of past amplit
 past_amplitudes <- recon_reof$amplitude %>%
     as_tibble %>%
     mutate(year = 1100:1999) %>%
-    gather(reof, recon, 1:n_modes) %>%
+    gather(reof, recon, 1:n_modes_recon) %>%
   group_by(reof) %>%
   nest(.key = 'recons')
 ```
@@ -679,7 +711,7 @@ get_normals <- function(var){
   list.files(pattern = '\\.asc$', full.names = TRUE) %>%
   .[1:12] %>% # the last file in the list is annual values, drop it
   purrr::map(raster) %>% # load the rasters from file list
-  purrr::map(crop, bbox) %>% # crop to study area
+  purrr::map(crop, bbox_wus) %>% # crop to study area
   brick # combine list of rasters into a brick
 }
 ```
@@ -696,21 +728,20 @@ bio_clim <- biovars(prec, tmin, tmax)
 
 Reduce the dimensionality of the bioclimatic data using an R-mode PCA.
 ```{r cache = TRUE}
-clim_pca <- RStoolbox::rasterPCA(bio_clim, spca = TRUE, nComp = 4)
+clim_pca <- RStoolbox::rasterPCA(bio_clim, spca = TRUE, nComp = 6)
 ```
 PC1 is general heat and dryness of the summer, pc2 is the seasonality index, pc3 is an index of diurnal variability. So its basically 3 different time scales.
 ```{r}
 clim_pca$model$loadings
-plot(clim_pca$map)
-plot(which.max(abs(clim_pca$map)))
 ```
 
 Retain the leading 4 PCs.
 ```{r}
-screeplot(clim_pca$model, npcs = 10, type = 'lines')
-#bio_clim %>%
-#  as.data.frame(na.rm = TRUE) %>%
-#  eofNum(scale. = TRUE)
+screeplot(clim_pca2$model, npcs = 20, type = 'lines')
+lines(y = 1)
+bio_clim %>%
+  as.data.frame(na.rm = TRUE) %>%
+  eofNum(scale. = TRUE)
 ```
 
 ```{r reof_raster}
@@ -719,11 +750,17 @@ reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   cbind(obs_reof$REOF) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
-  `names<-`(c('reof1', 'reof2', 'reof3', 'reof4')) %>%
+  `names<-`(paste0('reof', 1:n_modes_obs)) %>%
   projectRaster(bio_clim %>% crop(bbox))
 
-plot(which.max(abs(reof_raster)))
-plot(reof_raster)
+which.max(abs(reof_raster)) %>%
+  as.data.frame(xy = T, na.rm = T)  %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = as.ordered(layer))) +
+  theme_void() +
+    geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  theme(legend.position = "bottom")
 ```
 
 ```{r raster_reprojection}
