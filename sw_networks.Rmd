@@ -888,6 +888,7 @@ pairs(crop(env_rasters, bbox))
 
 Now that we have all the data imported and preprocessed, let's put it all together into a data frame.
 ```{r data_preparation}
+rel_diff <- function(x, y)  pmax(x, y) / pmin(x, y)
 dat <- swsn %N>%
   mutate(ID = 1:n(),
          lon = pts$x, 
@@ -902,14 +903,19 @@ dat <- swsn %N>%
                      time == 1400 ~ .N()$P5room[from] * .N()$P5room[to]),
    macro_same = .N()$Macro[from] == .N()$Macro[to],
    micro_same = .N()$Micro[from] == .N()$Micro[to],
-   pc1 = abs(.N()$pc1[from] - .N()$pc1[to]),
-   pc2 = abs(.N()$pc2[from] - .N()$pc2[to]),
-   pc3 = abs(.N()$pc3[from] - .N()$pc3[to]),
-   pc4 = abs(.N()$pc4[from] - .N()$pc4[to]),
-   reof1 = abs(.N()$reof1[from] - .N()$reof1[to]),
-   reof2 = abs(.N()$reof2[from] - .N()$reof2[to]),
-   reof3 = abs(.N()$reof3[from] - .N()$reof3[to]),
-   reof4 = abs(.N()$reof4[from] - .N()$reof4[to])) %>%
+  # pc1 = abs(.N()$pc1[from] - .N()$pc1[to]),
+  # pc2 = abs(.N()$pc2[from] - .N()$pc2[to]),
+  # pc3 = abs(.N()$pc3[from] - .N()$pc3[to]),
+  # pc4 = abs(.N()$pc4[from] - .N()$pc4[to]),
+   reof1 = rel_diff(.N()$reof1[from], .N()$reof1[to]),
+   reof2 = rel_diff(.N()$reof2[from], .N()$reof2[to]),
+   reof3 = rel_diff(.N()$reof3[from], .N()$reof3[to]),
+   reof4 = rel_diff(.N()$reof4[from], .N()$reof4[to]),
+    reof5 = rel_diff(.N()$reof5[from], .N()$reof5[to]),
+   reof6 = rel_diff(.N()$reof6[from], .N()$reof6[to]),
+   reof7 = rel_diff(.N()$reof7[from], .N()$reof7[to]),
+   reof8 = rel_diff(.N()$reof8[from], .N()$reof8[to]),
+  reof9 = rel_diff(.N()$reof9[from], .N()$reof9[to])) %>%
   as_tibble %>%
   group_by(time) %>%
   filter(from < to) %>%
