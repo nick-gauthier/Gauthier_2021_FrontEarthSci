@@ -46,6 +46,9 @@ library(dismo)
 library(sf)
 library(smoothr)
 library(rayshader)
+library(corMLPE)
+library(broom)
+
 ```
 
 ```{r include = FALSE}
@@ -495,69 +498,63 @@ Now we calculate the rotated empirical orthogonal functions for both the observe
 we want to look for separation in the error bars. eofs that are not well separate can be considered effective multiplets, and hsould not be split in truncation.
 ```{r plot_variance_prism, fig.margin = TRUE, echo = FALSE}
 #this code is the same as the eofNum function above, but needs a slight adjustment here because that function assumes more time than spatial indices. these are adpatedf from wql and sinkr
-test <- spei_obs %>%
+obs_pca <- spei_obs %>%
   area_weight %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>%
-  prcomp(scale. = FALSE) %>% # work on the covariance matrix
-  .[['sdev']] %>% # get the sd of the PCs
-  `^`(2) %>% # square to get the eigenvalues 
-  tibble(rank = 1:length(.), eigenvalues = .) %>%
-  mutate(eig_pct = 100 * eigenvalues / sum(eigenvalues),
+  prcomp(scale. = FALSE) # use the covariance matrix
+
+recon_pca <- spei_recon %>%
+  area_weight %>%
+  as.data.frame(na.rm = TRUE) %>%
+  t %>%
+  prcomp(scale. = FALSE)
+
+obs_eigs <- obs_pca %>%
+  tidy(matrix = 'pcs') %>%
+  mutate(eigenvalues = std.dev ^ 2,
          error = sqrt(2 / n_effective(spei_obs)),
          low =  eigenvalues * (1 - error) * 100 / sum(eigenvalues),
          hi = eigenvalues * (1 + error) * 100 / sum(eigenvalues),
-         cumvar = round(cumsum(eig_pct), 1),
          cumvar_line = hi + 0.02 * max(hi))
 
-
-test2 <- spei_recon %>%
-  area_weight %>%
-  as.data.frame(na.rm = TRUE) %>%
-  t %>%
-  prcomp(scale. = FALSE) %>% # work on the covariance matrix
-  .[['sdev']] %>% # get the sd of the PCs
-  `^`(2) %>% # square to get the eigenvalues 
-  tibble(rank = 1:length(.), eigenvalues = .) %>%
-  mutate(eig_pct = 100 * eigenvalues / sum(eigenvalues),
+recon_eigs <- recon_pca %>% 
+  tidy(matrix = 'pcs') %>%
+  mutate(eigenvalues = std.dev ^ 2,
          error = sqrt(2 / n_effective(spei_recon)),
          low =  eigenvalues * (1 - error) * 100 / sum(eigenvalues),
          hi = eigenvalues * (1 + error) * 100 / sum(eigenvalues),
-         cumvar = round(cumsum(eig_pct), 1),
          cumvar_line = hi + 0.02 * max(hi))
 ```
 
 ```{r}
-test %>% 
-  filter(eigenvalues > 1) %>%
+t1 %>% 
+ # filter(eigenvalues > 1) %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
                    test = cumsum(separated),
-         weights = if_else(rank < 3, 0, 1))%>%
-ggplot(aes(x = rank, y = eig_pct)) +
-  geom_errorbar(aes(x = rank, ymin = low, ymax = hi), width = 0.4) +
+         weights = if_else(PC < 3, 0, 1))%>%
+ggplot(aes(x = PC, y = percent * 100)) +
+  geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
   geom_point(size = 3, aes(color = as.factor(test))) + 
-  geom_text(aes(x = rank, y = cumvar_line, label = cumvar), size = 3, vjust = 0) +
-  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + scale_y_continuous(trans = 'log') +
-  theme_bw() + stat_smooth(aes(weight = weights), method = 'lm') 
+  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative, 1)), size = 3, vjust = 0) +
+  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + scale_x_continuous(limits = c(0, 15)) +
+  theme_bw() #+scale_y_continuous(trans = 'log') + stat_smooth(aes(weight = weights), method = 'lm') 
   #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
 
-test2 %>%
+t2 %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
           test = cumsum(separated),
          weights = if_else(rank < 3, 0, 1))%>%
-ggplot(aes(x = rank, y = eig_pct)) +
-  geom_errorbar(aes(x = rank, ymin = low, ymax = hi), width = 0.4) +
+ggplot(aes(x = PC, y = percent * 100)) +
+  geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
   geom_point(size = 3, aes(color = as.factor(test))) + 
-  geom_text(aes(x = rank, y = cumvar_line, label = cumvar), size = 3, vjust = 0) +
-  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + scale_y_continuous(trans = 'log') +
+  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative, 1)), size = 3, vjust = 0) +
+  labs(list(x = "PC", y = "Normalized Eigenvalue")) + scale_y_continuous(trans = 'log') +
   theme_bw() + stat_smooth(aes(weight = weights), method = 'lm') +
   scale_x_continuous(limits = c(0, 75)) +
   guides(color = FALSE)
 ```
 
-```{r}
-gam(eigs ~ s(as.numeric(rank), k = 10, bs= 'ps', m = 0), data = d) %>% plot
-```
 
 the overlaps mean these are effective multpliets. the real eof can be some linear combination of these. This won't in practice impact our successive results, as long as we don't truncate within these multplets, but only between them.
 using the log linear test, keep 7 of recon and 6 for obs
@@ -590,6 +587,51 @@ recon_reof <- spei_recon %>%
   eof(n_modes_recon, scale. = FALSE)
 ```
 
+```{r}
+eofs_obs <- obs_pca %>%
+  tidy(matrix = 'variables') %>%
+  filter(PC <= 9) %>%
+  group_by(PC) %>%
+  nest %>%
+  left_join(obs_eigs[1:2]) %>%
+  mutate(data = map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
+  unnest %>%
+  bind_cols(as.data.frame(spei_obs[[1]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = 9)))
+
+eofs_recon <-recon_pca %>%
+  tidy(matrix = 'variables') %>%
+  filter(PC <= 9) %>%
+  group_by(PC) %>%
+  nest %>%
+  left_join(recon_eigs[1:2]) %>%
+  mutate(data = map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
+  unnest %>%
+  bind_cols(as.data.frame(spei_recon[[1]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = 9)))
+
+obs_pca %>%
+  tidy(matrix = 'samples') %>%
+  group_by(PC) %>%
+  mutate(value = scale(value))
+
+```
+
+```{r}
+ggplot(eofs_obs, aes(x, y, fill = value)) +
+  facet_wrap(~PC) +
+  geom_raster() +
+  scale_fill_distiller(palette = 'BrBG', direction = 1,limits = c(-1, 1)) +
+  theme_void() + 
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap()
+
+ggplot(eofs_recon, aes(x, y, fill = value)) +
+  facet_wrap(~PC) +
+  geom_raster() +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
+  theme_void() + 
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap()
+```
 
 
 Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 4 leading modes.
@@ -733,7 +775,7 @@ reof_dat %>%
   coord_fixed() +
   theme(legend.position = "bottom")
 
-recon_reof$amplitude %>%
+recon_amplitudes <- recon_reof$amplitude %>%
     as_tibble %>%
     rename_all(funs(paste0(.,'_recon'))) %>%
     mutate(year = 1100:1999) %>%
@@ -741,14 +783,7 @@ recon_reof$amplitude %>%
   mutate(eof_num = rep(levels(reof_dat$eof_num), 900)) %>% mutate(., preds = predict(t1, .)) %>%
   select(year:preds) %>%
   filter(year >= 1100 & year <=1500) %>%
-  ggplot(aes(year, preds, group = eof_num)) +
-  geom_line(aes(color = eof_num), alpha = .7) +
-  #geom_line(aes(y = amp_smooth)) +
-  scale_color_brewer(palette = 'Spectral') +
-  facet_wrap(~eof_num) +
-  theme_minimal()+
-  theme(legend.position = "bottom") +  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
-
+  mutate(period = floor((year/50)) * 50) 
 ```
 
 
@@ -766,7 +801,6 @@ past_amplitudes <- recon_reof$amplitude %>%
 
 We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
 ```{r recon_amplitudes}
-reof_dat
 recon_amplitudes <- amplitudes %>%
   group_by(reof) %>%
   nest %>%
@@ -796,17 +830,25 @@ ggplot(recon_amplitudes, aes(year, amplitude, group = reof)) +
   facet_wrap(~reof) +
   theme_minimal()+
   theme(legend.position = "bottom")
+
+ggplot(recon_amplitudes, aes(year, preds, group = eof_num)) +
+  geom_line(aes(color = eof_num), alpha = .7) +
+  #geom_line(aes(y = amp_smooth)) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~eof_num) +
+  theme_minimal()+
+  theme(legend.position = "bottom") +  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
 ```
 
 These results point to EOFs 3 and 4 as having major shocks at around 1300 AD.
 ```{r, echo = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
 recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
-  ggplot(aes(factor(period), amplitude)) +
+  ggplot(aes(factor(period), preds)) +
   geom_boxplot() +
   geom_hline(yintercept = 0, color = 'red', linetype = 2) +
   scale_color_brewer(palette = 'Spectral') +
-  facet_wrap(~reof) +
+  facet_wrap(~eof_num) +
   theme_minimal()
 ```
 
@@ -844,11 +886,7 @@ clim_pca$model$loadings
 
 Retain the leading 4 PCs.
 ```{r}
-screeplot(clim_pca2$model, npcs = 20, type = 'lines')
-lines(y = 1)
-bio_clim %>%
-  as.data.frame(na.rm = TRUE) %>%
-  eofNum(scale. = TRUE)
+screeplot(clim_pca$model, npcs = 10, type = 'lines')
 ```
 
 ```{r reof_raster}
@@ -858,7 +896,7 @@ reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
   `names<-`(paste0('reof', 1:n_modes_obs)) %>%
-  projectRaster(bio_clim %>% crop(bbox))
+  projectRaster(bio_clim)
 
 which.max(abs(reof_raster)) %>%
   as.data.frame(xy = T, na.rm = T)  %>%
@@ -872,10 +910,10 @@ which.max(abs(reof_raster)) %>%
 
 ```{r raster_reprojection}
 env_rasters <- clim_pca$map %>%
-  .[[1:4]] %>%
-  `names<-`(c('pc1', 'pc2', 'pc3', 'pc4')) %>%
+  .[[1:6]] %>%
+  `names<-`(c('pc1', 'pc2', 'pc3', 'pc4', 'pc5','pc6')) %>%
   c(reof_raster) %>%
-  brick
+  brick %>% crop(bbox)
 ```
 
 ```{r}
@@ -996,10 +1034,10 @@ dat %>%
 ```{r, eval = FALSE, echo = FALSE}
 test <- recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
-  group_by(eof, period) %>% 
-  summarise(amplitude = mean(amplitude))
+  group_by(eof_num, period) %>% 
+  summarise(preds = mean(preds))
 eof_data <- raster::extract(reof_raster, pts, df=TRUE) %>%
-  gather(eof, value, 2:6) %>%
+  gather(eof_num, value, 2:(n_modes_recon + 1)) %>%
   full_join(test) %>%
   mutate(key = paste(eof, period, sep = '_'),
             value = value * amplitude) %>%
@@ -1147,34 +1185,105 @@ t1[[2,5]]$gam %>% getViz %>% plot %>% print(pages =1)
 
 ```{r}
 test <- dat %>%
-  filter(similarity > 0 & similarity <1) %>%
-  #filter(time %in% c(1200,1250,1300)) %>%
+  filter(similarity > 0) %>%
+  mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
+  #filter(time == 1350) %>%
+ # filter(time %in% c(1250, 1300, 1350, 1400)) %>%
   #group_by(time) %>%
-  sample_frac(.5) %>%
-  mutate(time_num = as.numeric(time))
+  #sample_frac(.4) %>%
+  mutate(time_num = as.numeric(time)) 
 
 test
-test1 <- gamm(qlogis(similarity) ~  s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1, k = 4) + 
-  s(pc1, bs = 'tp', m = 2) + s(pc1, by = time, bs = 'ts', m = 1) + 
-  s(pc2, bs = 'tp', m = 2) + s(pc2, by = time, bs = 'ts', m = 1) +
-  s(pc3, bs = 'tp', m = 2) + s(pc3, by = time, bs = 'ts', m = 1) + 
-  s(pc4, bs = 'tp', m = 2) + s(pc4, by = time, bs = 'ts', m = 1) +
+gc()
+test1 <- gamm(qlogis(similarity) ~ s(distance,bs = 'cr', k = 6)   +
+        s(log(size), bs = 'cs', k = 6) +
+         s(log(reof1), bs = 'cs', k = 6) +
+         s(log(reof2), bs = 'cs', k = 6) +
+         s(log(reof3), bs = 'cs', k = 6) +
+         s(log(reof4), bs = 'cs', k = 6) +
+         s(log(reof5), bs = 'cs', k = 6) +
+         s(log(reof6), bs = 'cs', k = 6) +
+         s(log(reof7), bs = 'cs', k = 6) +
+         s(log(reof8), bs = 'cs', k = 6) +
+         s(log(reof9), bs = 'cs', k = 6) + time,
+         method = 'ML',
+         correlation = corMLPE(form = ~from + to|time),
+         data = test)
+
+test2 <- gamm(qlogis(similarity) ~ s(distance, time_num, k = c(6, 4), fx = c(F,T))   +
+        te(log(size), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof1), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof2), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof3), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof4), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof5), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof6), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof7), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof8), time_num, k = c(6, 4), fx = c(F,T)) +
+         te(log(reof9), time_num, k = c(6, 4), fx = c(F,T)),
+         method = 'ML',
+         correlation = corMLPE(form = ~from + to|time),
+         data = test)
+
+test6
+test4 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 6)   +
+         log(reof1)+
+         log(reof2)+
+         log(reof3) +
+         log(reof4)+
+         log(reof5) +
+         log(reof6)+
+         log(reof7)+
+         log(reof8) +
+         log(reof9),
+         method = 'ML',
+         correlation = corMLPE(form = ~from + to),
+         data = test)
+
+gam.check(test1$gam)
+summary(test1$gam)
+AIC(test2$lme, test6$lme)
+plot(test6$gam, pages = 1, scale = 0)
+plot(test1$gam, pages = 1)
+```
+```{r}
+test1 <- gamm(qlogis(similarity) ~  s(distance, bs = 'cr', m = 2, k = 4) + s(distance, by = time, bs = 'cs', m = 1, k = 4) + 
+  s(reof1, bs = 'cr', m = 2, k = 4) + s(reof1, by = time, bs = 'cs', m = 1, k = 4) + 
+  s(reof2, bs = 'cr', m = 2, k = 4) + s(reof2, by = time, bs = 'cs', m = 1, k = 4) +
+  s(reof3, bs = 'cr', m = 2, k = 4) + s(reof3, by = time, bs = 'cs', m = 1, k = 4) + 
+  s(reof4, bs = 'cr', m = 2, k = 4) + s(reof4, by = time, bs = 'cs', m = 1, k = 4) +
+  s(reof5, bs = 'cr', m = 2, k = 4) + s(reof5, by = time, bs = 'cs', m = 1, k = 4) + 
+  s(reof6, bs = 'cr', m = 2, k = 4) + s(reof6, by = time, bs = 'cs', m = 1, k = 4) +
+  s(reof7, bs = 'cr', m = 2, k = 4) + s(reof7, by = time, bs = 'cs', m = 1, k = 4) + 
+  s(reof8, bs = 'cr', m = 2, k = 4) + s(reof8, by = time, bs = 'cs', m = 1, k = 4) +
+  s(reof9, bs = 'cr', m = 2, k = 4) + s(reof9, by = time, bs = 'cs', m = 1, k = 4) + 
   time, method = 'REML', 
       family = gaussian(),
-      correlation = corMLPE(form = ~from + to|time),
+      correlation = corMLPE(form = ~from + to),
       data = test)
 
-test2 <- gamm(qlogis(similarity) ~  te(distance, time_num) +
-  te(pc1, time_num) +
-  te(pc2, time_num) +
-  te(pc3, time_num) +
-  te(pc4, time_num),
+t5 <-gls(qlogis(similarity) ~ time + log(distance) + reof1, correlation = corMLPE(form = ~from + to|time), data = test, method = 'ML')
+
+test %>%
+  modelr::add_predictions(t4) %>%
+  mutate(pred = plogis(pred)) %>%
+  ggplot(aes(distance, pred, color = time)) + geom_point(aes(y = similarity), alpha = .1) + geom_line() +geom_smooth()
+test %>%
+  modelr::add_predictions(t4) %>%
+  mutate(pred = pred) %>%
+  mutate(res = qlogis(similarity) - pred) %>%
+  ggplot(aes(log(reof2), res, color = time)) + geom_point(alpha = .1) + geom_smooth()
+AIC(t1,t2,t3, t4)
+summary(t4)
+plot(test$distance, predict(t4, newd))
+
+test2 <- gamm(qlogis(similarity) ~ time + pair,
   method = 'REML', 
       family = gaussian(),
       correlation = corMLPE(form = ~from + to),
       data = test)
 
-test3 <- gamm(qlogis(similarity) ~  te(distance, time) +
+test3 <- gamm(qlogis(similarity) ~  te(distance, time_num) +
   te(pc1, time_num) +
   te(pc2, time_num) +
   te(pc3, time_num) +
@@ -1184,10 +1293,10 @@ test3 <- gamm(qlogis(similarity) ~  te(distance, time) +
       correlation = corMLPE(form = ~from + to|time),
       data = test)
 
-gam.check(test1$gam)
+gam.check(test2$gam)
 
-plot(test1$gam, scheme = 1)
- test1$gam %>% getViz %>% plot %>% print(pages =1)
+plot(test2$gam, scheme = 1)
+ test1$gam %>% getViz %>% plot(trans = plogis) %>% print(pages =1)
 test1$gam %>% predict.gam(newdata = tibble(distance = 0, reof1=seq(0,.6,.01),reof2=0,reof3=0, reof4=0), type = 'response', se.fit = T) %>% bind_cols %>%
   mutate(lower = fit - 2 * se.fit, upper = fit + 2 * se.fit) %>%
  mutate_at(vars(fit,lower, upper), plogis) %>% ggplot(aes(seq(0,.6,.01), fit)) +  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = .2) +
