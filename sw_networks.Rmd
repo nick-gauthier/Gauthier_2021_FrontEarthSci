@@ -409,7 +409,7 @@ First we estimate present and past climate patterns.
 First we define a boundary box covering much of the western United States, ranging between W$124\deg$ and W$-104\deg$ and N$31\deg$ and N$41\deg$, which we'll use to constrain all subsequent climate analyses. This study area is significantly larger than the one we'll define in the next section for the network analysis. This allows us to sample a much wider range of climatic variability, while still remaining within the broader western US climate zone. This ensures that both A) our statistical analyses will be more robust to sampling error and B) the results will be less sensitive to the exact location and dimensions of our study area.
 ```{r bbox_map, fig.margin=TRUE, echo = FALSE, fig.cap = 'Locations of 2 bounding boxes.'}
 #bbox_wus <- extent(c(-119, -101, 28, 41))
-bbox_wus <- extent(c(-124, -102, 31, 42))
+bbox_wus <- extent(c(-124.5, -102, 30, 42.1))
 bb1 <- as(bbox_wus, 'SpatialPolygons') %>%
   fortify
 bb2 <- as(bbox, 'SpatialPolygons') %>%
@@ -438,7 +438,7 @@ spei_obs <- ((brick('data/spei12_6_PRISM.nc') +
               brick('data/spei12_8_PRISM.nc')) / 3) %>%
   crop(bbox_wus) %>% # crop to the study area bounding box
   `names<-`(1895:2017) %>% # add year names
-  .[[2:105]] # SPEI calculated on 12 month lag, so drop 1st year
+  .[[-1]]#105]] # SPEI calculated on 12 month lag, so drop 1st year
 ```
 
 
@@ -462,7 +462,19 @@ spei_recon %>%
   geom_line(alpha = .1, aes(group = interaction(x, y))) +
   geom_smooth() +
   ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
-          'June-August, 12 month lag') +
+          'June-August, 12 month lag') + 
+  theme_bw()
+
+spei_obs %>% 
+  as.data.frame(xy = TRUE, na.rm = TRUE, long = TRUE) %>%
+  mutate(year = str_sub(layer, 2),
+         year = as.numeric(year)) %>%
+  sample_frac(.01) %>%
+  ggplot(aes(year, value)) +
+  geom_line(alpha = .1, aes(group = interaction(x, y))) +
+  geom_smooth() +
+  ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
+          'June-August, 12 month lag') + scale_x_continuous(limits = c(1896,2017)) +geom_smooth(method = 'lm') +
   theme_bw()
 ```
 
@@ -470,12 +482,14 @@ spei_recon %>%
 We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reconstructed drought dynamics.
 ```{r}
 area_weight <- function(x){
+  names_x <- names(x)
   x %>%
     init('y') %>% # get a map of latitudes
     `*`(pi/180) %>% # convert to radians
     cos %>%
     sqrt %>%
-    `*`(x)
+    `*`(x) %>%
+    `names<-`(names_x)
 }
 
 n_effective <- function(x){
@@ -528,32 +542,20 @@ recon_eigs <- recon_pca %>%
          cumvar_line = hi + 0.02 * max(hi))
 ```
 
-```{r}
-t1 %>% 
+```{r plot_variance_obs, fig.margin=TRUE, echo = FALSE, fig.cap = 'Variance explained'}
+obs_eigs %>% 
  # filter(eigenvalues > 1) %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
                    test = cumsum(separated),
-         weights = if_else(PC < 3, 0, 1))%>%
+         weights = if_else(PC < 50, 0, 1))%>%
+    filter(PC <=15) %>%
 ggplot(aes(x = PC, y = percent * 100)) +
   geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
   geom_point(size = 3, aes(color = as.factor(test))) + 
-  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative, 1)), size = 3, vjust = 0) +
-  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + scale_x_continuous(limits = c(0, 15)) +
-  theme_bw() #+scale_y_continuous(trans = 'log') + stat_smooth(aes(weight = weights), method = 'lm') 
+  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative* 100, 1)), size = 3, vjust = 0) +
+  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + 
+  theme_bw() +guides(color = F)#scale_y_continuous(trans = 'log') + stat_smooth(aes(weight = weights), method = 'lm') 
   #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
-
-t2 %>%
-  mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
-          test = cumsum(separated),
-         weights = if_else(rank < 3, 0, 1))%>%
-ggplot(aes(x = PC, y = percent * 100)) +
-  geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
-  geom_point(size = 3, aes(color = as.factor(test))) + 
-  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative, 1)), size = 3, vjust = 0) +
-  labs(list(x = "PC", y = "Normalized Eigenvalue")) + scale_y_continuous(trans = 'log') +
-  theme_bw() + stat_smooth(aes(weight = weights), method = 'lm') +
-  scale_x_continuous(limits = c(0, 75)) +
-  guides(color = FALSE)
 ```
 
 
