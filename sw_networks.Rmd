@@ -563,7 +563,18 @@ the overlaps mean these are effective multpliets. the real eof can be some linea
 using the log linear test, keep 7 of recon and 6 for obs
 Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
 ```{r plot_variance_phyda, fig.margin=TRUE, echo = FALSE,fig.cap = 'Variance explained'}
-
+recon_eigs %>%
+  mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
+          test = cumsum(separated),
+         weights = if_else(PC < 3, 0, 1))%>%
+  filter(PC <=15) %>%
+ggplot(aes(x = PC, y = percent * 100)) +
+  geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
+  geom_point(size = 3, aes(color = as.factor(test))) + 
+  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative * 100, 1)), size = 3, vjust = 0) +
+  labs(list(x = "PC", y = "Normalized Eigenvalue")) + #scale_y_continuous(trans = 'log') +
+  theme_bw() + #stat_smooth(aes(weight = weights), method = 'lm') +
+  guides(color = FALSE)
 ```
 Repeat for the prism observations. Again, we'll retain the leading four modes.
 
@@ -574,65 +585,60 @@ It looks like there is some autocorrelation in phyda but not in the observations
 Now, calculate the eofs for both fields, retaining the 4 leading components in each case for rotation
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes_obs <-9# choose 2, 4, 6, 9
-n_modes_recon <- 9
+n_modes <-6# choose 2, 4, 6, 9
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
-  eof(n_modes_obs, scale. = FALSE) # we don't rescale (ie we use the covariance matrix, because spei is already normalized and rescaled)
+  eof(n_modes, scale. = FALSE) # we don't rescale (ie we use the covariance matrix, because spei is already normalized and rescaled)
 
 recon_reof <- spei_recon %>%
   area_weight %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
-  eof(n_modes_recon, scale. = FALSE)
+  eof(n_modes, scale. = FALSE)
 ```
 
 ```{r}
-eofs_obs <- obs_pca %>%
-  tidy(matrix = 'variables') %>%
-  filter(PC <= 9) %>%
-  group_by(PC) %>%
-  nest %>%
-  left_join(obs_eigs[1:2]) %>%
-  mutate(data = map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
-  unnest %>%
-  bind_cols(as.data.frame(spei_obs[[1]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = 9)))
+get_EOFs <- function(pc_object, eigs, rast, n_modes){
+  pc_object %>%
+    tidy(matrix = 'variables') %>%
+    filter(PC <= n_modes) %>%
+    group_by(PC) %>%
+    nest %>%
+    left_join(eigs[1:2]) %>%
+    mutate(data = map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
+    unnest %>%
+    bind_cols(as.data.frame(rast[[1]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = n_modes)))
+}
 
-eofs_recon <-recon_pca %>%
-  tidy(matrix = 'variables') %>%
-  filter(PC <= 9) %>%
-  group_by(PC) %>%
-  nest %>%
-  left_join(recon_eigs[1:2]) %>%
-  mutate(data = map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
-  unnest %>%
-  bind_cols(as.data.frame(spei_recon[[1]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = 9)))
-
-obs_pca %>%
-  tidy(matrix = 'samples') %>%
-  group_by(PC) %>%
-  mutate(value = scale(value))
-
+eofs_obs <- get_EOFs(obs_pca, obs_eigs, spei_obs, n_modes)
+eofs_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
+```
+```{r}
+ggplot(eofs_recon, aes(x, y, fill = value)) +
+  facet_wrap(~PC) +
+  geom_raster() +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.73, .73)) +
+  theme_void() + 
+  coord_quickmap()
 ```
 
+We see that the leading 3 eigenvectors from the observations and reconstructions are a good match, including their ordering. 4-6 look good too
 ```{r}
 ggplot(eofs_obs, aes(x, y, fill = value)) +
   facet_wrap(~PC) +
   geom_raster() +
-  scale_fill_distiller(palette = 'BrBG', direction = 1,limits = c(-1, 1)) +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.85, .85)) +
   theme_void() + 
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap()
-
 ggplot(eofs_recon, aes(x, y, fill = value)) +
   facet_wrap(~PC) +
   geom_raster() +
-  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.73, .73)) +
   theme_void() + 
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap()
 ```
 
@@ -641,13 +647,12 @@ Let's map out the spatial and temporal patterns in the REOFs. First we'll look a
 ```{r plot_recon_reofs, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
 as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
   select(-3) %>%
-  gather(eof, value, 3:(n_modes_recon+2)) %>%
+  gather(eof, value, 3:(n_modes+2)) %>%
   ggplot(aes(x,y)) +
   geom_raster(aes(fill = value)) +
     scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
   facet_wrap(~eof) +
   theme_void() + 
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap()
 ```
 
@@ -656,18 +661,17 @@ The colors here are eigenvecotrs weighted by the sqare root of the associated ei
 as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
   cbind(obs_reof$REOF) %>%
   select(-3) %>%
-  mutate(EOF1 = EOF1 * -1, EOF2 = EOF2 * -1, EOF7 = EOF7 * -1) %>%
-  gather(eof, value, 3:(n_modes_obs + 2)) %>%
-  #mutate(value = value * -1) %>%
+  #mutate(EOF1 = EOF1 * -1, EOF2 = EOF2 * -1, EOF7 = EOF7 * -1) %>%
+  gather(eof, value, 3:(n_modes + 2)) %>%
+  mutate(value = value * -1) %>%
   ggplot(aes(x,y)) +
   geom_raster(aes(fill = value)) +
   scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1,1)) +
-  #scale_fill_viridis_c(option = 'A') +
   facet_wrap(~eof) +
   theme_void() +
-    geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap() +
-  ggtitle(paste('Leading', n_modes_obs, 'rotated empirical orthogonal functions'),
+  ggtitle(paste('Leading', n_modes, 'rotated empirical orthogonal functions'),
           'SPEI') +
   theme(legend.position = "bottom")
 ```
@@ -676,23 +680,32 @@ A key assumption here is that the REOFs calculated from both the observations an
 
 To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
 ```{r amplitudes}
-amplitudes <- left_join(
-  recon_reof$amplitude %>%
-    .[797:900,] %>%
-    as_tibble %>%
-    mutate(year = 1896:1999) %>%
-    gather(reof, recon, 1:n_modes_recon),
-  obs_reof$amplitude %>%
-    as_tibble %>%
-    mutate(year = 1896:1999) %>%
-    gather(reof, obs, 1:n_modes_obs))
+calc_amplitude <- function(x, n_modes){
+  x %>%
+    tidy(matrix = 'samples') %>%
+    filter(PC <= n_modes) %>%
+    rename(year = row, amplitude = value) %>%
+    mutate(year = as.numeric(str_sub(year, 2)),
+           PC = as.factor(PC)) %>%
+    group_by(PC) %>%
+    mutate(amplitude = scale(amplitude)) %>%
+    ungroup
+}
+
+obs_eof_amp <- calc_amplitude(obs_pca, n_modes)
+recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
+
+amplitude_modern <- recon_eof_amp %>% 
+  filter(between(year, 1896, 1999)) %>% 
+  left_join(obs_eof_amp, by = c('year', 'PC'), 
+            suffix = c('_recon', '_obs'))
 ```
 
 ```{r}
 obs_reof$amplitude %>%
     as_tibble %>%
     mutate(year = 1896:1999) %>%
-    gather(reof, obs, 1:n_modes_obs) %>%
+    gather(reof, obs, 1:n_modes) %>%
   group_by(reof) %>%
   filter(obs == max(obs) | obs == min(obs))
 ```
@@ -735,11 +748,11 @@ plot(spei_obs[[93]])
 ```
 
 ```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
-ggplot(amplitudes, aes(recon, obs)) +
+ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
   geom_point(aes(color = year)) +
   geom_smooth(method = 'lm') +
   scale_color_viridis() +
-  facet_wrap(~reof, nrow = 1) +
+  facet_wrap(~PC, nrow = 1) +
   ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
   theme_minimal() +
   coord_fixed() +
@@ -747,25 +760,20 @@ ggplot(amplitudes, aes(recon, obs)) +
 ```
 
 ```{r}
-reof_dat <- left_join(recon_reof$amplitude %>%
-    .[797:900,] %>%
-    as_tibble %>%
-    mutate(year = 1896:1999),
-  obs_reof$amplitude %>%
-    as_tibble %>%
-    mutate(year = 1896:1999), by = 'year', suffix = c('_recon','_obs'))%>%
-  gather(eof_num, amplitude, (n_modes_recon+2):(n_modes_recon*2+1)) %>% 
-  mutate(eof_num = as.factor(eof_num)) %>%
-  mutate(new_eof = eof_num != lag(eof_num))
-
-t1 <- paste0('s(EOF',1:9, '_recon, by = eof_num, k = 4)') %>% 
+t1 <- paste0('s(EOF',1:n_modes, '_recon, by = eof_num, k = 10)') %>% 
   paste(collapse = ' + ') %>% 
-  paste('amplitude', ., sep = ' ~ ') %>% 
-  as.formula %>% 
-  bam(method = 'fREML', select = T, data = reof_dat, AR.start = new_eof)
+  paste0('amplitude_obs', ., sep = ' ~ ') %>% 
+  as.formula# %>% 
+  
+  
+  t1 <- bam(amplitude_obs ~ s(amplitude_recon, by = PC) + PC,
+      method = 'fREML', select = TRUE, 
+      AR.start = new_pc,
+      data = mutate(amplitude_modern, new_pc = PC != lag(PC)) %>% filter(PC %in% 1:4))
+)
 summary(t1)
 plot(t1)
-
+gam.check(t1)
 reof_dat %>%
   mutate(., preds = predict(t1,.)) %>%
   ggplot(aes(value, preds)) +
@@ -796,7 +804,7 @@ Now let's fit these models in practice. First create a data frame of past amplit
 past_amplitudes <- recon_reof$amplitude %>%
     as_tibble %>%
     mutate(year = 1100:1999) %>%
-    gather(reof, recon, 1:n_modes_recon) %>%
+    gather(reof, recon, 1:n_modes) %>%
   group_by(reof) %>%
   nest(.key = 'recons')
 ```
@@ -898,7 +906,7 @@ reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   cbind(obs_reof$REOF) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
-  `names<-`(paste0('reof', 1:n_modes_obs)) %>%
+  `names<-`(paste0('reof', 1:n_modes)) %>%
   projectRaster(bio_clim)
 
 which.max(abs(reof_raster)) %>%
@@ -1040,7 +1048,7 @@ test <- recon_amplitudes %>%
   group_by(eof_num, period) %>% 
   summarise(preds = mean(preds))
 eof_data <- raster::extract(reof_raster, pts, df=TRUE) %>%
-  gather(eof_num, value, 2:(n_modes_recon + 1)) %>%
+  gather(eof_num, value, 2:(n_modes + 1)) %>%
   full_join(test) %>%
   mutate(key = paste(eof, period, sep = '_'),
             value = value * amplitude) %>%
