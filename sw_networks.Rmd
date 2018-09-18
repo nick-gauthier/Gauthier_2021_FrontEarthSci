@@ -204,8 +204,9 @@ nn_mat <- dist_mat %>%
   crystallize %>% # make new graphs from the transformed graphs
   pull(graph) %>% # extract just the graph information
   purrr::map(as.undirected, mode = 'collapse', edge.attr.comb = 'first') %>%
-  purrr::map(as_tbl_graph) %>% # convert back to tidygraph objects
-  reduce(graph_join) # rejoin the subgraphs from each period into a single graph
+  purrr::map(as_tbl_graph) %>%
+  reduce(graph_join) %>% # rejoin the subgraphs from each period into a single graph
+  convert(to_undirected, .clean = T)
 ```
 
 ```{r, echo = FALSE, fig.fullwidth = TRUE, fig.width=10}
