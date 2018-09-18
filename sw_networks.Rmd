@@ -139,9 +139,9 @@ tobler_adjusted <- function(x){
 }
 ```
 
-```{fig.margin = TRUE, echo = FALSE}
+```{r, fig.margin = TRUE, echo = FALSE}
 slope <- seq(-1, 1, .01)
-qplot(slope, tobler_adjusted(slope), geom = 'line' ) +
+qplot(slope, tobler_adjusted(abs(slope)), geom = 'line' ) +
   geom_vline(xintercept = 0, linetype = 2) +
   labs(x = 'Slope (rise over run)', y = 'Walking speed (m/s)', title = "Tobler's hiking function") +
   theme_classic(base_size = 20)
