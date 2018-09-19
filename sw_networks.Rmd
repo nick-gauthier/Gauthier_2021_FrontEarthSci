@@ -5,14 +5,14 @@ author: "Nicolas Gauthier"
 date: "Last knit on: `r format(Sys.time(), '%d %B, %Y')`"
 #bibliography: bibliography.bibtex
 output:
+  tufte::tufte_html:
+    tufte_features: ["fonts", "italics"]
+    toc: true
   tufte::tufte_handout:
     citation_package: natbib
     #latex_engine: xelatex
     toc: true
     highlight: pygments
-  tufte::tufte_html:
-    tufte_features: ["fonts", "italics"]
-    toc: true
 link-citations: yes
 ---
 
@@ -208,7 +208,7 @@ nn_mat <- dist_mat %>%
   convert(to_undirected, .clean = T)
 ```
 
-```{r, echo = FALSE, fig.fullwidth = TRUE, fig.width=10}
+```{r, echo = FALSE, fig.fullwidth = TRUE}
 ggraph(nn_mat, 'manual', node.positions = pts) +
   geom_edge_link(alpha = .1) +
   facet_edges(~time, nrow = 1) +
@@ -252,48 +252,31 @@ for(i in 1:5000){
 t1
 
 t1 <- sim_net %>% mutate(k_paths = map2(from, to, ~k_shortest_paths(graph_df = spatial_net, start_vertex = .x, end_vertex = .y, k = 4, verbose = FALSE)))
-
-
-swsn %E>% filter(time == 1200) %>% select(from, to, di)
-swsn %>% as.undirected %>% as_tbl_graph
-k_shortest_paths(spatial_net, 4, 3, k = 5)
-
-sim_net
-
-test <- nn_mat %E>%
-  filter(time == 1400) %N>%
-  filter(!node_is_isolated())# %E>%
-
- shortest.paths(test, mode = 'all', weights =   test %E>% as_tibble %>% .$distance)
-
- all_shortest_paths(test, 1, mode = 'all', weights =   test %E>% as_tibble %>% .$distance)
-  distances(test, 1, 16, mode = 'all', weights =   test %E>% as_tibble %>% .$distance)
- t1
- all_shortest_paths;shortest_paths
-test %E>% edge
- 
-test %E>% morph(to_shortest_path, 1,5, mode = 'all', weights = distance) %>% mutate(test = 34) %>% unmorph
-
-
-
-t2 <- nn_mat %E>% filter(time == 1300) %N>% filter(!node_is_isolated())
-
-
-swsn %N>% mutate(lon = pts$x, lat = pts$y) %E>%
-  mutate(distance1 = geosphere::distGeo(matrix(c(.N()$lon[from], .N()$lat[from]), ncol = 2), 
-                            matrix(c(.N()$lon[to], .N()$lat[to]), ncol = 2)) / 1000) %>%
-  mutate(distance2 = sqrt((.N()$EASTING[from] - .N()$EASTING[from])^2 + (.N()$NORTHING[from] - .N()$NORTHING[to])^2)) %>%
-  left_join((dist_mat %>% as_tbl_graph(directed = T) %E>% filter(!edge_is_loop()) %>% as_tibble %>% rename(distance3 = weight)), by = c('from', 'to')) %>% 
-  filter(time ==1300) %>% 
- # filter(from > to) %>% 
-  mutate(distance4 = distances(t2, mode = 'all', weights =   t2 %E>% as_tibble %>% .$distance) %>% as_tbl_graph(directed = T) %E>% as_tibble %>% rename(distance4 = weight) %>% pull(distance4)) %>%
-  as_tibble %>% select(distance1:distance4) %>% pairs
-
-nn_mat %E>% filter(time == 1200)
 ```
-ok so either get all simple paths, limit to the n shortest. get all distances and just work with that. get all paths and calculate distances. do something with short path morpher
 
 ```{r}
+distances_indirect <- nn_mat %>%  
+  morph(to_split, time, split_by = 'edges') %>% # split into subgraphs
+  map(~distances(., mode = 'all', 
+                 weights = as_tibble(activate(., 'edges'))$distance)) %>% 
+  map(as_tibble, rownames = 'name_from') %>% 
+  map(gather, name_to, dist_net, -1) %>%
+  bind_rows(.id = 'time') %>%
+  mutate(time = parse_number(time))
+
+distances_direct <- dist_mat %>%
+  as_tibble(rownames = 'from') %>%
+  gather(to, dist_lcp, -1) %>%
+  mutate(from = as.numeric(from), to = as.numeric(to))
+```
+
+ok so either get all simple paths, limit to the n shortest. get all distances and just work with that. get all paths and calculate distances. do something with short path morpher
+
+```{r, eval = F, include = F}
+# for from, to, similarity, time in swsn
+#   get the nn_mat for that time period
+#   morph to shortest path
+#   add similarity value to all edges on that path
 test_spat <- nn_mat %E>% filter(time ==1200) %>% mutate(sim = 0)
 test_sim <- swsn %E>% filter(time == 1200) %>% as_tibble %>% filter(from > to)
 test_sim[[i,3]]
@@ -304,8 +287,8 @@ for(i in 1:nrow(test_sim)){
   unmorph
 }
 ggraph(test_spat, 'manual', node.positions = pts) +
-  geom_edge_link(alpha = .1, aes(color = sim)) +
-  scale_edge_color_distiller(pal = 'Spectral')+
+  geom_edge_link(aes(alpha = sim, color = sim)) +
+  scale_edge_color_distiller(palette = 'Spectral')+
   #facet_edges(~time, nrow = 1) +
   theme_void() +
   coord_equal() +
@@ -349,7 +332,7 @@ paths_sf %>%
   facet_wrap(~time, nrow = 1)
 ```
 
-```{r fig.fullwidth = TRUE, fig.width = 10, echp = FALSE}
+```{r paths_figure, fig.fullwidth = TRUE, echo = FALSE}
 paths_sf %>%
   inner_join(activate(swsn, 'edges') %>% as_tibble, .) %>%
   st_sf %>%
@@ -358,11 +341,12 @@ paths_sf %>%
   left_join(inner_join(activate(swsn, 'edges') %>% as_tibble, paths_sf) %>% mutate(id = as.character(1:n())) %>% select(-geometry)) %>%
 ggplot(aes(long, lat)) +
   geom_raster(data = as.data.frame(aggregate(raster(conductance_c), fact = 2), xy = T, na.rm = T), aes(x, y, fill = layer)) +
-  geom_path(aes(group = group), alpha = .2) +
-  scale_fill_viridis_c() +
+  geom_path(aes(group = group), alpha = .2, color = 'lightgrey') +
+  scale_fill_viridis_c(direction = -1) +
   facet_wrap(~time, nrow = 1) +
+  ggtitle('Nearest-neighbor spatial networks', 'k = 15') +
   theme_void() +
-  coord_equal() +
+  coord_quickmap() +
     theme(legend.position = "bottom")
 ```
 
@@ -596,6 +580,7 @@ get_EOFs <- function(pc_object, eigs, rast, n_modes){
 eofs_obs <- get_EOFs(obs_pca, obs_eigs, spei_obs, n_modes)
 eofs_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
 ```
+
 ```{r}
 ggplot(eofs_recon, aes(x, y, fill = value)) +
   facet_wrap(~PC) +
@@ -739,7 +724,7 @@ ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
   theme(legend.position = "bottom")
 ```
 
-```{r}
+```{r, eval = FALSE}
 t1 <- paste0('s(EOF',1:n_modes, '_recon, by = eof_num, k = 10)') %>% 
   paste(collapse = ' + ') %>% 
   paste0('amplitude_obs', ., sep = ' ~ ') %>% 
@@ -918,12 +903,19 @@ pairs(crop(env_rasters, bbox))
 Now that we have all the data imported and preprocessed, let's put it all together into a data frame.
 ```{r data_preparation}
 rel_diff <- function(x, y)  pmax(x, y) / pmin(x, y)
+
 dat <- swsn %N>%
   mutate(ID = 1:n(),
          lon = pts$x, 
          lat = pts$y) %>%
   left_join(raster::extract(env_rasters, pts, df = TRUE), by = 'ID') %E>%
-  left_join((dist_mat %>% as_tbl_graph(directed = T) %E>% filter(!edge_is_loop()) %>% as_tibble %>% rename(distance = weight)), by = c('from', 'to')) %>%
+  mutate(dist_geo = geosphere::distGeo(matrix(c(.N()$lon[from], .N()$lat[from]), ncol = 2), 
+                            matrix(c(.N()$lon[to], .N()$lat[to]), ncol = 2)) / 1000) %>%
+  mutate(name_from = .N()$name[from], 
+         name_to = .N()$name[to]) %>%
+  left_join(distances_direct) %>%
+  left_join(distances_indirect) %>%
+  select(-c(name_from:name_to)) %>%
   mutate(
     size = case_when(time == 1200 ~ .N()$P1room[from] * .N()$P1room[to],
                      time == 1250 ~ .N()$P2room[from] * .N()$P2room[to],
@@ -964,6 +956,9 @@ knitr::kable(
 )
 ```
 
+```{r}
+knitr::knit_exit()
+```
 
 The distribution for the final time step is very different from the others.
 ```{r}
