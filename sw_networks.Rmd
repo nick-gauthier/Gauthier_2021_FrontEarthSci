@@ -48,6 +48,7 @@ library(smoothr)
 library(rayshader)
 library(corMLPE)
 library(broom)
+library(furrr)
 ```
 
 ```{r include = FALSE}
@@ -297,6 +298,7 @@ ggraph(test_spat, 'manual', node.positions = pts) +
 ```
 
 ```{r shortest_paths, cache = TRUE}
+plan(multicore)
 path_dat <- nn_mat %E>% # neighbor matrix edgelist
   as_tibble %>% 
   select(from,to) %>% # extract the node ids for each edge pair
@@ -306,16 +308,31 @@ path_dat <- nn_mat %E>% # neighbor matrix edgelist
   mutate(to = purrr::map(data, ~c(.$to) %>% unlist)) %>% # turn the "to" column into list of destinations for each origin
   select(-data) %>%
   # calculate the shortest paths
-  mutate(paths = map2(from, to, ~shortestPath(conductance_c, 
+  mutate(paths = future_map2(from, to, ~shortestPath(conductance_c, 
                                     as.matrix(pts)[.x,], as.matrix(pts)[.y,], 
-                                    output = 'SpatialLines')))
+                                    output = 'SpatialLines'), .progress = TRUE))
 ```
 
+```{r}
+path_dat <- swsn %E>% # neighbor matrix edgelist
+  as_tibble %>% 
+  select(from,to) %>% # extract the node ids for each edge pair
+  filter(from < to) %>%
+  distinct %>% # limit to distinct edges
+  group_by(from) %>%
+  nest %>% 
+  mutate(to = purrr::map(data, ~c(.$to) %>% unlist)) %>% # turn the "to" column into list of destinations for each origin
+  select(-data) %>%
+  # calculate the shortest paths
+  mutate(paths = future_map2(from, to, ~shortestPath(conductance_c, 
+                                    as.matrix(pts)[.x,], as.matrix(pts)[.y,], 
+                                    output = 'SpatialLines'), .progress = TRUE))
+```
 
 Merge all the lines into one object.
 ```{r}
 paths_sf <- path_dat %>% 
-  mutate(paths = purrr::map(paths, st_as_sf)) %>% 
+  mutate(paths = future_map(paths, st_as_sf)) %>% 
   pull(paths) %>% 
   do.call(rbind, .) %>%
   bind_cols((path_dat %>% select(-paths) %>% unnest), .) %>%
@@ -327,43 +344,54 @@ paths_sf <- path_dat %>%
 ```{r, eval = FALSE, include = FALSE}
 paths_sf %>%
   inner_join(activate(swsn, 'edges') %>% as_tibble, .) %>%
+  arrange(similarity) %>%
   ggplot() +
-  geom_sf(alpha = .1) +
+  geom_raster(data = as.data.frame(aggregate(raster(conductance_c), fact = 2), xy = T, na.rm = T), aes(x, y, fill = layer)) +
+    geom_sf(aes(color = similarity)) +
+  scale_color_viridis_c() +
   facet_wrap(~time, nrow = 1)
 ```
 
 ```{r paths_figure, fig.fullwidth = TRUE, echo = FALSE}
 paths_sf %>%
   inner_join(activate(swsn, 'edges') %>% as_tibble, .) %>%
+  filter(similarity > .5) %>%
+    filter(time == 1400) %>%
   st_sf %>%
   as_Spatial %>%
-  fortify(region = 'id') %>%
+  tidy(region = 'id') %>%
   left_join(inner_join(activate(swsn, 'edges') %>% as_tibble, paths_sf) %>% mutate(id = as.character(1:n())) %>% select(-geometry)) %>%
+  arrange(similarity) %>%
 ggplot(aes(long, lat)) +
-  geom_raster(data = as.data.frame(aggregate(raster(conductance_c), fact = 2), xy = T, na.rm = T), aes(x, y, fill = layer)) +
-  geom_path(aes(group = group), alpha = .2, color = 'lightgrey') +
-  scale_fill_viridis_c(direction = -1) +
-  facet_wrap(~time, nrow = 1) +
+#  geom_raster(data = as.data.frame(aggregate(raster(conductance_c), fact = 2), xy = T, na.rm = T), aes(x, y, fill = layer)) +
+  geom_path(aes(group = group, color = similarity, alpha = similarity)) +
+ # scale_fill_viridis_c(direction = -1) +
+ scale_color_viridis_c() +
+  #facet_wrap(~as.factor(time), nrow = 1) +
   ggtitle('Nearest-neighbor spatial networks', 'k = 15') +
   theme_void() +
   coord_quickmap() +
     theme(legend.position = "bottom")
 ```
 
+```{r}
+plot(crop(reof_raster, bbox))
+```
 
-```{r network_plot, eval = FALSE, echo = FALSE}
+
+```{r network_plot}
 states <- maps::map('state', regions = c('arizona', 'new mexico', 'colorado', 'california', 'utah', 'nevada'), fill = TRUE, plot = FALSE)
 
-swsn %E>%
-  arrange(similarity) %>%
-ggraph('manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  geom_node_point() +#aes(size = centrality, color = centrality)) +
-  facet_edges(~time) +
-  scale_edge_alpha() +
-  coord_equal() +
-  theme_graph()
+#swsn %E>%
+#  arrange(similarity) %>%
+#ggraph('manual', node.positions = pts) +
+#  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+#  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+#  geom_node_point() +#aes(size = centrality, color = centrality)) +
+#  facet_edges(~time) +
+#  scale_edge_alpha() +
+#  coord_equal() +
+#  theme_graph()
 ```
 
 # Climate Analysis
@@ -427,18 +455,6 @@ spei_recon %>%
   geom_smooth() +
   ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
           'June-August, 12 month lag') + 
-  theme_bw()
-
-spei_obs %>% 
-  as.data.frame(xy = TRUE, na.rm = TRUE, long = TRUE) %>%
-  mutate(year = str_sub(layer, 2),
-         year = as.numeric(year)) %>%
-  sample_frac(.01) %>%
-  ggplot(aes(year, value)) +
-  geom_line(alpha = .1, aes(group = interaction(x, y))) +
-  geom_smooth() +
-  ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
-          'June-August, 12 month lag') + scale_x_continuous(limits = c(1896,2017)) +geom_smooth(method = 'lm') +
   theme_bw()
 ```
 
@@ -549,7 +565,7 @@ It looks like there is some autocorrelation in phyda but not in the observations
 Now, calculate the eofs for both fields, retaining the 4 leading components in each case for rotation
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes <-6# choose 2, 4, 6, 9
+n_modes <- 9 # choose 2, 4, 6, 9
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
@@ -572,7 +588,7 @@ get_EOFs <- function(pc_object, eigs, rast, n_modes){
     group_by(PC) %>%
     nest %>%
     left_join(eigs[1:2]) %>%
-    mutate(data = map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
+    mutate(data = future_map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
     unnest %>%
     bind_cols(as.data.frame(rast[[1]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = n_modes)))
 }
@@ -666,16 +682,16 @@ amplitude_modern <- recon_eof_amp %>%
             suffix = c('_recon', '_obs'))
 ```
 
-```{r}
+```{r eval = FALSE, include = FALSE}
 obs_reof$amplitude %>%
     as_tibble %>%
-    mutate(year = 1896:1999) %>%
+    mutate(year = 1896:2017) %>%
     gather(reof, obs, 1:n_modes) %>%
   group_by(reof) %>%
   filter(obs == max(obs) | obs == min(obs))
 ```
 
-```{r}
+```{r, eval = FALSE, include = FALSE}
 plot(spei_obs[[20]])
 plot(spei_obs[[101]])
 #eof1 is scaled correctly, ie if amplitude is negative it is in fact a drought
@@ -725,17 +741,17 @@ ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
 ```
 
 ```{r, eval = FALSE}
-t1 <- paste0('s(EOF',1:n_modes, '_recon, by = eof_num, k = 10)') %>% 
-  paste(collapse = ' + ') %>% 
-  paste0('amplitude_obs', ., sep = ' ~ ') %>% 
-  as.formula# %>% 
+#t1 <- paste0('s(EOF',1:n_modes, '_recon, by = eof_num, k = 10)') %>% 
+#  paste(collapse = ' + ') %>% 
+#  paste0('amplitude_obs', ., sep = ' ~ ') %>% 
+#  as.formula# %>% 
   
   
   t1 <- bam(amplitude_obs ~ s(amplitude_recon, by = PC) + PC,
       method = 'fREML', select = TRUE, 
       AR.start = new_pc,
       data = mutate(amplitude_modern, new_pc = PC != lag(PC)) %>% filter(PC %in% 1:4))
-)
+
 summary(t1)
 plot(t1)
 gam.check(t1)
@@ -776,14 +792,14 @@ past_amplitudes <- recon_reof$amplitude %>%
 
 
 We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
-```{r recon_amplitudes}
-recon_amplitudes <- amplitudes %>%
-  group_by(reof) %>%
+```{r recon_amplitudes, eval = FALSE}
+recon_amplitudes <- amplitude_modern %>%
+  group_by(PC) %>%
   nest %>%
-  mutate(mod = purrr::map(data, ~gam(obs ~ s(recon, bs = 'cr'), 
+  mutate(mod = purrr::map(data, ~gam(amplitude_obs ~ s(amplitude_recon), 
                                      data = ., method = 'REML', 
                                      select = TRUE))) %>%
-  left_join(past_amplitudes, by = 'reof') %>%
+  left_join(past_amplitudes, by = c('PC' = 'reof')) %>%
   mutate(predictions = purrr::map2(mod, recons, 
                                    ~predict(.x, .y, type = 'response')),
          predictions = purrr::map(predictions, ~.[1:400]),
@@ -798,7 +814,7 @@ recon_amplitudes <- amplitudes %>%
 ```
 
 How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
-```{r plot_recon_amplitudes, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
+```{r plot_recon_amplitudes, eval = FALSE, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
 ggplot(recon_amplitudes, aes(year, amplitude, group = reof)) +
   geom_line(aes(color = reof), alpha = .7) +
   geom_line(aes(y = amp_smooth)) +
@@ -817,7 +833,7 @@ ggplot(recon_amplitudes, aes(year, preds, group = eof_num)) +
 ```
 
 These results point to EOFs 3 and 4 as having major shocks at around 1300 AD.
-```{r, echo = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
+```{r, eval = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
 recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
   ggplot(aes(factor(period), preds)) +
@@ -901,11 +917,12 @@ dat <- swsn %N>%
    reof6 = rel_diff(.N()$reof6[from], .N()$reof6[to]),
    reof7 = rel_diff(.N()$reof7[from], .N()$reof7[to]),
    reof8 = rel_diff(.N()$reof8[from], .N()$reof8[to]),
-  reof9 = rel_diff(.N()$reof9[from], .N()$reof9[to])) %>%
+  reof9 = rel_diff(.N()$reof9[from], .N()$reof9[to])
+) %>%
   as_tibble %>%
-  group_by(time) %>%
+#  group_by(time) %>%
   filter(from < to) %>%
-  ungroup %>%
+ # ungroup %>%
   mutate(from = as.factor(from), to = as.factor(to), time = as.factor(time)) %>%
   mutate(tie = similarity > 0)
 ```
@@ -921,45 +938,18 @@ knitr::kable(
 )
 ```
 
-```{r}
-knitr::knit_exit()
-```
+
 
 The distribution for the final time step is very different from the others.
-```{r}
-library(ggridges)
-ggplot(dat, aes(x = similarity, y = as.factor(time), fill = ..x.., height = ..density..)) +
-  geom_density_ridges_gradient(stat = 'density', scale = 1.5) +
-  scale_fill_viridis(guide = F) +
-  theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
-  ggtitle('Change in similarity distributions with time')
-ggplot(filter(dat, similarity > 0 & similarity < 1), aes(x = similarity, y = as.factor(time), fill = ..x.., height = ..density..)) +
-  geom_density_ridges_gradient(stat = 'density', scale = 1.5) +
-  scale_fill_viridis(guide = F) +
-  theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
-  ggtitle('Change in similarity distributions with time')
-
-ggplot(dat, aes(x = similarity, y = as.factor(time), fill = ..x..)) +
-  geom_density_ridges_gradient(scale = 1.5) +
-  scale_fill_viridis(guide = F) +
-  theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
-  ggtitle('Change in similarity distributions with time')
-ggplot(filter(dat, similarity > 0 & similarity < 1), aes(x = similarity, y = as.factor(time), fill = ..x..)) +
-  geom_density_ridges_gradient(scale = 1.5) +
-  scale_fill_viridis(guide = F) +
-  theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
-  ggtitle('Change in similarity distributions with time')
-```
-
-
 Let's just isolate the distributions from the first time period. Clearly these are non gaussian, so modeling them as such would be inappropriate. log and sqrt transforms seem similarly inappropriate.
 
 Since we'll be using a logit link in the regressions, check the logit transform
 
+This is why we need to model them separately.
 ```{r}
 library(ggridges)
 ggplot(dat %>%
-  mutate(similarity = if_else(similarity == 1, 1 - .000001, if_else(similarity == 0, .000001, similarity))), aes(x = qlogis(similarity), y = as.factor(time), fill = ..x.., height = ..density..)) +
+  mutate(similarity = if_else(similarity == 1, 1 - .001, if_else(similarity == 0, .001, similarity))), aes(x = qlogis(similarity), y = as.factor(time), fill = ..x.., height = ..density..)) +
   geom_density_ridges_gradient(stat = 'density', scale = 1.5) +
   scale_fill_viridis(guide = F) +
   theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
@@ -997,12 +987,6 @@ eof_data <- raster::extract(reof_raster, pts, df=TRUE) %>%
 ```
 
 ## Distance modeling
-
-
-```{r}
-knitr::knit_exit()
-```
-
 
 Our data have a lot of zeros in them. To do this, we'll actually fit two models: a logistic regression for the presence or absence of any material culture similarity between two sites, and a beta regression for the intensity of the interaction when it does exist. 
 
@@ -1049,7 +1033,7 @@ logistic_models <- c(
   paste('tie ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
-         model = purrr::map(formula, fit_gam_presence)) %>%
+         model = future_map(formula, fit_gam_presence)) %>%
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
 ```
@@ -1141,12 +1125,12 @@ test <- dat %>%
   #filter(time == 1350) %>%
  # filter(time %in% c(1250, 1300, 1350, 1400)) %>%
   #group_by(time) %>%
-  #sample_frac(.4) %>%
+  sample_frac(.4) %>%
   mutate(time_num = as.numeric(time)) 
 
 test
 gc()
-test1 <- gamm(qlogis(similarity) ~ s(distance,bs = 'cr', k = 6)   +
+test3 <- gamm(qlogis(similarity) ~ s(dist_lcp, bs = 'cr', k = 6)   +
         s(log(size), bs = 'cs', k = 6) +
          s(log(reof1), bs = 'cs', k = 6) +
          s(log(reof2), bs = 'cs', k = 6) +
@@ -1156,9 +1140,10 @@ test1 <- gamm(qlogis(similarity) ~ s(distance,bs = 'cr', k = 6)   +
          s(log(reof6), bs = 'cs', k = 6) +
          s(log(reof7), bs = 'cs', k = 6) +
          s(log(reof8), bs = 'cs', k = 6) +
-         s(log(reof9), bs = 'cs', k = 6) + time,
+         s(log(reof9), bs = 'cs', k = 6) + 
+          time,
          method = 'ML',
-         correlation = corMLPE(form = ~from + to|time),
+         correlation = corMLPE(form = ~from + to),
          data = test)
 
 test2 <- gamm(qlogis(similarity) ~ s(distance, time_num, k = c(6, 4), fx = c(F,T))   +
@@ -1192,10 +1177,10 @@ test4 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 6)   +
          data = test)
 
 gam.check(test1$gam)
-summary(test1$gam)
-AIC(test2$lme, test6$lme)
-plot(test6$gam, pages = 1, scale = 0)
-plot(test1$gam, pages = 1)
+summary(test3$gam)
+anova(test2$lme, test1$lme, test3$lme)
+plot(test2$gam, pages = 1, scale = )
+plot(test1$gam, pages = 1, scale = 0)
 ```
 ```{r}
 test1 <- gamm(qlogis(similarity) ~  s(distance, bs = 'cr', m = 2, k = 4) + s(distance, by = time, bs = 'cs', m = 1, k = 4) + 
