@@ -218,43 +218,6 @@ ggraph(nn_mat, 'manual', node.positions = pts) +
   ggtitle('Nearest neighbor network', 'k = 15')
 ```
 
-```{r, eval = FALSE, echo = FALSE}
-#devtools::install_github('ecohealthalliance/yenpathy')
-library(yenpathy)
-library(parallel)
-makedirect <- function(x){
-  x %>%
-    select(from = to, to = from, distance = distance) %>%
-    bind_rows(x)
-}
-spatial_net <- nn_mat %E>%
-  filter(time == 1200) %>%
-  as_tibble %>%
-  select(from, to, distance) %>%
-  makedirect()
-sim_net <- swsn %E>%
-  as_tibble %>%
-  filter(time == 1200) %>% 
-  filter(to < from) %>% 
-  as_tibble()
-
-sim_net[[1,1]]
-t1 <- c()
-cl <- makeCluster(getOption("cl.cores", 2))
-clusterEvalQ(cl, {library(yenpathy)})
-paths <- mclapply(1:nrow(sim_net), function(x){
-  k_shortest_paths(graph_df = spatial_net, start_vertex = sim_net[[x,1]], end_vertex = sim_net[[x,2]], k = 4, verbose = FALSE)},
-mc.cores = 4, mc.preschedule = F)
-
-test[[1]]
-for(i in 1:5000){
-  t1 <- c(t1, k_shortest_paths(graph_df = spatial_net, start_vertex = sim_net[[i,1]], end_vertex = sim_net[[i,2]], k = 4, verbose = FALSE))
-}
-t1
-
-t1 <- sim_net %>% mutate(k_paths = map2(from, to, ~k_shortest_paths(graph_df = spatial_net, start_vertex = .x, end_vertex = .y, k = 4, verbose = FALSE)))
-```
-
 ```{r}
 distances_indirect <- nn_mat %>%  
   morph(to_split, time, split_by = 'edges') %>% # split into subgraphs
