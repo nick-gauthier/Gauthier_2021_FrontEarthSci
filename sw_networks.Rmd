@@ -828,42 +828,6 @@ recon_amplitudes %>%
   theme_minimal()
 ```
 
-## Environmental Data
-Import higher resolution environmental layers and crop the reof files. Define a function that will import all the prism normals for a given variable name. outputs a brick.
-```{r import_prism}
-get_normals <- function(var){
-  paste0('data/PRISM/PRISM_', var, '_30yr_normal_800mM2_all_asc/') %>%
-  list.files(pattern = '\\.asc$', full.names = TRUE) %>%
-  .[1:12] %>% # the last file in the list is annual values, drop it
-  purrr::map(raster) %>% # load the rasters from file list
-  purrr::map(crop, bbox_wus) %>% # crop to study area
-  brick # combine list of rasters into a brick
-}
-```
-
-Use the above function to import precipitation and temperature range normals. Use the biovars function from dismo to calculate 19 bioclimatic predictor variables from monthly precipitation and temperature data.
-```{r bioclim_pca, cache = TRUE}
-prec <- get_normals('ppt')
-tmin <- get_normals('tmin')
-tmax <- get_normals('tmax')
-
-# calculate bioclim variables from the monthly normals
-bio_clim <- biovars(prec, tmin, tmax)
-```
-
-Reduce the dimensionality of the bioclimatic data using an R-mode PCA.
-```{r cache = TRUE}
-clim_pca <- RStoolbox::rasterPCA(bio_clim, spca = TRUE, nComp = 6)
-```
-PC1 is general heat and dryness of the summer, pc2 is the seasonality index, pc3 is an index of diurnal variability. So its basically 3 different time scales.
-```{r}
-clim_pca$model$loadings
-```
-
-Retain the leading 4 PCs.
-```{r}
-screeplot(clim_pca$model, npcs = 10, type = 'lines')
-```
 
 ```{r reof_raster}
 reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
@@ -871,8 +835,7 @@ reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   cbind(obs_reof$REOF) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
-  `names<-`(paste0('reof', 1:n_modes)) %>%
-  projectRaster(bio_clim)
+  `names<-`(paste0('reof', 1:n_modes))
 
 which.max(abs(reof_raster)) %>%
   as.data.frame(xy = T, na.rm = T)  %>%
@@ -885,30 +848,32 @@ which.max(abs(reof_raster)) %>%
 ```
 
 ```{r raster_reprojection}
-env_rasters <- clim_pca$map %>%
-  .[[1:6]] %>%
-  `names<-`(c('pc1', 'pc2', 'pc3', 'pc4', 'pc5','pc6')) %>%
-  c(reof_raster) %>%
-  brick %>% crop(bbox)
+#env_rasters <- clim_pca$map %>%
+#  .[[1:6]] %>%
+#  `names<-`(c('pc1', 'pc2', 'pc3', 'pc4', 'pc5','pc6')) %>%
+#  c(reof_raster) %>%
+#  brick %>% crop(bbox)
 ```
 
 ```{r}
-plot(crop(env_rasters, bbox))
-pairs(crop(env_rasters, bbox))
+#plot(crop(env_rasters, bbox))
+#pairs(crop(env_rasters, bbox))
 ```
 
 
 # Model fitting
 
 Now that we have all the data imported and preprocessed, let's put it all together into a data frame.
-```{r data_preparation}
+```{r}
 rel_diff <- function(x, y)  pmax(x, y) / pmin(x, y)
+```
 
+```{r data_preparation}
 dat <- swsn %N>%
   mutate(ID = 1:n(),
          lon = pts$x, 
          lat = pts$y) %>%
-  left_join(raster::extract(env_rasters, pts, df = TRUE), by = 'ID') %E>%
+  left_join(raster::extract(reof_raster, pts, df = TRUE), by = 'ID') %E>%
   mutate(dist_geo = geosphere::distGeo(matrix(c(.N()$lon[from], .N()$lat[from]), ncol = 2), 
                             matrix(c(.N()$lon[to], .N()$lat[to]), ncol = 2)) / 1000) %>%
   mutate(name_from = .N()$name[from], 
