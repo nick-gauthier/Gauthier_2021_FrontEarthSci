@@ -1,0 +1,513 @@
+---
+title: "Supplemental Information"
+subtitle: 'Analysis scripts for "Drought Variability and the Robustness of Agrarian Social Networks"'
+author: "Nicolas Gauthier"
+date: "Last knit on: `r format(Sys.time(), '%d %B, %Y')`"
+#bibliography: bibliography.bibtex
+output:
+  tufte::tufte_handout:
+    citation_package: natbib
+    #latex_engine: xelatex
+    toc: true
+    highlight: pygments
+  tufte::tufte_html:
+    tufte_features: ["fonts", "italics"]
+    toc: true
+link-citations: yes
+---
+
+```{r setup, include=FALSE}
+library(tufte)
+# invalidate cache when the tufte version changes
+knitr::opts_chunk$set(tidy = FALSE, cache.extra = packageVersion('tufte'))
+options(htmltools.dir.version = FALSE)
+```
+
+```{r}
+library(raster)
+library(tidyverse)
+```
+
+
+
+# Climate Analysis: Drought Patterns
+First we estimate present and past climate patterns.
+
+## Study Area
+First we define a boundary box covering much of the western United States, ranging between W$124\deg$ and W$-104\deg$ and N$31\deg$ and N$41\deg$, which we'll use to constrain all subsequent climate analyses. This study area is significantly larger than the one we'll define in the next section for the network analysis. This allows us to sample a much wider range of climatic variability, while still remaining within the broader western US climate zone. This ensures that both A) our statistical analyses will be more robust to sampling error and B) the results will be less sensitive to the exact location and dimensions of our study area.
+```{r bbox_map, fig.margin=TRUE, echo = FALSE, fig.cap = 'Locations of 2 bounding boxes.'}
+#bbox_wus <- extent(c(-119, -101, 28, 41))
+bbox_wus <- extent(c(-124.5, -102, 30, 42.1))
+bb1 <- as(bbox_wus, 'SpatialPolygons') %>%
+  fortify
+bb2 <- as(bbox, 'SpatialPolygons') %>%
+  fortify
+
+map_data("usa") %>%
+  ggplot(aes(x = long, y = lat, group = group)) + 
+  geom_polygon(color = 'darkgrey', fill = NA) + 
+  geom_polygon(data = bb1, color = 'black', fill = NA) +
+  geom_polygon(data = bb2, color = 'black', fill = NA) +
+  coord_fixed(1.3) +
+  theme_void()
+```
+
+```{r bbox}
+#bbox_wus <- extent(c(-124, -104, 31, 41))
+```
+
+## Climate Data
+Import high resolution SPEI maps generated from PRISM data. Calculate the average summertime (JJA) SPEI value for each year.
+
+```{r import_observations}
+# calculate average JJA SPEI
+spei_obs <- ((brick('data/spei12_6_PRISM.nc') + 
+              brick('data/spei12_7_PRISM.nc') + 
+              brick('data/spei12_8_PRISM.nc')) / 3) %>%
+  crop(bbox_wus) %>% # crop to the study area bounding box
+  `names<-`(1895:2017) %>% # add year names
+  .[[-1]]#105]] # SPEI calculated on 12 month lag, so drop 1st year
+```
+
+
+Import the reconstructed SPEI fields from PHYDA. PHYDA uses a novel off-line data assimilation approach, using simulated SPEI from the CESM LME experiments as physically-consistent model priors and a network of tree rings, ice cores, and corals as assimilated observations.
+```{r import_reconstructions}
+spei_recon <- brick('data/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc',
+                    varname = 'spei_mn') %>%
+   .[[1100:1999]] %>% # extract years of interest
+   rotate %>% # rotate longitudes to -180 to 180
+   crop(bbox_wus, snap = 'out') # crop to western US
+```
+
+
+```{r plot_variance_trend, echo = FALSE, fig.margin=TRUE, fig.cap = 'Plotting out the time series of the reconstruction reveals no clear trend in the mean. It does, however, show a pattern of increasing variance over time, which is entirely a function of the changing number of proxies used in the data assimilation approach.'}
+spei_recon %>% 
+  as.data.frame(xy = TRUE, na.rm = TRUE) %>%
+  gather(year, value, 3:902) %>%
+  mutate(year = str_sub(year, 2),
+         year = as.numeric(year)) %>%
+  ggplot(aes(year, value)) +
+  geom_line(alpha = .1, aes(group = interaction(x, y))) +
+  geom_smooth() +
+  ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
+          'June-August, 12 month lag') + 
+  theme_bw()
+```
+
+## Empiricial Orthogonal Functions
+We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reconstructed drought dynamics.
+```{r}
+area_weight <- function(x){
+  names_x <- names(x)
+  x %>%
+    init('y') %>% # get a map of latitudes
+    `*`(pi/180) %>% # convert to radians
+    cos %>%
+    sqrt %>%
+    `*`(x) %>%
+    `names<-`(names_x)
+}
+
+n_effective <- function(x){
+  n <- nlayers(x)
+  x %>%
+    area_weight %>%
+    as.data.frame(na.rm = TRUE) %>%
+    t %>%
+    as_tibble %>%
+    gather(cell, value) %>%
+    nest(value) %>%
+    mutate(rho = map_dbl(data, ~cor(.$value, lag(.$value), use = 'comp')),
+           effective_n = n * (1 - rho^2) / (1 + rho^2)) %>% #bretherton et al 1999
+
+    summarise(mean(effective_n)) %>%
+    pull
+}
+```
+Now we calculate the rotated empirical orthogonal functions for both the observed and reconstructed drought maps. For the observations, we see that the leading 5 eofs explain 85% of the variance in the series, so we'll retain those for rotation.
+
+we want to look for separation in the error bars. eofs that are not well separate can be considered effective multiplets, and hsould not be split in truncation.
+```{r plot_variance_prism, fig.margin = TRUE, echo = FALSE}
+#this code is the same as the eofNum function above, but needs a slight adjustment here because that function assumes more time than spatial indices. these are adpatedf from wql and sinkr
+obs_pca <- spei_obs %>%
+  area_weight %>%
+  as.data.frame(na.rm = TRUE) %>%
+  t %>%
+  prcomp(scale. = FALSE) # use the covariance matrix
+
+recon_pca <- spei_recon %>%
+  area_weight %>%
+  as.data.frame(na.rm = TRUE) %>%
+  t %>%
+  prcomp(scale. = FALSE)
+
+obs_eigs <- obs_pca %>%
+  tidy(matrix = 'pcs') %>%
+  mutate(eigenvalues = std.dev ^ 2,
+         error = sqrt(2 / n_effective(spei_obs)),
+         low =  eigenvalues * (1 - error) * 100 / sum(eigenvalues),
+         hi = eigenvalues * (1 + error) * 100 / sum(eigenvalues),
+         cumvar_line = hi + 0.02 * max(hi))
+
+recon_eigs <- recon_pca %>% 
+  tidy(matrix = 'pcs') %>%
+  mutate(eigenvalues = std.dev ^ 2,
+         error = sqrt(2 / n_effective(spei_recon)),
+         low =  eigenvalues * (1 - error) * 100 / sum(eigenvalues),
+         hi = eigenvalues * (1 + error) * 100 / sum(eigenvalues),
+         cumvar_line = hi + 0.02 * max(hi))
+```
+
+```{r plot_variance_obs, fig.margin=TRUE, echo = FALSE, fig.cap = 'Variance explained'}
+obs_eigs %>% 
+ # filter(eigenvalues > 1) %>%
+  mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
+                   test = cumsum(separated),
+         weights = if_else(PC < 50, 0, 1))%>%
+    filter(PC <=15) %>%
+ggplot(aes(x = PC, y = percent * 100)) +
+  geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
+  geom_point(size = 3, aes(color = as.factor(test))) + 
+  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative* 100, 1)), size = 3, vjust = 0) +
+  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + 
+  theme_bw() +guides(color = F)#scale_y_continuous(trans = 'log') + stat_smooth(aes(weight = weights), method = 'lm') 
+  #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
+```
+
+
+the overlaps mean these are effective multpliets. the real eof can be some linear combination of these. This won't in practice impact our successive results, as long as we don't truncate within these multplets, but only between them.
+using the log linear test, keep 7 of recon and 6 for obs
+Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
+```{r plot_variance_phyda, fig.margin=TRUE, echo = FALSE,fig.cap = 'Variance explained'}
+recon_eigs %>%
+  mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
+          test = cumsum(separated),
+         weights = if_else(PC < 3, 0, 1))%>%
+  filter(PC <=15) %>%
+ggplot(aes(x = PC, y = percent * 100)) +
+  geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
+  geom_point(size = 3, aes(color = as.factor(test))) + 
+  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative * 100, 1)), size = 3, vjust = 0) +
+  labs(list(x = "PC", y = "Normalized Eigenvalue")) + #scale_y_continuous(trans = 'log') +
+  theme_bw() + #stat_smooth(aes(weight = weights), method = 'lm') +
+  guides(color = FALSE)
+```
+Repeat for the prism observations. Again, we'll retain the leading four modes.
+
+
+It looks like there is some autocorrelation in phyda but not in the observations, will have to adjust in the future.
+
+
+Now, calculate the eofs for both fields, retaining the 4 leading components in each case for rotation
+```{r calc_eofs}
+# Decide how many modes to retain
+n_modes <- 9 # choose 2, 4, 6, 9
+
+obs_reof <- spei_obs %>% 
+  area_weight %>%
+  as.data.frame(na.rm = TRUE) %>%
+  t %>% # transpose space and time
+  eof(n_modes, scale. = FALSE) # we don't rescale (ie we use the covariance matrix, because spei is already normalized and rescaled)
+
+recon_reof <- spei_recon %>%
+  area_weight %>%
+  as.data.frame(na.rm = TRUE) %>%
+  t %>% # transpose space and time
+  eof(n_modes, scale. = FALSE)
+```
+
+```{r}
+get_EOFs <- function(pc_object, eigs, rast, n_modes){
+  pc_object %>%
+    tidy(matrix = 'variables') %>%
+    filter(PC <= n_modes) %>%
+    group_by(PC) %>%
+    nest %>%
+    left_join(eigs[1:2]) %>%
+    mutate(data = future_map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
+    unnest %>%
+    bind_cols(as.data.frame(rast[[1]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = n_modes)))
+}
+
+eofs_obs <- get_EOFs(obs_pca, obs_eigs, spei_obs, n_modes)
+eofs_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
+```
+
+```{r}
+ggplot(eofs_recon, aes(x, y, fill = value)) +
+  facet_wrap(~PC) +
+  geom_raster() +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.73, .73)) +
+  theme_void() + 
+  coord_quickmap()
+```
+
+We see that the leading 3 eigenvectors from the observations and reconstructions are a good match, including their ordering. 4-6 look good too
+```{r}
+ggplot(eofs_obs, aes(x, y, fill = value)) +
+  facet_wrap(~PC) +
+  geom_raster() +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.85, .85)) +
+  theme_void() + 
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap()
+ggplot(eofs_recon, aes(x, y, fill = value)) +
+  facet_wrap(~PC) +
+  geom_raster() +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.73, .73)) +
+  theme_void() + 
+  coord_quickmap()
+```
+
+
+Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 4 leading modes.
+```{r plot_recon_reofs, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
+as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
+  select(-3) %>%
+  gather(eof, value, 3:(n_modes+2)) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+    scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
+  facet_wrap(~eof) +
+  theme_void() + 
+  coord_quickmap()
+```
+
+The colors here are eigenvecotrs weighted by the sqare root of the associated eigenvalue, sothese loadings represent the covariance between each grid cell and each amplitdue (principal component)
+```{r plot_robs_eof, echo = FALSE, fig.width = 12, fig.height = 8, fig.cap = 'Observed drought REOFs'}
+as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
+  cbind(obs_reof$REOF) %>%
+  select(-3) %>%
+  #mutate(EOF1 = EOF1 * -1, EOF2 = EOF2 * -1, EOF7 = EOF7 * -1) %>%
+  gather(eof, value, 3:(n_modes + 2)) %>%
+  mutate(value = value * -1) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1,1)) +
+  facet_wrap(~eof) +
+  theme_void() +
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  ggtitle(paste('Leading', n_modes, 'rotated empirical orthogonal functions'),
+          'SPEI') +
+  theme(legend.position = "bottom")
+```
+
+A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
+
+To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
+```{r amplitudes}
+calc_amplitude <- function(x, n_modes){
+  x %>%
+    tidy(matrix = 'samples') %>%
+    filter(PC <= n_modes) %>%
+    rename(year = row, amplitude = value) %>%
+    mutate(year = as.numeric(str_sub(year, 2)),
+           PC = as.factor(PC)) %>%
+    group_by(PC) %>%
+    mutate(amplitude = scale(amplitude)) %>%
+    ungroup
+}
+
+obs_eof_amp <- calc_amplitude(obs_pca, n_modes)
+recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
+
+amplitude_modern <- recon_eof_amp %>% 
+  filter(between(year, 1896, 1999)) %>% 
+  left_join(obs_eof_amp, by = c('year', 'PC'), 
+            suffix = c('_recon', '_obs'))
+```
+
+```{r eval = FALSE, include = FALSE}
+obs_reof$amplitude %>%
+    as_tibble %>%
+    mutate(year = 1896:2017) %>%
+    gather(reof, obs, 1:n_modes) %>%
+  group_by(reof) %>%
+  filter(obs == max(obs) | obs == min(obs))
+```
+
+```{r, eval = FALSE, include = FALSE}
+plot(spei_obs[[20]])
+plot(spei_obs[[101]])
+#eof1 is scaled correctly, ie if amplitude is negative it is in fact a drought
+
+plot(spei_obs[[23]])
+plot(spei_obs[[80]])
+#ditto eof2, positive amplitude is a wet year
+
+plot(spei_obs[[53]])
+plot(spei_obs[[82]])
+# eof3 should be reversed
+
+plot(spei_obs[[29]])
+plot(spei_obs[[63]])
+#reverse
+
+
+plot(spei_obs[[16]])
+plot(spei_obs[[52]])
+#reverse
+
+#6 is reversed too
+
+plot(spei_obs[[14]])
+plot(spei_obs[[82]])
+# 7 is ok
+
+plot(spei_obs[[10]])
+plot(spei_obs[[26]]) 
+# 8 reverse
+
+plot(spei_obs[[17]])
+plot(spei_obs[[93]])
+#not sure, but maybe reverse
+```
+
+```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
+ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
+  geom_point(aes(color = year)) +
+  geom_smooth(method = 'lm') +
+  scale_color_viridis() +
+  facet_wrap(~PC, nrow = 1) +
+  ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
+  theme_minimal() +
+  coord_fixed() +
+  theme(legend.position = "bottom")
+```
+
+```{r, eval = FALSE}
+#t1 <- paste0('s(EOF',1:n_modes, '_recon, by = eof_num, k = 10)') %>% 
+#  paste(collapse = ' + ') %>% 
+#  paste0('amplitude_obs', ., sep = ' ~ ') %>% 
+#  as.formula# %>% 
+  
+  
+  t1 <- bam(amplitude_obs ~ s(amplitude_recon, by = PC) + PC,
+      method = 'fREML', select = TRUE, 
+      AR.start = new_pc,
+      data = mutate(amplitude_modern, new_pc = PC != lag(PC)) %>% filter(PC %in% 1:4))
+
+summary(t1)
+plot(t1)
+gam.check(t1)
+reof_dat %>%
+  mutate(., preds = predict(t1,.)) %>%
+  ggplot(aes(value, preds)) +
+  geom_point(aes(color = year)) +
+  geom_smooth(method = 'lm') +
+  scale_color_viridis() +
+  facet_wrap(~eof_num, nrow = 1) +
+  ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
+  theme_minimal() +
+  coord_fixed() +
+  theme(legend.position = "bottom")
+
+recon_amplitudes <- recon_reof$amplitude %>%
+    as_tibble %>%
+    rename_all(funs(paste0(.,'_recon'))) %>%
+    mutate(year = 1100:1999) %>%
+  slice(rep(1:n(), each = 9)) %>%
+  mutate(eof_num = rep(levels(reof_dat$eof_num), 900)) %>% mutate(., preds = predict(t1, .)) %>%
+  select(year:preds) %>%
+  filter(year >= 1100 & year <=1500) %>%
+  mutate(period = floor((year/50)) * 50) 
+```
+
+
+
+Now let's fit these models in practice. First create a data frame of past amplitudes.
+```{r past_amplitudes}
+past_amplitudes <- recon_reof$amplitude %>%
+    as_tibble %>%
+    mutate(year = 1100:1999) %>%
+    gather(reof, recon, 1:n_modes) %>%
+  group_by(reof) %>%
+  nest(.key = 'recons')
+```
+
+
+We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
+```{r recon_amplitudes, eval = FALSE}
+recon_amplitudes <- amplitude_modern %>%
+  group_by(PC) %>%
+  nest %>%
+  mutate(mod = purrr::map(data, ~gam(amplitude_obs ~ s(amplitude_recon), 
+                                     data = ., method = 'REML', 
+                                     select = TRUE))) %>%
+  left_join(past_amplitudes, by = c('PC' = 'reof')) %>%
+  mutate(predictions = purrr::map2(mod, recons, 
+                                   ~predict(.x, .y, type = 'response')),
+         predictions = purrr::map(predictions, ~.[1:400]),
+         predictions = purrr::map(predictions, 
+                                  ~tibble(year = 1100:1499, amplitude = .)),
+         predictions = purrr::map(predictions, 
+                                  ~mutate(., 
+                                          amp_smooth = zoo::rollmean(amplitude, k = 51, fill = NA)))) %>%
+  select(reof, predictions) %>%
+  unnest %>%
+  mutate(period = floor((year/50)) * 50) 
+```
+
+How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
+```{r plot_recon_amplitudes, eval = FALSE, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
+ggplot(recon_amplitudes, aes(year, amplitude, group = reof)) +
+  geom_line(aes(color = reof), alpha = .7) +
+  geom_line(aes(y = amp_smooth)) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~reof) +
+  theme_minimal()+
+  theme(legend.position = "bottom")
+
+ggplot(recon_amplitudes, aes(year, preds, group = eof_num)) +
+  geom_line(aes(color = eof_num), alpha = .7) +
+  #geom_line(aes(y = amp_smooth)) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~eof_num) +
+  theme_minimal()+
+  theme(legend.position = "bottom") +  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
+```
+
+These results point to EOFs 3 and 4 as having major shocks at around 1300 AD.
+```{r, eval = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
+recon_amplitudes %>%
+  filter(between(period, 1200, 1400)) %>%
+  ggplot(aes(factor(period), preds)) +
+  geom_boxplot() +
+  geom_hline(yintercept = 0, color = 'red', linetype = 2) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~eof_num) +
+  theme_minimal()
+```
+
+
+```{r reof_raster}
+reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
+  select(x:y) %>%
+  cbind(obs_reof$REOF) %>%
+  rasterFromXYZ %>%
+  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
+  `names<-`(paste0('reof', 1:n_modes))
+
+which.max(abs(reof_raster)) %>%
+  as.data.frame(xy = T, na.rm = T)  %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = as.ordered(layer))) +
+  theme_void() +
+    geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap() +
+  theme(legend.position = "bottom")
+```
+
+```{r raster_reprojection}
+#env_rasters <- clim_pca$map %>%
+#  .[[1:6]] %>%
+#  `names<-`(c('pc1', 'pc2', 'pc3', 'pc4', 'pc5','pc6')) %>%
+#  c(reof_raster) %>%
+#  brick %>% crop(bbox)
+```
+
+```{r}
+#plot(crop(env_rasters, bbox))
+#pairs(crop(env_rasters, bbox))
+```
