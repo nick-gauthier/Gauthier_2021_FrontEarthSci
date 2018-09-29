@@ -23,6 +23,7 @@ library(tidyverse)
 library(rayshader)
 library(gdistance)
 library(sf)
+library(smoothr)
 ```
 
 
@@ -108,6 +109,16 @@ Divide by intercell distance again, resulting in the conductance matrix.
 conductance_c <- geoCorrection(speed_c, type = 'c')
 ```
 
+```{r, echo = FALSE, fig.margin = TRUE, fig.cap = 'Conductance map.'}
+conductance_c %>%
+  raster %>%
+  aggregate(fact = 2) %>%
+  as.data.frame(xy = TRUE, na.rm = TRUE) %>%
+ggplot(aes(x, y, fill = layer)) +
+  geom_raster() +
+  scale_fill_viridis_c() 
+```
+
 
 ## Least-cost Distances
 
@@ -124,19 +135,19 @@ sites <- read_csv('data/attributes_orig.csv') %>%
   st_transform('+proj=longlat +datum=WGS84')
 ```
 
-```{r least-cost-distances, cache = TRUE, dependson=c('conductance')}
+```{r least-cost-distances, cache = TRUE}
 distances <- sites %>%
   st_coordinates %>%
   costDistance(conductance_c, .) %>% # least cost distances
   as.matrix %>% 
   `colnames<-`(sites$SWSN_Site) %>%
   as_tibble %>%
-  mutate(from = sites$SWSN_Site) %>%
-  gather(to, distance, -from) # wide to long
+  mutate(from_site = sites$SWSN_Site) %>%
+  gather(to_site, distance, -from_site) # wide to long
 ```
 
 ```{r}
-write_csv(distances, 'output/distanes.csv')
+write_csv(distances, 'output/distances.csv')
 ```
 
 
