@@ -40,14 +40,16 @@ First we estimate present and past climate patterns.
 
 ## Study Area
 
-First we define a boundary box covering much of the western United States, ranging between W$124\deg$ and W$-104\deg$ and N$31\deg$ and N$41\deg$, which we'll use to constrain all subsequent climate analyses. This study area is significantly larger than the one we'll define in the next section for the network analysis. This allows us to sample a much wider range of climatic variability, while still remaining within the broader western US climate zone. This ensures that both A) our statistical analyses will be more robust to sampling error and B) the results will be less sensitive to the exact location and dimensions of our study area.
+First we define a boundary box covering much of the western United States, ranging between W$124.5\deg$ and W$-107\deg$ and N$31\deg$ and N$37.5\deg$, which we'll use to constrain all subsequent climate analyses. This study area is significantly larger than the one we'll define in the next section for the network analysis. This allows us to sample a much wider range of climatic variability, while still remaining within the broader western US climate zone. This ensures that both A) our statistical analyses will be more robust to sampling error and B) the results will be less sensitive to the exact location and dimensions of our study area.
+
+```{r}
+bbox_wus <- extent(c(-124.5, -102, 30, 42.1))
+```
 
 ```{r bbox_map, fig.margin=TRUE, echo = FALSE, fig.cap = 'Locations of 2 bounding boxes.'}
-bbox <- extent(c(-113, -107, 31, 37.5)) # define our study area
-bbox_wus <- extent(c(-124.5, -102, 30, 42.1))
 bb1 <- as(bbox_wus, 'SpatialPolygons') %>%
   fortify
-bb2 <- as(bbox, 'SpatialPolygons') %>%
+bb2 <- as(bbox <- extent(c(-113, -107, 31, 37.5)), 'SpatialPolygons') %>%
   fortify
 
 map_data("usa") %>%
@@ -98,7 +100,6 @@ brick(c(spei_obs[[90]], resample(spei_recon[[886]], spei_obs, method = 'ngb'))) 
   theme_void()
 ```
 
-
 ```{r plot_variance_trend, echo = FALSE, fig.margin=TRUE, fig.cap = 'Plotting out the time series of the reconstruction reveals no clear trend in the mean. It does, however, show a pattern of increasing variance over time, which is entirely a function of the changing number of proxies used in the data assimilation approach.'}
 spei_recon %>% 
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
@@ -107,12 +108,12 @@ spei_recon %>%
          year = as.numeric(year)) %>%
   ggplot(aes(year, value)) +
   geom_line(alpha = .1, aes(group = interaction(x, y))) +
+  scale_y_continuous(limits = c(-5,5)) +
   geom_smooth() +
   ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
           'June-August, 12 month lag') + 
   theme_bw()
 ```
-
 
 ## Empiricial Orthogonal Functions
 
@@ -192,7 +193,7 @@ recon_eigs <- recon_pca %>%
          cumvar_line = hi + 0.02 * max(hi))
 ```
 
-```{r plot_variance_obs, fig.margin=TRUE, echo = FALSE, fig.cap = 'Variance explained'}
+```{r plot_variance_obs, echo = FALSE, fig.cap = 'Variance explained'}
 obs_eigs %>% 
  # filter(eigenvalues > 1) %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
@@ -238,7 +239,7 @@ Now, calculate the eofs for both fields, retaining the 4 leading components in e
 
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes <- 4 # choose 2, 4, 6, 9
+n_modes <- 6 # choose 2, 4, 6, 9
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
@@ -270,15 +271,6 @@ eofs_obs <- get_EOFs(obs_pca, obs_eigs, spei_obs, n_modes)
 eofs_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
 ```
 
-```{r}
-ggplot(eofs_recon, aes(x, y, fill = value)) +
-  facet_wrap(~PC) +
-  geom_raster() +
-  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.73, .73)) +
-  theme_void() + 
-  coord_quickmap()
-```
-
 We see that the leading 3 eigenvectors from the observations and reconstructions are a good match, including their ordering. 4-6 look good too
 
 ```{r}
@@ -286,38 +278,7 @@ states <- maps::map('state', regions = c('arizona', 'new mexico', 'colorado', 'c
                     fill = TRUE, plot = FALSE)
 ```
 
-```{r}
-ggplot(eofs_obs, aes(x, y, fill = value)) +
-  facet_wrap(~PC) +
-  geom_raster() +
-  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.85, .85)) +
-  theme_void() + 
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  coord_quickmap()
-ggplot(eofs_recon, aes(x, y, fill = value)) +
-  facet_wrap(~PC) +
-  geom_raster() +
-  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.73, .73)) +
-  theme_void() + 
-  coord_quickmap()
-```
-
-
 Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 4 leading modes.
-
-```{r plot_recon_reofs, fig.margin = TRUE, echo = FALSE, fig.cap = 'Reconstructed REOFs'}
-as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
-  select(-3) %>%
-  gather(eof, value, 3:(n_modes+2)) %>%
-  ggplot(aes(x,y)) +
-  geom_raster(aes(fill = value)) +
-    scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
-  facet_wrap(~eof) +
-  theme_void() + 
-  coord_quickmap()
-```
-
-The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, sothese loadings represent the covariance between each grid cell and each amplitdue (principal component)
 
 ```{r plot_robs_eof, echo = FALSE, fig.width = 12, fig.height = 8, fig.cap = 'Observed drought REOFs'}
 as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
@@ -338,9 +299,42 @@ as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   theme(legend.position = "bottom")
 ```
 
-A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
+```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Observed and reconstructed Empirical Orthogonal Functions before rotation.'}
+ggplot(eofs_obs, aes(x, y, fill = value)) +
+  facet_wrap(~PC) +
+  geom_raster() +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.85, .85)) +
+  theme_void() + 
+  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
+  coord_quickmap()
+ggplot(eofs_recon, aes(x, y, fill = value)) +
+  facet_wrap(~PC) +
+  geom_raster() +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.73, .73)) +
+  theme_void() + 
+  coord_quickmap()
+```
+
+The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, sothese loadings represent the covariance between each grid cell and each amplitdue (principal component). A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
+
+```{r plot_recon_reofs, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
+as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
+  select(-3) %>%
+  gather(eof, value, 3:(n_modes+2)) %>%
+  ggplot(aes(x,y)) +
+  geom_raster(aes(fill = value)) +
+    scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
+  facet_wrap(~eof) +
+  theme_void() + 
+  coord_quickmap()
+```
 
 To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
+
+## Drought Amplitudes
+
+These are the amplitudes of the EOFs, not the REOFs
+
 ```{r amplitudes}
 calc_amplitude <- function(x, n_modes){
   x %>%
@@ -354,14 +348,29 @@ calc_amplitude <- function(x, n_modes){
     ungroup
 }
 
+# this is the way to do it with the eofs, no reofs until i implement it
 obs_eof_amp <- calc_amplitude(obs_pca, n_modes)
 recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
 
 amplitude_modern <- recon_eof_amp %>% 
-  filter(between(year, 1896, 1999)) %>% 
-  left_join(obs_eof_amp, by = c('year', 'PC'), 
+  inner_join(obs_eof_amp, by = c('year', 'PC'), 
             suffix = c('_recon', '_obs'))
+
+#this is the temporary workaround while I still use wql
+# obs_reof_amp <- obs_reof$amplitude %>% 
+#   as_tibble(rownames = 'year') %>% 
+#   mutate(year = parse_number(year)) #%>%
+#   gather(PC, amplitude, -year)
+# recon_reof_amp <- recon_reof$amplitude %>% 
+#   as_tibble(rownames = 'year') %>% 
+#   mutate(year = parse_number(year))# %>%
+#   gather(PC, amplitude, -year)
+# 
+# amplitude_modern <- obs_reof_amp %>%
+#   inner_join(recon_reof_amp, by = c('year'),
+#             suffix = c('_obs', '_recon'))
 ```
+
 
 ```{r eval = FALSE, include = FALSE}
 obs_reof$amplitude %>%
@@ -409,6 +418,7 @@ plot(spei_obs[[93]])
 #not sure, but maybe reverse
 ```
 
+Need to just switch
 ```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
 ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
   geom_point(aes(color = year)) +
@@ -427,26 +437,13 @@ ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
 #  paste0('amplitude_obs', ., sep = ' ~ ') %>% 
 #  as.formula# %>% 
   
-  
-  t1 <- bam(amplitude_obs ~ s(amplitude_recon, by = PC) + PC,
+t1 <- bam(amplitude_obs ~ s(amplitude_recon, by = PC) + PC,
       method = 'fREML', select = TRUE, 
       AR.start = new_pc,
-      data = mutate(amplitude_modern, new_pc = PC != lag(PC)) %>% filter(PC %in% 1:4))
+      data = mutate(amplitude_modern, new_pc = PC != lag(PC)))
 
 summary(t1)
 plot(t1)
-gam.check(t1)
-reof_dat %>%
-  mutate(., preds = predict(t1,.)) %>%
-  ggplot(aes(value, preds)) +
-  geom_point(aes(color = year)) +
-  geom_smooth(method = 'lm') +
-  scale_color_viridis() +
-  facet_wrap(~eof_num, nrow = 1) +
-  ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
-  theme_minimal() +
-  coord_fixed() +
-  theme(legend.position = "bottom")
 
 recon_amplitudes <- recon_reof$amplitude %>%
     as_tibble %>%
@@ -458,8 +455,6 @@ recon_amplitudes <- recon_reof$amplitude %>%
   filter(year >= 1100 & year <=1500) %>%
   mutate(period = floor((year/50)) * 50) 
 ```
-
-
 
 Now let's fit these models in practice. First create a data frame of past amplitudes.
 ```{r past_amplitudes}
@@ -539,6 +534,7 @@ eof_raster <- eofs_obs %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0')
 ```
 
+
 ```{r}
 writeRaster(reof_raster, 'output/reofs.tif', overwrite = TRUE)
 writeRaster(eof_raster, 'output/eofs.tif', overwrite = TRUE)
@@ -554,4 +550,63 @@ which.max(abs(reof_raster)) %>%
     geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap() +
   theme(legend.position = "bottom")
+```
+One issue with these reconstructions is that they are sensitive to the number of proxies in the assimilation. That means the variance in srought appears to increase with time, but that this is entirely a function of the proxies. To eliminate this source of bias, we calculate a relationship between the number of proxies and the variance of the time series, and use this to reqeight the time series to remove any spurious trends in the variance.
+
+Read in data on the number of proxies for each time period. Interpolate from the observations to get an approximate estimate of the number of proxies for each year of the calcualtion. In the future, this step can be replace by the actual proxy counts from PHYDA
+
+```{r}
+proxies <- read_csv('data/proxy_counts.csv', col_names = FALSE) %>% 
+  approx(xout = 5:2001) %>%
+  bind_cols %>%
+  rename(year = x, count = y)
+```
+
+We can see a pretty large increase in the number of proxies during our study period.
+
+```{r, echo = FALSE}
+ggplot(proxies, aes(year, count)) +
+  geom_vline(aes(xintercept = 1200), alpha = .8, color = 'orange', linetype = 2) +
+  geom_vline(aes(xintercept = 1500), alpha = .8, color = 'orange', linetype = 2) +
+  geom_line()
+```
+```{r}
+var_mod <- spei_recon %>% 
+  as.data.frame(xy = TRUE, na.rm = TRUE) %>%
+  gather(year, value, 3:902) %>%
+  mutate(year = parse_number(year)) %>%
+  left_join(proxies) %>%
+  mutate(dummy = 0, cell = interaction(x, y)) %>%
+  gam(list(value ~ dummy, ~s(count, k = 6)), data = ., family = gaulss)
+```
+
+```{r, fig.margin = TRUE, echo = FALSE}
+tibble(count = 0:3000, dummy = 0) %>%
+  mutate(., sd = 1/predict(var_mod, ., type = 'response')[,2]) %>%
+  ggplot(aes(count, sd)) +
+  geom_line() +
+  ggtitle('Change in SPEI variance due to number of proxies in the reconstruction')
+```
+need to multiply each year or whatever by the moving average of the ratio of the standard deviations 
+
+so, from the year, predict the number of proxies, then predict the the variance. find the variance at the end, divide by the variances at each time point, then muliply by the original time series.
+```{r}
+test_weight <- proxies %>%
+  mutate(dummy = 0) %>%
+  mutate(sd = 1/predict(var_mod, newdata = ., type = 'response')[,2]) %>%
+  filter(between(year, 1100, 1999)) %>% 
+  mutate(weight = max(sd, na.rm = T) / sd) %>%
+  pull(weight)
+
+spei_recon %>% 
+  as.data.frame(xy = TRUE, na.rm = TRUE) %>%
+  gather(year, value, 3:902) %>%
+  mutate(year = parse_number(year)) %>%
+  ggplot(aes(year, value * test_weight)) +
+    scale_y_continuous(limits = c(-5,5)) +
+  geom_line(alpha = .1, aes(group = interaction(x, y))) +
+  geom_smooth() +
+  ggtitle('Standardized Precipitation-Evapotranspiration Index in the American Southwest',
+          'June-August, 12 month lag') + 
+  theme_bw()
 ```
