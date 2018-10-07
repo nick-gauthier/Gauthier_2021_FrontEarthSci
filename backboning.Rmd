@@ -1,0 +1,131 @@
+---
+title: "backboning"
+author: "Nick Gauthier"
+date: "September 29, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>% pull(nij) %>% qlogis %>% hist
+
+read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>% 
+  filter(score >= 1.28 * sdev_cij) %>%
+  as_tbl_graph(nodes = NULL, directed = F) %>%
+  ggraph() +
+  geom_edge_link(aes(alpha = nij)) +
+  geom_node_point(color = 'red')
+
+test <- swsn_reof %E>% filter(time == 1200) %>% as_tibble
+read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>%
+  rename(from = src, to = trg) %>%
+    filter(score >= 2.32 * sdev_cij) %>%
+  left_join(test) %>%
+  qplot(distance, nij, data = ., geom = 'point') +
+  geom_smooth()
+
+
+test <- swsn_reof %E>% filter(time == 1200)
+read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>%
+  rename(from = src, to = trg) %>%
+  #  filter(score >= 2.32 * sdev_cij) %>%
+  right_join(test, .) %>%
+    arrange(score) %>%
+ggraph('manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = score, color = score)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
+  coord_sf(datum = NA) +
+  theme_void()
+```
+
+The socres from the noise correction are effectively rwegihting the edges by the nodes, let's see what happends when we model the scores rather than something else.
+```{r}
+
+m2 <- read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>%
+  rename(from = src, to = trg) %>% mutate(score = (score + 1) / 2) %>%
+  right_join(test, .) %>%
+mutate(sig = score >= 1.28 * sdev_cij) %>%
+  as_tibble %>%
+  filter(similarity > 0) %>%
+  bam(score ~ s(distance) + s(log(size)) + s(reof1) + s(reof2) + s(reof3) + s(reof4) + s(reof5) + s(reof6),
+      select = TRUE, family = betar, data = .)
+
+summary(m2)
+plot(m2, trans = plogis)
+
+test %>%
+  filter(from > to) %>%
+  filter(similarity > 0) %>%
+  mutate(pred = predict(m2, as_tibble(.), type = 'response')) %>%
+  arrange(pred) %>%
+  ggraph('manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = pred, color = pred)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
+  coord_sf(datum = NA) +
+  theme_void()
+```
+
+```{r}
+m3 <- read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>%
+  rename(from = src, to = trg) %>%
+  right_join(test, .) %>%
+filter(score >= 2.32 * sdev_cij) %>%
+  as_tibble %>%
+  filter(similarity > 0) %>%
+  bam(similarity ~ s(distance) + s(log(size)) + s(log(reof1 + 1)) + s(log(reof2+1)) + s(log(reof3+1)) + s(log(reof4+1)) + s(log(reof5+1)) + s(log(reof6+1)),
+      select = TRUE, family = betar, data = .)
+
+summary(m3)
+plot(m3, trans = plogis)
+
+test %>%
+  filter(from > to) %>%
+  filter(similarity > 0) %>%
+  mutate(pred = predict(m3, as_tibble(.), type = 'response')) %>%
+  arrange(pred) %>%
+  ggraph('manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = pred, color = pred)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
+  coord_sf(datum = NA) +
+  theme_void()
+```
+```{r}
+library(corMLPE)
+m4 <- read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>%
+  rename(from = src, to = trg) %>%
+  right_join(test, .) %>%
+filter(score >= 1.96 * sdev_cij) %>%
+  as_tibble %>%
+  filter(similarity > 0) %>%
+    mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
+  gamm(qlogis(similarity) ~ s(distance) + s(log(size)) + s(log(reof1 + 1)) + s(log(reof2+1)) + s(log(reof3+1)) + s(log(reof4+1)) + s(log(reof5+1)) + s(log(reof6+1)),
+       method = 'REML',
+        correlation = corMLPE(form = ~from + to),
+       data = .)
+
+plot(m4$gam, trans = plogis)
+
+test %>%
+  filter(from > to) %>%
+  filter(similarity > 0) %>%
+  mutate(pred = (predict(m4$gam, as_tibble(.), type = 'response'))) %>%
+  arrange(pred) %>%
+  ggraph('manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = pred, color = pred)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
+  coord_sf(datum = NA) +
+  theme_void()
+```
+

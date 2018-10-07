@@ -32,3 +32,9 @@ vignettes/*.pdf
 
 *.tex
 .Rproj.user
+
+extras/
+
+sw_networks_files/figure-html/
+
+sw_networks_files/figure-latex/
