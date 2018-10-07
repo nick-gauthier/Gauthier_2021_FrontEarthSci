@@ -16,7 +16,6 @@ library(bigmemory)
 
 ```{r}
 bbox.rast <- raster('Data/daymet_sample_bbox.tif')
-
 ```
 
 

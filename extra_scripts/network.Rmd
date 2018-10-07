@@ -191,11 +191,11 @@ n5 <- ggraph(swsn.layout) +
   theme(legend.box = "horizontal")
 ggsave('ad1400.png', n5, width = 8)
 
-leg <- grab_legend(n5)
-list(n1,n2,n3,n4,n5, leg) %>% 
+n.legend <- grab_legend(n5)
+list(n1, n2, n3, n4, n5, n.legend) %>% 
   ggmatrix(3, 2)
 
-ggsave('all_networks.png', width = 16)
+ggsave('all_networks.png', width = 16, height = 14)
 ```
 
 

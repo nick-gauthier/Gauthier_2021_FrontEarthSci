@@ -25,11 +25,11 @@ flow_mat <- matrix(c(0,	194, 96, 178,	66, 1500, 3641,
        byrow = T, nrow = 7) 
 
 dir <- as_tbl_graph(flow_mat, directed = T) %>%
-  mutate(centrality = centrality_eigen(weights = weight))
+  mutate(centrality = centrality_eigen(weights = weight, directed = T))
 ```
 
 ```{r}
-undir <- (flow_mat + t(flow_mat)) %>%
+undir <- sqrt(flow_mat * t(flow_mat)) %>%
   as_tbl_graph(directed = F) %>%
   mutate(eigen = centrality_eigen(weights = weight),
          degree = centrality_degree(weights = weight))
@@ -55,7 +55,7 @@ ggraph(undir) +
   scale_size_area() +
   scale_edge_colour_distiller(palette = 'Spectral') +
   theme_void() +
-  ggtitle('Directed UK commuting flows') +
+  ggtitle('Undirected UK commuting flows') +
   theme(legend.position="none")
 ```
 
@@ -124,6 +124,10 @@ plot(((flow_mat + t(flow_mat)) / 2)[lower.tri(flow_mat)],
 
 ```{r}
 library(sna)
+read.csv('data/Sim/AD1200sim.csv', row.names = 1, check.names = FALSE) %>% 
+    as.matrix %>%
+  replace(. == 1, 0) %>%
+  make.stochastic(mode = 'row')
 
 cor(c(flow_mat),
 c(make.stochastic((flow_mat + t(flow_mat)), mode = 'row')))
@@ -134,21 +138,4 @@ t2 <- make.stochastic(test, mode = 'row')
 summary(c(t2))
 qplot(x = qlogis(c(test[test>0])), geom = 'density')
 ```
-
-```{r}
-read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>% pull(nij)  %>% qlogis %>% hist
-read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>% 
-  as_tbl_graph(nodes = NULL, directed = F) %>%
-  ggraph() +
-  geom_edge_link(aes(alpha = nij)) +
-  geom_node_point(color = 'red')
-
-test <- dat %>% mutate(to = as.numeric(to))
-read_tsv('~/Downloads/backboning/ad1200_backbone_nc.csv') %>%
-  rename(from = src, to = trg) %>%
-  left_join(filter(test, time == 1200)) %>%
-  qplot(distance,qlogis(score), data = ., geom = 'point') +
-  geom_smooth()
-```
-
 

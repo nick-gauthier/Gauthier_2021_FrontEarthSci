@@ -1,0 +1,69 @@
+---
+title: "Empirical Orthogonal Teleconnections"
+author: "Nick Gauthier"
+date: "March 28, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(remote)
+```
+
+
+```{r}
+test <- eot(spei_recon[[797:900]], spei_obs[[1:104]], n = 6, standardised = F)
+plot(test, y = 1)
+plot(test, y = 2)
+plot(test, y = 3)
+plot(test, y = 4)
+plot(test, y = 5)
+plot(test, y = 6)
+plot(test, y = 7)
+plot(test, y = 8)
+plot(test, y = 9)
+plot(test, y = 10)
+```
+
+```{r}
+test2 <- eot(spei_recon[[797:900]], spei_obs[[1:104]], n = 6, standardised = T)
+plot(test2, y = 1)
+plot(test2, y = 2)
+plot(test2, y = 3)
+plot(test2, y = 4)
+plot(test2, y = 5)
+plot(test2, y = 6)
+
+nXplain(test2, .85)
+```
+```{r}
+library(SpatPCA)
+xx <-spei_obs %>% rasterToPoints() %>% .[,1:2]
+
+yy <- spei_obs %>% rasterToPoints() %>% .[,-c(1:2)] %>% t
+test3 <- spatpca(xx, yy, center = TRUE)
+```
+
+
+```{r}
+sst_jja <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
+  .[[505:1752]] %>%
+  .[[sort.int(c(seq(6, 1248, 12),seq(7, 1248, 12),seq(8, 1248, 12)))]] %>%
+  stackApply(rep(1:104, each = 3), mean) %>%
+  anomalize
+sst_ann <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
+   .[[508:1755]] %>%
+  stackApply(rep(1:104, each = 12), mean) %>%
+  anomalize
+
+eot_sst_jja <- eot(denoise(sst_jja, expl.var = .9), denoise(aggregate(spei_obs, fact = 2), expl.var = .9), 4)
+eot_sst_ann <- eot(denoise(sst_ann, expl.var = .9), denoise(aggregate(spei_obs, fact = 2), expl.var = .9), 4)
+
+plot(eot_sst_jja, 1)
+plot(eot_sst_jja, 2)
+plot(eot_sst_jja, 3)
+plot(eot_sst_jja, 4)
+```

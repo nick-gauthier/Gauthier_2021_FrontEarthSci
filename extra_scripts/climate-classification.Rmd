@@ -1,0 +1,49 @@
+---
+title: "Climate Classification"
+author: "Nick Gauthier"
+date: "April 29, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(maps)
+library(maptools)
+library(prism)
+library(ClimClass)
+library(rasterVis)
+```
+
+```{r}
+states <- map('state', regions = c('arizona', 'new mexico'), fill = T, plot = F)
+IDs <- sapply(strsplit(states$names, ":"), function(x) x[1])
+states.ply <- map2SpatialPolygons(states, IDs=IDs)
+```
+
+```{r}
+get_prism_normals('ppt', '4km', mon = 1:12)
+get_prism_normals('tmin', '4km', mon = 1:12)
+get_prism_normals('tmax', '4km', mon = 1:12)
+
+ls_prism_data()
+
+
+prec <- prism_stack(ls_prism_data()[1:12,]) %>% crop(extent(states.ply)) %>% mask(states.ply) 
+levelplot(prec, par.settings = "BTCTheme", names.attr = month.name)
+
+tmax <- prism_stack(ls_prism_data()[13:24,]) %>% crop(extent(states.ply)) %>% mask(states.ply) 
+levelplot(tmax, names.attr = month.name)
+
+tmin <- prism_stack(ls_prism_data()[25:36,]) %>% crop(extent(states.ply)) %>% mask(states.ply) 
+levelplot(tmin, names.attr = month.name)
+```
+
+
+```{r}
+class_clim_l <- lapply(clima_81_10, FUN=koeppen_geiger, A_'B_C_special_sub.classes=TRUE)
+```
+

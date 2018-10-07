@@ -57,7 +57,7 @@ ggraph('manual', node.positions = pts) +
   theme_graph()
 ```
 calculate the geodesic distances between sites
-```{r}
+```{r, eval =FALSE, include = FALSE}
 distances <- swsn %>%
   activate(edges) %>%
   mutate(distance = distGeo(matrix(c(.N()$lon[from], .N()$lat[from]), ncol = 2), 

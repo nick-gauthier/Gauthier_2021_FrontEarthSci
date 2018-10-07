@@ -184,10 +184,4 @@ writeRaster(eof.1250, 'eof1250.nc')
 writeRaster(eof.1300, 'eof1300.nc')
 writeRaster(eof.1350, 'eof1350.nc')
 writeRaster(eof.1400, 'eof1400.nc')
-
 ```
-
-```{r}
-
-```
-
