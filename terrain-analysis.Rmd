@@ -78,45 +78,40 @@ This package uses a transition matrix approach, whereby we work with matrices th
 We're representing paths, not necessarily routes, and so focus on symmetric costs. This is an additional modification to tobler.
 
 Calculate the absolute difference in elevation between each cell and its 16 neighbors.
-
 ```{r}
 altDiff <- function(x){abs(x[2] - x[1])}
 hd <- transition(elev, altDiff, 16, symm = TRUE)
 ```
-
 Divide the height differences by the horizontal distances between cells, resulting in slopes.
-
 ```{r}
 slope_c <- geoCorrection(hd, type = 'c')
 ```
-
 Figure out which cells are adjacent to one another, queen's case.
-
 ```{r}
 adj <- adjacent(elev, cells = 1:ncell(elev), directions = 16)
 ```
-
 Use Tobler's hiking function to calculate walking speed from *cognitive* slope.
-
 ```{r}
 speed_c <- slope_c
 speed_c[adj] <- tobler_adjusted(slope_c[adj])
 ```
-
 Divide by intercell distance again, resulting in the conductance matrix.
-
 ```{r}
 conductance_c <- geoCorrection(speed_c, type = 'c')
 ```
 
 ```{r, echo = FALSE, fig.margin = TRUE, fig.cap = 'Conductance map.'}
-conductance_c %>%
+speed_c %>%
   raster %>%
-  aggregate(fact = 2) %>%
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
 ggplot(aes(x, y, fill = layer)) +
   geom_raster() +
-  scale_fill_viridis_c() 
+  scale_fill_viridis_c(guide = 'legend', name = 'Walking\nspeed (m/s)') +
+  coord_equal() +
+  labs(x = 'Longitude', y = 'Latitude') +
+  theme_minimal()
+
+ggsave('figures/walking_speed.pdf', width = 5)
 ```
 
 
@@ -160,15 +155,11 @@ knitr::knit_exit()
 Now we prune the full pairwise distance matrix to only include each site's 15 nearest neighbors.^[This is assuming each site has a conserved amount of potential short distance travel destinations, rather than a fixed travel threshold.] In the case where the path from site i to j is in i's shortest paths but not in j's, the path is included anyway.
 
 ```{r nearest_neighbor}
-nn_mat <- dist_mat %>% 
-  as_tbl_graph(directed = TRUE) %E>%
-  filter(!edge_is_loop()) %>% # remove self loops
-  rename(distance = weight) %>% 
-  as_tibble %>% 
+nn_mat <- distances %>% 
   left_join(activate(swsn, edges), ., copy = TRUE, by = c('from', 'to')) %>% # join full SWSN edge data
   morph(to_split, time, split_by = 'edges') %>% # split into subgraphs
   group_by(from) %>% 
-  top_n(-12, distance) %>% # retain the top 15 smallest (i.e. shortest) edges
+  top_n(-5, distance) %>% # retain the top 15 smallest (i.e. shortest) edges
   crystallize %>% # make new graphs from the transformed graphs
   pull(graph) %>% # extract just the graph information
   purrr::map(as.undirected, mode = 'collapse', edge.attr.comb = 'first') %>%
