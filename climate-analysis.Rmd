@@ -71,7 +71,7 @@ spei_obs <- ((brick('data/spei12_6_PRISM.nc') +
               brick('data/spei12_8_PRISM.nc')) / 3) %>%
   crop(bbox_wus) %>% # crop to the study area bounding box
   `names<-`(1895:2017) %>% # add year names
-  .[[-1]]#105]] # SPEI calculated on 12 month lag, so drop 1st year
+  .[[-1]] # SPEI calculated on 12 month lag, so drop 1st year
 ```
 
 Import the reconstructed SPEI fields from PHYDA. PHYDA uses a novel off-line data assimilation approach, using simulated SPEI from the CESM LME experiments as physically-consistent model priors and a network of tree rings, ice cores, and corals as assimilated observations.
@@ -199,18 +199,22 @@ obs_eigs %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
                    test = cumsum(separated),
          weights = if_else(PC < 50, 0, 1))%>%
-    filter(PC <=15) %>%
+    filter(PC <= 12) %>%
 ggplot(aes(x = PC, y = percent * 100)) +
   geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
-  geom_point(size = 3, aes(color = as.factor(test))) + 
-  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative* 100, 1)), size = 3, vjust = 0) +
-  labs(list(x = "Rank", y = "Normalized Eigenvalue")) + 
-  theme_bw() +guides(color = F)#scale_y_continuous(trans = 'log') + stat_smooth(aes(weight = weights), method = 'lm') 
+  geom_point(size = 2, aes(color = as.factor(test))) + 
+  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative * 100, 1)), size = 3, vjust = 0) +
+  labs(list(x = "Principal Component", y = "Normalized Eigenvalue")) + 
+  theme_bw() + guides(color = F) + scale_x_continuous(
+    breaks = c(4, 8, 12)
+  )#scale_y_continuous(trans = 'log')# + stat_smooth(aes(weight = weights), method = 'lm') 
   #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
+
+ggsave('figures/variance_explained.pdf', width = 5, height = 5)
 ```
 
 
-the overlaps mean these are effective multpliets. the real eof can be some linear combination of these. This won't in practice impact our successive results, as long as we don't truncate within these multplets, but only between them.
+the overlaps mean these are effective multplets. the real eof can be some linear combination of these. This won't in practice impact our successive results, as long as we don't truncate within these multplets, but only between them.
 using the log linear test, keep 7 of recon and 6 for obs
 Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
 
@@ -239,7 +243,7 @@ Now, calculate the eofs for both fields, retaining the 4 leading components in e
 
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes <- 6 # choose 2, 4, 6, 9
+n_modes <- 4 # choose 2, 4, 6, 9
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
@@ -294,9 +298,10 @@ as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   theme_void() +
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap() +
-  ggtitle(paste('Leading', n_modes, 'rotated empirical orthogonal functions'),
-          'SPEI') +
+  #ggtitle(paste('Leading', n_modes, 'rotated empirical orthogonal functions')) +
   theme(legend.position = "bottom")
+
+ggsave('figures/reof_observed.pdf', height = 8, width = 7)
 ```
 
 ```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Observed and reconstructed Empirical Orthogonal Functions before rotation.'}
@@ -307,6 +312,8 @@ ggplot(eofs_obs, aes(x, y, fill = value)) +
   theme_void() + 
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap()
+ggsave('figures/eof_observed.pdf', height = 8, width = 7)
+
 ggplot(eofs_recon, aes(x, y, fill = value)) +
   facet_wrap(~PC) +
   geom_raster() +
@@ -315,7 +322,7 @@ ggplot(eofs_recon, aes(x, y, fill = value)) +
   coord_quickmap()
 ```
 
-The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, sothese loadings represent the covariance between each grid cell and each amplitdue (principal component). A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
+The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, so these loadings represent the covariance between each grid cell and each amplitdue (principal component). A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
 
 ```{r plot_recon_reofs, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
 as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
@@ -357,13 +364,13 @@ amplitude_modern <- recon_eof_amp %>%
             suffix = c('_recon', '_obs'))
 
 #this is the temporary workaround while I still use wql
-# obs_reof_amp <- obs_reof$amplitude %>% 
-#   as_tibble(rownames = 'year') %>% 
+# obs_reof_amp <- obs_reof$amplitude %>%
+#   as_tibble(rownames = 'year') %>%
 #   mutate(year = parse_number(year)) #%>%
 #   gather(PC, amplitude, -year)
-# recon_reof_amp <- recon_reof$amplitude %>% 
-#   as_tibble(rownames = 'year') %>% 
-#   mutate(year = parse_number(year))# %>%
+# recon_reof_amp <- recon_reof$amplitude %>%
+#   as_tibble(rownames = 'year') %>%
+#   mutate(year = parse_number(year)) #%>%
 #   gather(PC, amplitude, -year)
 # 
 # amplitude_modern <- obs_reof_amp %>%
