@@ -138,12 +138,12 @@ plot_swsn <- function(net, ncols = 3){
 }
 
 plot_swsn(swsn, ncols = 2)
-ggsave('figures/similarity_network.tiff', width = 7)
+ggsave('figures/similarity_network.png', width = 7)
 ```
 
 ## Data Extraction
 
-Import the data produced in the toher analyses to add to the sites data.
+Import the data produced in the other analyses to add to the sites data.
 
 ```{r}
 reof_raster <- brick('output/reofs.tif')  %>%
