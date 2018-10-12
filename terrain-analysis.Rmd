@@ -59,17 +59,18 @@ matrix(raster::extract(elev,raster::extent(elev),buffer=1000),
 
 Now we use the package *gdistance* to calculate the time it would take for a hiker to traverse this landscape on foot. Tobler's hiking function allows us to convert terrain slope to expected walking speed. We modify this function to account for cognitive bias in the perception of slope, which causes people to overestimate the steepness of steeper slopes. 
 
+The maximum walking speed of 5 assumes on path movement.
 ```{r}
 tobler_adjusted <- function(x){
-  6 * exp(-3.5 * 2.15 * x)
+  5 * exp(-3.5 * 2.15 * x) / 3.6 # 3.6 turns km/h into m/s
 }
 ```
 
 ```{r, fig.margin = TRUE, echo = FALSE, fig.cap = "Tobler's hiking function"}
 slope <- seq(-1, 1, .01)
-qplot(slope, tobler_adjusted(abs(slope)), geom = 'line' ) +
+qplot(slope, tobler_adjusted(abs(slope)) * 3.6, geom = 'line' ) +
   geom_vline(xintercept = 0, linetype = 2) +
-  labs(x = 'Slope (rise over run)', y = 'Walking speed (m/s)') +
+  labs(x = 'Slope (rise over run)', y = 'Walking speed (km/h)') +
   theme_classic()
 ```
 
@@ -100,14 +101,14 @@ Divide by intercell distance again, resulting in the conductance matrix.
 conductance_c <- geoCorrection(speed_c, type = 'c')
 ```
 
-```{r, echo = FALSE, fig.margin = TRUE, fig.cap = 'Conductance map.'}
+```{r, echo = FALSE, fig.cap = 'Conductance map.'}
 speed_c %>%
   raster %>%
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
-ggplot(aes(x, y, fill = layer)) +
+ggplot(aes(x, y, fill = layer * 3.6)) +
   geom_raster() +
-  scale_fill_viridis_c(guide = 'legend', name = 'Walking\nspeed (m/s)') +
-  coord_equal() +
+  scale_fill_viridis_c(guide = 'legend', name = 'Walking\nspeed (km/h)') +
+  coord_quickmap() +
   labs(x = 'Longitude', y = 'Latitude') +
   theme_minimal()
 
@@ -138,7 +139,7 @@ distances <- sites %>%
   `colnames<-`(sites$SWSN_Site) %>%
   as_tibble %>%
   mutate(from_site = sites$SWSN_Site) %>%
-  gather(to_site, distance, -from_site) # wide to long
+  gather(to_site, distance, -from_site)
 ```
 
 ```{r}
