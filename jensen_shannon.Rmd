@@ -1,0 +1,89 @@
+---
+title: "Untitled"
+author: "Nick Gauthier"
+date: "October 8, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+load('ware_matrices')
+```
+
+```{r}
+AD1200cer
+```
+
+```{r}
+library(philentropy)
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+```
+
+```{r}
+getJS <- function(cer_mat){
+  cer_mat %>%
+    as.tibble %>%
+    as.matrix %>%
+    philentropy::distance(method = 'jensen-shannon', est.prob = 'empirical') %>%
+    `/`(., max(.)) %>%
+  `-`(1,.) %>%
+  `rownames<-`(row.names(cer_mat)) %>%
+    `colnames<-`(row.names(cer_mat))
+}
+
+list(AD1200cer, AD1250cer, AD1300cer,AD1350cer,AD1400cer) %>%
+  purrr::map(getJS) %>% purrr::map(write.csv) 
+getJS(AD1200cer) %>% write.table('data/wares/AD1200js', sep = ',')
+getJS(AD1250cer) %>% write.table('data/wares/AD1250js', sep = ',')
+getJS(AD1300cer) %>% write.table('data/wares/AD1300js', sep = ',')
+getJS(AD1350cer) %>% write.table('data/wares/AD1350js', sep = ',')
+getJS(AD1400cer) %>% write.table('data/wares/AD1400js', sep = ',')
+
+#%>%
+  as_tbl_graph() %>%
+  mutate(name = row.names(AD1350cer)) %>%
+  left_join(sites, by = c('name' = 'SWSN_Site')) %E>%
+  filter(!edge_is_loop()) %>%
+  filter(from < to) %>%
+  filter(weight > 0) %>%
+  mutate(weight = if_else(weight > .999, .999, weight),
+         weight = if_else(weight < .001, .001, weight)) %>%
+  mutate(similarity = qlogis(weight)) %>%
+  arrange(similarity) 
+pts <- js %N>% # use swsn instead of sites to get the order right
+  pull(geometry) %>%
+  st_coordinates %>%
+  as_tibble %>%
+  rename(x = X, y = Y)
+js %>% pull(similarity) %>% hist
+ggraph(js,'manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'Spectral', guide = 'legend', name = 'Similarity') +
+  coord_sf(datum = NA) +
+  theme_void() +
+  theme(legend.position = c(1, 0), legend.justification = c(2.5, 0))
+```
+```{r}
+  swsn %E>%
+  filter(time == 1200) %>%
+    filter(similarity > 0) %>%
+    filter(from < to) %>%
+  filter(similarity < 1) %>%
+  mutate(similarity = qlogis(similarity)) %>%
+    arrange(similarity) %>%
+  ggraph('manual', node.positions = pts) +
+  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'Spectral', guide = 'legend', name = 'Similarity') +
+  coord_sf(datum = NA) +
+  theme_void() +
+  theme(legend.position = c(1, 0), legend.justification = c(2.5, 0))
+```
+
