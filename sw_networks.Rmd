@@ -36,7 +36,6 @@ library(tidyverse) # data analysis and plotting
 library(sf)
 library(tidygraph) # network analysis
 library(ggraph) # network plotting
-library(ggridges)
 
 library(mgcv) # GAM fitting
 library(mgcViz) # GAM plotting
@@ -93,14 +92,14 @@ Next we map this function over a lists of simlaritity matrices. Get a list of th
 Start by getting a list of the similarity file names, map the read_swsn function over these files, combine into a single graph using the reduce function, and then join to the site database.
 
 ```{r swsn_import}
-swsn <- list.files('data/Sim', full.names = TRUE) %>%
+swsn <- list.files('data/wares', full.names = TRUE) %>%
   imap(read_swsn) %>%
   reduce(graph_join, by = 'name') %>%
   left_join(sites, by = c('name' = 'SWSN_Site')) 
 ```
 
 ```{r echo = FALSE, fig.margin = TRUE, fig.cap = 'Example 6x6 simililarity matrix. Note the symmetry'}
-sim_tmp <- read.csv('data/Sim/AD1200sim.csv', row.names = 1, check.names = FALSE) %>%
+sim_tmp <- read.csv('data/wares/AD1200js', row.names = 1, check.names = FALSE) %>%
   as.matrix %>%
   .[1:3,1:3]
 knitr::kable(sim_tmp, caption = 'Example similarity matrix')
@@ -124,7 +123,10 @@ pts <- swsn %N>% # use swsn instead of sites to get the order right
 plot_swsn <- function(net, ncols = 3){
   net %E>%
     filter(similarity > 0) %>%
+    filter(between(similarity, .001, .999)) %>%
     filter(from < to) %>%
+  #    mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
+    mutate(similarity = qlogis(similarity)) %>%
     arrange(similarity) %>%
   ggraph('manual', node.positions = pts) +
   geom_edge_fan(aes(alpha = similarity, color = similarity)) +
@@ -151,11 +153,13 @@ reof_raster <- brick('output/reofs.tif')  %>%
 eof_raster <- brick('output/eofs.tif')  %>%
   `names<-`(., paste0('eof', 1:nlayers(.)))
 
+
 reof_dat <- reof_raster %>%
   raster::extract(sites, df = TRUE) %>%
   cbind(sites$SWSN_Site, .) %>%
   select(-ID) %>%
   rename(name = `sites$SWSN_Site`)
+
 eof_dat <- eof_raster %>%
   raster::extract(sites, df = TRUE) %>%
   cbind(sites$SWSN_Site, .) %>%
@@ -164,6 +168,17 @@ eof_dat <- eof_raster %>%
 ```
 
 ```{r, echo = FALSE}
+reof_raster %>%
+  crop(states) %>%
+  mask(states) %>%
+  as.data.frame(xy = TRUE, na.rm = TRUE, long = TRUE) %>%
+  ggplot() +
+  geom_raster(aes(x, y, fill = value)) +
+  scale_fill_distiller(palette = 'BrBG', limits = c(-1, 1)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  facet_wrap(~layer) +
+  coord_sf(datum = NA) +
+  theme_void()
 eof_raster %>%
   crop(states) %>%
   mask(states) %>%
@@ -181,7 +196,13 @@ eof_raster %>%
 ```{r, message = FALSE}
 distances <- read_csv('output/distances.csv')
 ```
+'
+```{r}
+bbox <- extent(c(-113, -107, 31, 37.5)) # define our study area
 
+elev <- raster('~/SRTM_NE_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
+  crop(bbox)
+```
 
 ## Data Preparation
 
@@ -189,17 +210,13 @@ Now that we have all the data imported and preprocessed, let's put it all togeth
 
 Define a function to calculate the relative difference between two numbers. We use this becuase it is a measure of multiplicative distance, rather than additive such as euclidean distance, which makes the values more robust to deviations.
 
-
-```{r, eval = FALSE}
-  mutate(dist_geo = geosphere::distGeo(matrix(c(.N()$lon[from], .N()$lat[from]), ncol = 2), 
-                            matrix(c(.N()$lon[to], .N()$lat[to]), ncol = 2)) / 1000)
-```
-
-
 ```{r data_preparation}
-swsn_reof <- swsn %E>%
+swsn_reof <- swsn %N>%
+    mutate(elev = raster::extract(elev, st_coordinates(geometry))) %E>%
+  filter(between(similarity, .001, .999)) %>%
   filter(from < to) %>%
   convert(to_undirected) %>%
+    mutate(dist_geo = geosphere::distGeo(st_coordinates(.N()$geometry[from]), st_coordinates(.N()$geometry[to])) / 1000) %>%
   morph(to_split, time, split_by = 'edges') %N>% # split into subgraphs
   mutate(degree = centrality_degree(weights = similarity)) %E>%
   mutate(size = .N()$degree[from] * .N()$degree[to]) %N>%
@@ -210,8 +227,10 @@ swsn_reof <- swsn %E>%
   mutate(from_site = .N()$name[from], 
          to_site = .N()$name[to]) %>%
   left_join(distances) %>%
+  mutate(distance = distance / 3600) %>%
   select(-c(from_site:to_site)) %>%
   mutate(
+    elev = abs(.N()$elev[from] - .N()$elev[to]),
     rooms = case_when(
       time == 1200 ~ sqrt(.N()$P1room[from] * .N()$P1room[to]),
       time == 1250 ~ sqrt(.N()$P2room[from] * .N()$P2room[to]),
@@ -240,33 +259,55 @@ dat <- swsn_reof %E>%
   mutate(from = as.factor(from), to = as.factor(to), time = as.factor(time)) %>%
   mutate(tie = similarity > 0) %>%
   mutate(similarity = if_else(similarity > .999, .999, similarity))
+
+amplitudes <- read_csv('output/amplitudes.csv') %>%
+  mutate(time = as.factor(time))
+
+dat <- dat %>%
+  gather(PC,value, reof1:reof4) %>%
+  left_join(amplitudes) %>%
+  mutate(value = amplitude * value) %>%
+  select(-amplitude) %>%
+  spread(PC, value)
 ```
 
 ```{r}
-  ggplot(dat, aes(log(rooms))) +
+ggplot(dat, aes(log(rooms))) +
   geom_histogram() + facet_wrap(~time)
  ggplot(dat, aes(size)) +
   geom_histogram() + facet_wrap(~time)
-  ggplot(dat, aes((distance))) +
+ggplot(dat, aes(distance)) +
+  geom_histogram() + facet_wrap(~time)
+ggplot(dat, aes((similarity))) +
+  geom_histogram() + facet_wrap(~time)
+ggplot(dat, aes((elev))) +
   geom_histogram() + facet_wrap(~time)
 ```
 ```{r}
 fit_gam_similarity <- function(x, y){
-  gam(x, method = 'ML', 
+  bam(x, method = 'fREML', 
       family = betar(),
+      discrete = TRUE,
      # correlation = corMLPE(form = ~from + to),
-      data = filter(dat, tie == TRUE))
+      data = dat)# filter(dat, tie == TRUE))
 }
 plan(multicore, workers = 3)
 
 geo_models <- c(
-  "s(distance, bs = 'cr')+ time",
-  "s(size, bs = 'cr') + time",
- "s(distance, bs = 'cr') + s(size, bs = 'cr') + time",
-    "s(distance, bs = 'cr') + s(size, bs = 'cr') + time + s(eof1, bs = 'cs') + s(eof2, bs = 'cs') + 
-        s(eof3,  bs = 'cs') + s(eof4, bs = 'cs')",
-     "s(distance, bs = 'cr') + s(size, bs = 'cr') + time + s(reof1, bs = 'cs') + s(reof2, bs = 'cs') + 
-        s(reof3,  bs = 'cs') + s(reof4, bs = 'cs')"
+ #  "s(distance, bs = 'cr')+ time",
+ #  "s(size, bs = 'cr') + time",
+ # "s(distance, bs = 'cr') + s(size, bs = 'cr') + time",
+ #    "s(distance, bs = 'cr') + time + s(eof1, bs = 'cs') + s(eof2, bs = 'cs') + 
+ #        s(eof3,  bs = 'cs') + s(eof4, bs = 'cs')",
+ #     "s(distance, bs = 'cr') + time + s(reof1, bs = 'cs') + s(reof2, bs = 'cs') + 
+ #        s(reof3,  bs = 'cs') + s(reof4, bs = 'cs')",
+      "s(distance, bs = 'cr', k = 6) + s(size, bs = 'cr',k = 6) +
+s(log(rooms), bs = 'cs', k = 6) +
+           s(elev, bs = 'cr', k = 6) +
+         s(reof1, bs = 'cs', k = 6) +
+         s(reof2, bs = 'cs', k = 6) +
+         s(reof3, bs = 'cs', k = 6) +
+         s(reof4, bs = 'cs', k = 6) + time + macro_same + micro_same + to"
    ) %>%
   paste('similarity ~', .) %>%
   tibble(formula_chr = .) %>%
@@ -275,7 +316,7 @@ geo_models <- c(
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
 summary(geo_models$model[[1]])
-plot(geo_models$model[[1]], scale = -1, trans = plogis)
+plot(geo_models$model[[1]], trans = plogis, residuals = TRUE)
 ```
 
 
@@ -297,7 +338,7 @@ test_models <- c(
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
 
-plot(test_models$model[[2]], scheme = 1)
+plot(test_models$model[[1]], scheme = 1, trans = plogis)
 summary(test_models$model[[1]])
 gam.check(test_models$model[[1]])
 ```
@@ -355,12 +396,11 @@ ggraph('manual', node.positions = pts) +
 m2 <- dat %>%
   filter(tie == TRUE) %>%
   bam(similarity ~ s(distance) + 
-        s(size) + s(rooms) + 
+        s(size) + s(log(rooms)) + 
         s(reof1, time, bs = 'fs') + s(reof2, time, bs = 'fs') + 
-        s(reof3, time, bs = 'fs') + s(reof4, time, bs = 'fs') + 
-        s(reof5, time, bs = 'fs') + s(reof6, time, bs = 'fs'), 
+        s(reof3, time, bs = 'fs') + s(reof4, time, bs = 'fs'), 
       data = ., select = TRUE, discrete = TRUE, nthreads = 2, family = betar)
-plot(m2, trans = plogis)
+plot(m2)
 gam.check(m2)
 summary(m2)
 
@@ -544,19 +584,7 @@ Let's just isolate the distributions from the first time period. Clearly these a
 Since we'll be using a logit link in the regressions, check the logit transform
 
 This is why we need to model them separately.
-```{r}
-ggplot(dat %>%
-  mutate(similarity = if_else(similarity == 1, 1 - .001, if_else(similarity == 0, .001, similarity))), aes(x = qlogis(similarity), y = as.factor(time), fill = ..x.., height = ..density..)) +
-  geom_density_ridges_gradient(stat = 'density', scale = 1.5) +
-  scale_fill_viridis(guide = F) +
-  theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
-  ggtitle('Change in similarity distributions with time')
-ggplot(filter(dat, similarity > 0 & similarity < 1), aes(x = qlogis(similarity), y = as.factor(time), fill = ..x.., height = ..density..)) +
-  geom_density_ridges_gradient(stat = 'density', scale = 1.5) +
-  scale_fill_viridis(guide = F) +
-  theme_ridges(grid = FALSE, center_axis_labels = TRUE) +
-  ggtitle('Change in similarity distributions with time')
-```
+
 
 
 By adding a rug plot, we can see that this is likely because the small number of edges sampled overall in the final period. Possibly this has additional meaning due to something like the salado phenomenon, by which ceramic assemblage similarities take on a different meaning?
@@ -568,20 +596,6 @@ dat %>%
   count
 ```
 
-
-```{r, eval = FALSE, echo = FALSE}
-test <- recon_amplitudes %>%
-  filter(between(period, 1200, 1400)) %>%
-  group_by(eof_num, period) %>% 
-  summarise(preds = mean(preds))
-eof_data <- raster::extract(reof_raster, pts, df=TRUE) %>%
-  gather(eof_num, value, 2:(n_modes + 1)) %>%
-  full_join(test) %>%
-  mutate(key = paste(eof, period, sep = '_'),
-            value = value * amplitude) %>%
-  select(ID, key, value) %>%
-  spread(key, value, -1)
-```
 
 ## Distance modeling
 
@@ -689,6 +703,7 @@ similarity_models <- map_df(seq_len(5), ~model_list) %>%
   left_join(test) %>%
   mutate(model = purrr::map2(formula, data, ~fit_gam_similarity(.x,.y)))
 ```
+
 ```{r}
 t1 <- similarity_models %>%
   mutate(aic = map_dbl(model, ~AIC(.$lme)))%>%
@@ -722,12 +737,12 @@ test <- dat %>%
   #filter(time == 1350) %>%
  # filter(time %in% c(1250, 1300, 1350, 1400)) %>%
   #group_by(time) %>%
-  sample_frac(.6) %>%
+  sample_frac(.4) %>%
   mutate(time_num = as.numeric(time)) 
 
-test1 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr'),
+test1 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr') + time,
               method = 'REML',
-              correlation = corMLPE(form = ~from + to),
+              correlation = corMLPE(form = ~from + to|time),
               data = test)
 
 summary(test1$gam)
@@ -777,33 +792,36 @@ ggraph('manual', node.positions = pts) +
 
 ```{r}
 test3 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 6)   +
-         s(log(size), bs = 'cs', k = 6) +
-         s(reof1, bs = 'cs', k = 6) +
-         s(reof2, bs = 'cs', k = 6) +
-         s(reof3, bs = 'cs', k = 6) +
-         s(reof4, bs = 'cs', k = 6) +
-         s(reof5, bs = 'cs', k = 6) +
-         s(reof6, bs = 'cs', k = 6) +
-         s(reof7, bs = 'cs', k = 6) +
-         s(reof8, bs = 'cs', k = 6) +
-         s(reof9, bs = 'cs', k = 6) + 
+         s(log(rooms), bs = 'cs', k = 6) +
+           s(elev, bs = 'cr', k = 6) +
+       s(reof1, bs = 'cs', k = 6) +
+      #   s(reof2, bs = 'cs', k = 6) +
+      #   s(reof3, bs = 'cs', k = 6) +
+      #   s(reof4, bs = 'cs', k = 6) +
+         #s(reof5, bs = 'cs', k = 6) +
+         #s(reof6, bs = 'cs', k = 6) +
+         #s(reof7, bs = 'cs', k = 6) +
+         #s(reof8, bs = 'cs', k = 6) +
+         #s(reof9, bs = 'cs', k = 6) + 
           time + macro_same + micro_same,
          method = 'REML',
-         correlation = corMLPE(form = ~from + to),
+         correlation = corMLPE(form = ~from + to|time),
          data = test)
+(test3$lme)
+
 summary(test3$gam)
-plot(test3$gam,residuals = T)
+plot(test3$gam, trans = plogis)
 swsn_reof %E>%
   filter(similarity > 0) %>%
   filter(from < to) %>%
-  mutate(., pred = plogis(predict(test3$gam, as_tibble(.)))) %>%
+  mutate(., pred = (predict(test3$gam, as_tibble(.)))) %>%
   arrange(pred) %>%
 ggraph('manual', node.positions = pts) +
   geom_edge_fan(aes(alpha = pred, color = pred)) +
   geom_sf(data = states, fill = NA, color = 'black') +
   facet_edges(~time) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'none', limits = c(0,1)) +
+  scale_edge_color_distiller(palette = 'Spectral') +
   coord_sf(datum = NA) +
   theme_void()
 
