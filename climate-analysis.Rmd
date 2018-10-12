@@ -364,18 +364,19 @@ amplitude_modern <- recon_eof_amp %>%
             suffix = c('_recon', '_obs'))
 
 #this is the temporary workaround while I still use wql
-# obs_reof_amp <- obs_reof$amplitude %>%
-#   as_tibble(rownames = 'year') %>%
-#   mutate(year = parse_number(year)) #%>%
-#   gather(PC, amplitude, -year)
-# recon_reof_amp <- recon_reof$amplitude %>%
-#   as_tibble(rownames = 'year') %>%
-#   mutate(year = parse_number(year)) #%>%
-#   gather(PC, amplitude, -year)
-# 
-# amplitude_modern <- obs_reof_amp %>%
-#   inner_join(recon_reof_amp, by = c('year'),
-#             suffix = c('_obs', '_recon'))
+obs_reof_amp <- obs_reof$amplitude %>%
+  as_tibble(rownames = 'year') %>%
+  mutate(year = parse_number(year)) %>%
+  gather(PC, amplitude, -year)
+recon_reof_amp <- recon_reof$amplitude %>%
+  as_tibble(rownames = 'year') %>%
+  mutate(year = parse_number(year)) %>%
+  gather(PC, amplitude, -year) %>%
+  mutate(PC = if_else(PC == 'EOF2', 'EOF4', if_else(PC == 'EOF4', 'EOF2', PC)))
+
+amplitude_modern <- obs_reof_amp %>%
+  inner_join(recon_reof_amp, by = c('year', 'PC'),
+            suffix = c('_obs', '_recon'))
 ```
 
 
@@ -386,44 +387,34 @@ obs_reof$amplitude %>%
     gather(reof, obs, 1:n_modes) %>%
   group_by(reof) %>%
   filter(obs == max(obs) | obs == min(obs))
-```
 
-```{r, eval = FALSE, include = FALSE}
 plot(spei_obs[[20]])
 plot(spei_obs[[101]])
 #eof1 is scaled correctly, ie if amplitude is negative it is in fact a drought
-
 plot(spei_obs[[23]])
 plot(spei_obs[[80]])
 #ditto eof2, positive amplitude is a wet year
-
 plot(spei_obs[[53]])
 plot(spei_obs[[82]])
 # eof3 should be reversed
-
 plot(spei_obs[[29]])
 plot(spei_obs[[63]])
 #reverse
-
-
 plot(spei_obs[[16]])
 plot(spei_obs[[52]])
-#reverse
-
+#revers
 #6 is reversed too
-
 plot(spei_obs[[14]])
 plot(spei_obs[[82]])
 # 7 is ok
-
 plot(spei_obs[[10]])
 plot(spei_obs[[26]]) 
 # 8 reverse
-
 plot(spei_obs[[17]])
 plot(spei_obs[[93]])
 #not sure, but maybe reverse
 ```
+
 
 Need to just switch
 ```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
@@ -469,7 +460,12 @@ past_amplitudes <- recon_reof$amplitude %>%
     as_tibble %>%
     mutate(year = 1100:1999) %>%
     gather(reof, recon, 1:n_modes) %>%
+  rename(amplitude_recon = recon) %>%
   group_by(reof) %>%
+  nest(.key = 'recons')
+past_amplitudes <- recon_reof_amp %>%
+  rename(amplitude_recon = amplitude) %>%
+  group_by(PC) %>%
   nest(.key = 'recons')
 ```
 
@@ -479,38 +475,35 @@ We can fit gams between the observed and reconstructed PC time series, and then 
 recon_amplitudes <- amplitude_modern %>%
   group_by(PC) %>%
   nest %>%
-  mutate(mod = purrr::map(data, ~gam(amplitude_obs ~ s(amplitude_recon), 
-                                     data = ., method = 'REML', 
-                                     select = TRUE))) %>%
-  left_join(past_amplitudes, by = c('PC' = 'reof')) %>%
+  mutate(mod = purrr::map(data, ~lm(amplitude_obs ~ amplitude_recon, 
+                                     data = .))) %>%
+  left_join(past_amplitudes) %>%
   mutate(predictions = purrr::map2(mod, recons, 
                                    ~predict(.x, .y, type = 'response')),
-         predictions = purrr::map(predictions, ~.[1:400]),
          predictions = purrr::map(predictions, 
-                                  ~tibble(year = 1100:1499, amplitude = .)),
-         predictions = purrr::map(predictions, 
-                                  ~mutate(., 
-                                          amp_smooth = zoo::rollmean(amplitude, k = 51, fill = NA)))) %>%
-  select(reof, predictions) %>%
+                                  ~tibble(amplitude = .,
+                                          amp_smooth = zoo::rollmean(amplitude, k = 15,fill = NA)))) %>%
+  select(PC, recons, predictions) %>%
   unnest %>%
+  select(-amplitude_recon) %>%
   mutate(period = floor((year/50)) * 50) 
 ```
 
 How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
 ```{r plot_recon_amplitudes, eval = FALSE, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
-ggplot(recon_amplitudes, aes(year, amplitude, group = reof)) +
-  geom_line(aes(color = reof), alpha = .7) +
+ggplot(filter(recon_amplitudes, between(year, 1200, 1450)), aes(year, amplitude, group = PC)) +
+  geom_line(aes(color = PC), alpha = .7) +
   geom_line(aes(y = amp_smooth)) +
   scale_color_brewer(palette = 'Spectral') +
-  facet_wrap(~reof) +
+  facet_wrap(~PC) +
   theme_minimal()+
-  theme(legend.position = "bottom")
+  theme(legend.position = "bottom")+  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
 
-ggplot(recon_amplitudes, aes(year, preds, group = eof_num)) +
-  geom_line(aes(color = eof_num), alpha = .7) +
+ggplot(recon_amplitudes, aes(year, amplitude, group = PC)) +
+  geom_line(aes(color = PC), alpha = .7) +
   #geom_line(aes(y = amp_smooth)) +
   scale_color_brewer(palette = 'Spectral') +
-  facet_wrap(~eof_num) +
+  facet_wrap(~PC) +
   theme_minimal()+
   theme(legend.position = "bottom") +  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
 ```
@@ -519,12 +512,32 @@ These results point to EOFs 3 and 4 as having major shocks at around 1300 AD.
 ```{r, eval = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
 recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
-  ggplot(aes(factor(period), preds)) +
+  ggplot(aes(factor(period), abs(amplitude))) +
   geom_boxplot() +
   geom_hline(yintercept = 0, color = 'red', linetype = 2) +
   scale_color_brewer(palette = 'Spectral') +
-  facet_wrap(~eof_num) +
+  facet_wrap(~PC) +
   theme_minimal()
+
+recon_amplitudes %>%
+  mutate(PC = paste0('reof',parse_number(PC))) %>%
+  rename(time = period) %>%
+  filter(between(time, 1200, 1400)) %>%
+  group_by(PC, time) %>% 
+  summarise(amplitude = mean(abs(amplitude))) %>%
+  mutate(time = as.factor(time)) %>%
+  write_csv('output/amplitudes.csv')
+
+recon_amplitudes %>%
+  filter(between(period, 1200, 1400)) %>%
+  ggplot(aes(abs(amplitude), as.factor(period),fill = ..x.., height = ..density..)) +
+    ggridges::geom_density_ridges_gradient(stat = 'density', scale = 1.5)+
+  facet_wrap(~PC) +
+  scale_fill_viridis_c(guide = F) +
+  ggridges::theme_ridges(grid = FALSE, center_axis_labels = TRUE)
+```
+```{r}
+rasterVis::levelplot(brick(c(reof_raster[[1]] * .28, reof_raster[[1]] * .39)))
 ```
 
 
