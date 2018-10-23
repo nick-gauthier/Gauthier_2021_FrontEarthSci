@@ -243,7 +243,7 @@ Now, calculate the eofs for both fields, retaining the 4 leading components in e
 
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes <- 4 # choose 2, 4, 6, 9
+n_modes <- 6 # choose 2, 4, 6, 9
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
@@ -536,9 +536,7 @@ recon_amplitudes %>%
   scale_fill_viridis_c(guide = F) +
   ggridges::theme_ridges(grid = FALSE, center_axis_labels = TRUE)
 ```
-```{r}
-rasterVis::levelplot(brick(c(reof_raster[[1]] * .28, reof_raster[[1]] * .39)))
-```
+
 
 
 ```{r reof_raster, warning = FALSE}
