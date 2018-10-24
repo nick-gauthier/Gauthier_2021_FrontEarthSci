@@ -1,0 +1,42 @@
+---
+title: "Untitled"
+author: "Nick Gauthier"
+date: "October 20, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(amen)
+library(tidyverse)
+```
+```{r}
+dat <-read.csv('data/Sim/AD1200sim.csv', row.names = 1, check.names = FALSE) %>% 
+    as.matrix %>%
+  `diag<-`(NA) %>%
+ replace(. == 0, NA) %>% # replace 0 values with 999 temporarily
+  #replace(. == 0, .001) %>%
+  replace(. == 1, .999) %>%
+  qlogis
+distance <- read_csv('output/distances.csv') %>%
+  filter(from_site %in% rownames(dat)) %>%
+  filter(to_site %in% rownames(dat)) %>%
+  spread(to_site, distance) %>%
+  as.data.frame %>%
+  `rownames<-`(.$from_site) %>%
+    .[,-1] %>%
+  as.matrix() 
+dat <-dat[order(rownames(dat)),order(colnames(dat))] 
+dat
+
+fit <- ame(dat, Xdyad=distance, symmetric = TRUE, R=1, plot = FALSE, print = TRUE)
+summary(fit)
+plot(fit)
+ame
+gofstats(fit)
+circplot(fit)
+```
+
