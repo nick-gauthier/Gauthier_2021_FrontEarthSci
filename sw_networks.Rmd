@@ -35,6 +35,8 @@ library(raster) # raster data manipulation
 library(tidyverse) # data analysis and plotting
 library(sf)
 library(tidygraph) # network analysis
+
+#devtools::install_github('thomasp85/ggraph') #dev version
 library(ggraph) # network plotting
 
 library(mgcv) # GAM fitting
@@ -122,20 +124,20 @@ pts <- swsn %N>% # use swsn instead of sites to get the order right
 
 plot_swsn <- function(net, ncols = 3){
   net %E>%
-    filter(similarity > 0) %>%
+    filter(similarity > .001) %>%
     filter(from < to) %>%
-     mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
-    #mutate(similarity = qlogis(similarity)) %>%
+     mutate(similarity = qlogis(if_else(similarity > .999, .999, similarity))) %>%
     arrange(similarity) %>%
-  ggraph('manual', node.positions = pts) +
+  ggraph('manual', x = pts$x, y = pts$y) +
+      geom_sf(data = states, fill = NA, color = 'black') +
   geom_edge_fan(aes(alpha = similarity, color = similarity)) +
-  geom_sf(data = states, fill = NA, color = 'black') +
   facet_edges(~time, ncol = ncols) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'legend', name = 'Similarity', limits = c(0,1)) +
+  scale_edge_color_viridis(name = 'Similarity', option = 'magma') +#, limits = c(0,1)
+    #scale_edge_color_distiller(palette = 'Spectral', guide = 'legend', name = 'Similarity', limits = c(0,1)) +
   coord_sf(datum = NA) +
   theme_void() +
-  theme(legend.position = c(1, 0), legend.justification = c(2.5, 0))
+  theme(legend.position = c(1, 0),legend.justification = c(2.5,0))
 }
 
 plot_swsn(swsn, ncols = 2)
@@ -147,17 +149,8 @@ ggsave('figures/similarity_network.png', width = 7)
 Import the data produced in the other analyses to add to the sites data.
 
 ```{r}
-reof_raster <- brick('output/reofs.tif')  %>%
-  `names<-`(., paste0('reof', 1:nlayers(.)))
 eof_raster <- brick('output/eofs.tif')  %>%
   `names<-`(., paste0('eof', 1:nlayers(.)))
-
-
-reof_dat <- reof_raster %>%
-  raster::extract(sites, df = TRUE) %>%
-  cbind(sites$SWSN_Site, .) %>%
-  select(-ID) %>%
-  rename(name = `sites$SWSN_Site`)
 
 eof_dat <- eof_raster %>%
   raster::extract(sites, df = TRUE) %>%
@@ -166,7 +159,22 @@ eof_dat <- eof_raster %>%
   rename(name = `sites$SWSN_Site`)
 ```
 
-```{r, echo = FALSE}
+
+```{r echo = FALSE, include = FALSE }
+reof_raster <- brick('output/reofs.tif')  %>%
+  `names<-`(., paste0('reof', 1:nlayers(.)))
+reof_dat <- reof_raster %>%
+  raster::extract(sites, df = TRUE) %>%
+  cbind(sites$SWSN_Site, .) %>%
+  select(-ID) %>%
+  rename(name = `sites$SWSN_Site`)
+reof_raster_3 <- brick('output/reofs_3.tif')  %>%
+  `names<-`(., paste0('reof', 1:nlayers(.)))
+reof_dat_3 <- reof_raster_3 %>%
+  raster::extract(sites, df = TRUE) %>%
+  cbind(sites$SWSN_Site, .) %>%
+  select(-ID) %>%
+  rename(name = `sites$SWSN_Site`)
 reof_raster %>%
   crop(states) %>%
   mask(states) %>%
@@ -178,6 +186,9 @@ reof_raster %>%
   facet_wrap(~layer) +
   coord_sf(datum = NA) +
   theme_void()
+```
+
+```{r, echo = FALSE}
 eof_raster %>%
   crop(states) %>%
   mask(states) %>%
@@ -210,8 +221,8 @@ Now that we have all the data imported and preprocessed, let's put it all togeth
 Define a function to calculate the relative difference between two numbers. We use this becuase it is a measure of multiplicative distance, rather than additive such as euclidean distance, which makes the values more robust to deviations.
 
 ```{r data_preparation}
-swsn_reof <- swsn %N>%
-  mutate(elev = raster::extract(elev, st_coordinates(geometry))) %E>%
+swsn_reof <- swsn %E>%
+  #mutate(elev = raster::extract(elev, st_coordinates(geometry))) %E>%
   mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
   #filter(between(similarity, .001, .999)) %>%
   mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
@@ -239,7 +250,7 @@ swsn_reof <- swsn %N>%
   mutate(distance = distance / 3600) %>%
   select(-c(from_site:to_site)) %>%
   mutate(
-    elev = abs(.N()$elev[from] - .N()$elev[to]),
+  #  elev = abs(.N()$elev[from] - .N()$elev[to]),
     rooms = case_when(
       time == 1200 ~ .N()$P1room[from] * .N()$P1room[to],
       time == 1250 ~ .N()$P2room[from] * .N()$P2room[to],
@@ -268,7 +279,7 @@ dat <- swsn_reof %E>%
   mutate(from = as.factor(from), to = as.factor(to), time = as.factor(time)) %>%
   mutate(tie = similarity >= .001) %>%
   filter(tie == TRUE)
-
+write_csv(dat,'dat.csv')
 #amplitudes <- read_csv('output/amplitudes.csv') %>%
 #  mutate(time = as.factor(time))
 
@@ -284,13 +295,16 @@ dat <- swsn_reof %E>%
 ggplot(dat, aes(log(rooms))) +
   geom_histogram() + facet_wrap(~time)
 
-ggplot(dat, aes((distance))) +
+ggplot(dat, aes(log(distance + .6))) +
   geom_histogram() + facet_wrap(~time)
 
 ggplot(dat, aes(qlogis(similarity))) +
   geom_histogram() + facet_wrap(~time)
 
-ggplot(dat, aes((elev))) +
+ggplot(dat, aes(log(eof1 + .001))) +
+  geom_histogram() + facet_wrap(~time)
+
+ggplot(dat, aes(log(elev+1))) +
   geom_histogram() + facet_wrap(~time)
 ```
 ```{r}
@@ -298,24 +312,13 @@ fit_gam_similarity <- function(x, y){
   gamm(x, method = 'ML', 
             family = gaussian(),
       correlation = corMLPE(form = ~from + to),
-      data = filter(dat, time == 1200))
+      data = filter(dat, time == 1300))
 }
 plan(multicore, workers = 1)
 
 geo_models <- c(
-"s(distance, bs = 'cr', k = 6) +
-s(log(rooms), bs = 'cs', k = 6)",
+"s(distance, bs = 'cr', k = 6)",
       "s(distance, bs = 'cr', k = 6) + 
-s(log(rooms), bs = 'cs', k = 6) +
-s(elev, bs ='cs', k = 6) +
-         s(reof1, bs = 'cs', k = 6) +
-         s(reof2, bs = 'cs', k = 6) +
-         s(reof3, bs = 'cs', k = 6) +
-         s(reof4, bs = 'cs', k = 6) +
-        s(reof5, bs = 'cs', k = 6)+
-        s(reof6, bs = 'cs', k = 6)",
-      "s(distance, bs = 'cr', k = 6) + 
-        s(log(rooms), bs = 'cs', k = 6) +
 s(elev, bs ='cs', k = 6) +
          s(eof1, bs = 'cs', k = 6) +
          s(eof2, bs = 'cs', k = 6) +
@@ -333,25 +336,83 @@ s(elev, bs ='cs', k = 6) +
          aic = map_dbl(lme, AIC)) %>%
   arrange(aic)
 
+load('geo_models')
 geo_models
-summary(geo_models$gam[[2]])
-plot(geo_models$gam[[1]])
+summary(geo_models$gam[[1]])
+plot(geo_models$gam[[1]], trans = plogis)
 ```
 
 ```{r}
 swsn_reof %E>% 
   filter(similarity > 0) %>%
-  mutate(pred = predict(geo_models$gam[[4]], newdata = as_tibble(.), type = 'response')) %>%
+  mutate(pred = predict(geo_models$gam[[3]], newdata = as_tibble(.), type = 'response')) %>%
     mutate(res = qlogis(similarity) - (pred)) %>%
   as_tibble %>%
-  ggplot(aes(reof4, res, group = time, color = as.factor(time))) +
+  ggplot(aes(eof2, res, group = time, color = as.factor(time))) +
   geom_smooth()
 ```
 
 
+
+
+```{r}
+plt_dat <- swsn_reof %E>% 
+  filter(time == 1300, 
+         similarity > 0) %>%
+  mutate(similarity = if_else(similarity > .999, .999, similarity),
+         pred_mod = plogis(predict(geo_models$gam[[1]], newdata = as_tibble(.), type = 'response')),
+         pred_null = plogis(predict(geo_models$gam[[3]], newdata = as_tibble(.), type = 'response')),
+         res = similarity - pred_null)
+  
+library(patchwork)
+
+a <- plt_dat %>%
+arrange(similarity) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none',limits = c(0,1)) +
+  coord_sf(datum = NA) +
+   labs(subtitle = 'A') +
+  theme_void()
+
+b <- plt_dat %>%
+arrange(pred_null) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none',limits = c(0,1)) +
+  coord_sf(datum = NA) +
+   labs(subtitle = 'B') +
+  theme_void()
+
+c <- plt_dat %>%
+arrange(res) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = res, color = res)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none',limits = c(0,1)) +
+  coord_sf(datum = NA) +
+   labs(subtitle = 'C') +
+  theme_void()
+
+d <- plt_dat %>%
+arrange(-res) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = -1 * res, color = res)) +
+  scale_edge_alpha(guide = 'none') +
+    scale_edge_color_viridis(option = 'magma', guide = 'none',limits = c(0,1)) +
+  coord_sf(datum = NA) +
+  labs(subtitle = 'D') +
+  theme_void()
+
+a+b+c+d
+ggsave('figures/null_model.png')
+```
+
 ```{r}
 m1 <- dat %>%
-  filter(tie == TRUE, time == 1200) %>%
+  filter(tie == TRUE, time == 1300) %>%
   gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 5) + s(eof1, bs = 'cr', k = 5)+s(eof2, bs = 'cr', k = 5)+s(eof3, bs = 'cr', k = 5)+s(eof4, bs = 'cr', k = 5), method = 'ML', 
       family = gaussian(),
       correlation = corMLPE(form = ~from + to),
@@ -359,63 +420,7 @@ m1 <- dat %>%
 plot(m1$gam, trans = plogis)
 summary(m1$gam)
 gam.check(m1$gam)
-
-
-plt_dat <- swsn_reof %E>% 
-  filter(time == 1200, 
-         similarity > 0) %>%
-  mutate(similarity = if_else(similarity > .999, .999, similarity),
-        # pred_mod = plogis(predict(geo_models$gam[[2]], newdata = as_tibble(.), type = 'response')),
-         pred_null = plogis(predict(geo_models$gam[[3]], newdata = as_tibble(.), type = 'response')),
-         res = similarity - pred_null) %>%
-  select(similarity, time, pred_null:res)
-  
-library(patchwork)
-
-a <- plt_dat %>%
-arrange(similarity) %>%
-ggraph('manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
-  facet_edges(~time) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
-  coord_sf(datum = NA) +
-  theme_void()
-
-b <- plt_dat %>%
-arrange(pred_null) %>%
-ggraph('manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
-  facet_edges(~time) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
-  coord_sf(datum = NA) +
-  theme_void()
-
-c <- plt_dat %>%
-arrange(res) %>%
-ggraph('manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = res, color = res)) +
-  facet_edges(~time) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
-  coord_sf(datum = NA) +
-  theme_void()
-
-d <- plt_dat %>%
-arrange(-res) %>%
-ggraph('manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = -1 * res, color = res)) +
-  facet_edges(~time) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
-  coord_sf(datum = NA) +
-  theme_void()
-
-a+b+c+d
-ggsave('null_model.png')
 ```
-
 ```{r}
 m1 <- dat %>%
   filter(tie == TRUE) %>%
