@@ -50,20 +50,44 @@ test3 <- spatpca(xx, yy, center = TRUE)
 
 ```{r}
 sst_jja <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
-  .[[505:1752]] %>%
-  .[[sort.int(c(seq(6, 1248, 12),seq(7, 1248, 12),seq(8, 1248, 12)))]] %>%
-  stackApply(rep(1:104, each = 3), mean) %>%
+  .[[613:1937]] %>%
+  .[[sort.int(c(seq(6, 1325, 12),seq(7, 1325, 12),seq(8, 1325, 12)))]] %>%
+  stackApply(rep(1:110, each = 3), mean) %>%
   anomalize
-sst_ann <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
-   .[[508:1755]] %>%
-  stackApply(rep(1:104, each = 12), mean) %>%
+  
+sst_mam <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
+  .[[613:1937]] %>%
+  .[[sort.int(c(seq(3, 1325, 12),seq(4, 1325, 12),seq(5, 1325, 12)))]] %>%
+  stackApply(rep(1:111, each = 3), mean) %>%
   anomalize
 
-eot_sst_jja <- eot(denoise(sst_jja, expl.var = .9), denoise(aggregate(spei_obs, fact = 2), expl.var = .9), 4)
-eot_sst_ann <- eot(denoise(sst_ann, expl.var = .9), denoise(aggregate(spei_obs, fact = 2), expl.var = .9), 4)
+sst_ann <- brick('~/Downloads/sst.mnmean.v4.nc') %>% 
+   .[[609:1940]] %>%
+  stackApply(rep(1:111, each = 12), mean) %>%
+  anomalize 
+
+eot_sst_jja <- eot(denoise(sst_jja, expl.var = .9), denoise(spei_obs_12[[1:110]], expl.var = .9), 4)
+eot_sst_mam <- eot(denoise(sst_mam, expl.var = .9), denoise(spei_obs_12, expl.var = .9), 4)
+eot_sst_ann <- eot(denoise(sst_ann, expl.var = .9), denoise(spei_obs_24, expl.var = .9), 4)
+
+plot(eot_sst_mam, 1)
+plot(eot_sst_mam, 2)
+plot(eot_sst_mam, 3)
+plot(eot_sst_mam, 4)
+
+plot(eot_sst_ann, 1)
+plot(eot_sst_ann, 2)
+plot(eot_sst_ann, 3)
+plot(eot_sst_ann, 4)
 
 plot(eot_sst_jja, 1)
 plot(eot_sst_jja, 2)
 plot(eot_sst_jja, 3)
 plot(eot_sst_jja, 4)
+
+342/3
+1416/12
+2018 - 123
+12 * 4 + 553
+1332/12
 ```
