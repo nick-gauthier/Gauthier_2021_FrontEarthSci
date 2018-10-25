@@ -14,7 +14,7 @@
 \keywords{Archaeological Networks, Spatial interaction model, Drought}
 
 \begin{abstract}
-  Do small-scale farmers prefer to interact more with others who tend not to experience droughts and floods at the same time? In agricultural societies, social networks help absorb weather-related shocks to the food supply by facilitating resource flows to affected settlements and population flows away from them. This property of social networks depends on the degree to which the network connects populations in topographically accessible locations that tend to experience different weather patterns. We expect the pattern by which droughts covary in space and time to interact with patterns of landscape connectivity to structure prehistoric social networks. Here we analyze 7.5 million artifacts recovered nearly 500 archaeological sites in the precontact American Southwest, and estimate how the flow of social information varies as a function of distance and growing-season aridity. We find that the intensity of social interaction in the past is highly distance dependent, but social interaction between regions experiencing different domains of externally-forced drought variability (e.g. Pacific vs Atlantic dominated) is higher than would be expected by distance alone. Drought patterns arising from internal variability, however, do not impact network formation. Our findings are add empirical detail to ideas long theorized in anthropology, emphasizing the need for more precise definitions of ``climate'' in studies of human-environment interaction, and will be key for forecasting potential social responses to drought events in the developing world of today.
+  Do small-scale farmers prefer to interact with those experiencing different weather patterns? In agricultural societies, social networks help absorb shocks to the food supply from droughts and floods by facilitating resource flows to affected settlements and population flows away from them. This property of social networks depends on the degree to which the network connects populations in topographically accessible locations that tend to experience different weather patterns. We expect the pattern by which droughts covary in space and time to interact with patterns of landscape connectivity to structure prehistoric social networks. Here we analyze 7.5 million artifacts recovered nearly 500 archaeological sites in the precontact American Southwest, and estimate how the flow of social information varies as a function of distance and growing-season aridity. We find that the intensity of social interaction in the past is highly distance dependent, but social interaction between regions experiencing different domains of externally-forced drought variability (e.g. Pacific vs Atlantic dominated) is higher than would be expected by distance alone. Drought patterns arising from internal variability, however, do not impact network formation. Our findings are add empirical detail to ideas long theorized in anthropology, emphasizing the need for more precise definitions of ``climate'' in studies of human-environment interaction, and will be key for forecasting potential social responses to drought events in the developing world of today.
  \end{abstract}
 
 \begin{document}
@@ -35,7 +35,7 @@ Here we add empirical precision from a long-term case study. The equivocality of
 
 Archaeology -- because of its focus on the material correlates of human behavior over long time spans -- is uniquely suited to address how social and physical infrastructure modulates human interactions with the environment. Not only do archaeologists catalogue the remains of field systems, road networks, canals, and other components of hard infrastructure directly, but also the ceramics, raw materials, and luxury goods that are the material correlates of networks of exchange and interaction. 
 
-
+climatic water balance
 
 
 A central principle in archaeology is that we can use the spatial and temporal patterns of environmental variability to predict ideal cultural responses, and then compare those expected patterns to observed ones to test the importance of that particular pattern of environmental variability. \cite{halstead1989}. This process gives archaeologically testable empirical implications -- that people will interact with people who have a different risk profile. The physical environment defines the costs and benefits of social interaction, and provides the structuring context in which human decision making occurs.
@@ -162,7 +162,7 @@ resembles varimax rotate pcs from cook meko et al 1999 j climate -- summer pdsi 
 
 \begin{figure}[ht]
 \centering
-\includegraphics[width=.8\linewidth]{figures/reof_observed.pdf}
+\includegraphics[width=.8\linewidth]{figures/eof_observed.pdf}
 \caption{Leading 4 rotated empirical orthogonal functions. The empirical orthogonal functions are the spatial patterns associated with their respective principal component time series. The EOFs are the eigenvectors of the space-time covariance matrix, and the PCs are the eigenvalues. The leading four EOFs, which together explain 77\% of interannual drought variability in the observational record, were then subjected to varimax rotation, to make the spatial patterns more physically meaningful by relaxing the spatial orthogonality constraint.}
 \label{fig:reofs}
 \end{figure}
@@ -291,15 +291,10 @@ where $c_{ij}$ is some notion of the generalized cost of moving from $i$ to $j$ 
 Gravity models of this form are quasisymmetric, and can be decomposed into symmetric and asymmetric components
 
 \begin{equation}
-    \begin{center}
-    g(E(Y_{ij})) = \alpha + \sum_k f_k(x_k) + \tau_i + \tau_j + \epsilon_{ij}, j = 2, ..., n, i = 1, ..., j - 1
-    
-    g(x) = \log(\frac{x}{1-x})
-    
-    \tau_i \sim \mathcal{N}(0,\,\sigma^{2}_{\tau})
+    g(E(Y_{ij})) = \alpha + \sum_k f_k(x_k) + \tau_i + \tau_j + \epsilon_{ij}, j = 2, ..., n, i = 1, ..., j - 1\\
+    g(x) = log(\frac{x}{1-x})\\
+    \tau_i \sim \mathcal{N}(0,\,\sigma^{2}_{\tau})\\
     \epsilon_i \sim \mathcal{N}(0,\,\sigma^{2}_{\epsilon})
-    
-    \end{center}
 \end{equation}
 
 and with the Maximum Likelihood Population Effects covariance paramterization:
