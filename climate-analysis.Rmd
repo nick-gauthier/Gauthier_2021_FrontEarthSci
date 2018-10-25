@@ -74,6 +74,15 @@ spei_obs <- ((brick('data/spei12_6_PRISM.nc') +
   .[[-1]] # SPEI calculated on 12 month lag, so drop 1st year
 ```
 
+```{r}
+# calculate average JJA SPEI
+spei_obs <- brick('data/spei24_8_PRISM.nc') %>%
+  crop(bbox_wus) %>% # crop to the study area bounding box
+  `names<-`(1895:2018) %>% # add year names
+  .[[-c(1:2)]] # SPEI calculated on 12 month lag, so drop 1st year
+```
+
+
 Import the reconstructed SPEI fields from PHYDA. PHYDA uses a novel off-line data assimilation approach, using simulated SPEI from the CESM LME experiments as physically-consistent model priors and a network of tree rings, ice cores, and corals as assimilated observations.
 
 ```{r import_reconstructions}
@@ -115,7 +124,7 @@ spei_recon %>%
   theme_bw()
 ```
 
-## Empiricial Orthogonal Functions
+## Empirical Orthogonal Functions
 
 We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reconstructed drought dynamics.
 
@@ -214,7 +223,7 @@ ggsave('figures/variance_explained.pdf', width = 5, height = 5)
 ```
 
 
-the overlaps mean these are effective multplets. the real eof can be some linear combination of these. This won't in practice impact our successive results, as long as we don't truncate within these multplets, but only between them.
+the overlaps mean these are effective multiplets. the real eof can be some linear combination of these. This won't in practice impact our successive results, as long as we don't truncate within these multplets, but only between them.
 using the log linear test, keep 7 of recon and 6 for obs
 Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
 
@@ -259,6 +268,7 @@ recon_reof <- spei_recon %>%
 ```
 
 ```{r}
+plan(multicore)
 get_EOFs <- function(pc_object, eigs, rast, n_modes){
   pc_object %>%
     tidy(matrix = 'variables') %>%
@@ -268,7 +278,7 @@ get_EOFs <- function(pc_object, eigs, rast, n_modes){
     left_join(eigs[1:2]) %>%
     mutate(data = future_map2(data, std.dev, ~mutate(.x, value = value * .y))) %>%
     unnest %>%
-    bind_cols(as.data.frame(rast[[1]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = n_modes)))
+    bind_cols(as.data.frame(rast[[10]], xy = T, na.rm = T)[1:2] %>% slice(rep(1:n(), times = n_modes)))
 }
 
 eofs_obs <- get_EOFs(obs_pca, obs_eigs, spei_obs, n_modes)
@@ -294,7 +304,7 @@ as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   ggplot(aes(x,y)) +
   geom_raster(aes(fill = value)) +
   scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1,1)) +
-  facet_wrap(~eof) +
+  facet_wrap(~eof, ncol = 2) +
   theme_void() +
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
   coord_quickmap() +
@@ -306,14 +316,13 @@ ggsave('figures/reof_observed.pdf', height = 8, width = 7)
 
 ```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Observed and reconstructed Empirical Orthogonal Functions before rotation.'}
 ggplot(eofs_obs, aes(x, y, fill = value)) +
-  facet_wrap(~PC) +
+  facet_wrap(~PC, ncol = 2) +
   geom_raster() +
   scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.85, .85)) +
   theme_void() + 
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  coord_quickmap()
+  coord_quickmap()+  theme(legend.position = "bottom")
 ggsave('figures/eof_observed.pdf', height = 8, width = 7)
-
 ggplot(eofs_recon, aes(x, y, fill = value)) +
   facet_wrap(~PC) +
   geom_raster() +
@@ -357,6 +366,10 @@ calc_amplitude <- function(x, n_modes){
 
 # this is the way to do it with the eofs, no reofs until i implement it
 obs_eof_amp <- calc_amplitude(obs_pca, n_modes)
+
+ggplot(obs_eof_amp, aes( year, amplitude, color = PC)) +
+  geom_line() +
+  facet_wrap(~PC) + geom_vline(xintercept = 1956)
 recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
 
 amplitude_modern <- recon_eof_amp %>% 
