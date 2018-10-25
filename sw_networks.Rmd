@@ -45,6 +45,9 @@ library(mgcViz) # GAM plotting
 #devtools::install_github('nspope/corMLPE')
 library(corMLPE)
 library(furrr)
+
+#devtools::install_github("gavinsimpson/gratia")
+library(gratia)
 ```
 
 ```{r include = FALSE}
@@ -129,18 +132,18 @@ plot_swsn <- function(net, ncols = 3){
      mutate(similarity = qlogis(if_else(similarity > .999, .999, similarity))) %>%
     arrange(similarity) %>%
   ggraph('manual', x = pts$x, y = pts$y) +
-      geom_sf(data = states, fill = NA, color = 'black') +
-  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  geom_edge_fan(aes( color = similarity)) +
+          geom_sf(data = states, fill = NA, color = 'black') +
   facet_edges(~time, ncol = ncols) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(name = 'Similarity', option = 'magma') +#, limits = c(0,1)
-    #scale_edge_color_distiller(palette = 'Spectral', guide = 'legend', name = 'Similarity', limits = c(0,1)) +
+  #scale_edge_color_viridis(name = 'Similarity', option = 'magma') +#, limits = c(0,1)
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'Similarity') +
   coord_sf(datum = NA) +
   theme_void() +
   theme(legend.position = c(1, 0),legend.justification = c(2.5,0))
 }
 
-plot_swsn(swsn, ncols = 2)
+plot_swsn(swsn, ncols = 3)
 ggsave('figures/similarity_network.png', width = 7)
 ```
 
@@ -200,6 +203,10 @@ eof_raster %>%
   facet_wrap(~layer) +
   coord_sf(datum = NA) +
   theme_void()
+
+plot(reof_raster%>%
+  crop(states) %>%
+  mask(states) )
 ```
 
 
@@ -307,6 +314,7 @@ ggplot(dat, aes(log(eof1 + .001))) +
 ggplot(dat, aes(log(elev+1))) +
   geom_histogram() + facet_wrap(~time)
 ```
+
 ```{r}
 fit_gam_similarity <- function(x, y){
   gamm(x, method = 'ML', 
@@ -339,7 +347,30 @@ s(elev, bs ='cs', k = 6) +
 load('geo_models')
 geo_models
 summary(geo_models$gam[[1]])
-plot(geo_models$gam[[1]], trans = plogis)
+
+#concurvity(geo_models$gam[[1]])
+#concurvity(geo_models$gam[[2]])
+```
+
+```{r}
+evaluate_smooth(geo_models$gam[[1]], 's(distance)')  %>% draw()
+evaluate_smooth(geo_models$gam[[1]], 's(distance)') %>% 
+  mutate(est_trans = plogis(est),
+         se_trans = est_trans * (1-est_trans)* se) %>%
+  mutate(lower = est - 2 * se, upper = est + 2 * se) %>%
+   mutate(lower_trans = est_trans - 2 * se_trans, upper_trans = est_trans + 2 * se_trans) %>%
+ mutate_at(vars(lower, upper), plogis) %>%
+  ggplot(aes(x = distance)) +
+  geom_ribbon(aes(y = est_trans, ymin = lower, ymax = upper), alpha = .2, color = 'red') +
+   geom_ribbon(aes(y = est_trans, ymin = lower_trans, ymax = upper_trans), alpha = .2, color = 'blue') +
+  geom_line(aes(y = est_trans))
+
+geo_models$gam[[1]] %>% getViz %>% sm(1) %>%  plot(trans = plogis) +geom_vline(xintercept = c(8, 80), linetype = 2)+ l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) 
+ggsave('figures/distance_function.pdf', width = 6, height = 4)
+```
+```{r}
+draw(geo_models$gam[[1]], scales = 'fixed')
+ggsave('figures/smooths.pdf', width = 6, height = 6)
 ```
 
 ```{r}
@@ -357,12 +388,13 @@ swsn_reof %E>%
 
 ```{r}
 plt_dat <- swsn_reof %E>% 
-  filter(time == 1300, 
+  filter(time == 1200, 
          similarity > 0) %>%
   mutate(similarity = if_else(similarity > .999, .999, similarity),
          pred_mod = plogis(predict(geo_models$gam[[1]], newdata = as_tibble(.), type = 'response')),
-         pred_null = plogis(predict(geo_models$gam[[3]], newdata = as_tibble(.), type = 'response')),
-         res = similarity - pred_null)
+         pred_null = plogis(predict(geo_models$gam[[5]], newdata = as_tibble(.), type = 'response')),
+         res_null = (similarity) - pred_null,
+         res_mod = (similarity) - pred_mod)
   
 library(patchwork)
 
@@ -370,8 +402,8 @@ a <- plt_dat %>%
 arrange(similarity) %>%
 ggraph('manual', x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = similarity, color = similarity)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none',limits = c(0,1)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
   coord_sf(datum = NA) +
    labs(subtitle = 'A') +
   theme_void()
@@ -380,47 +412,95 @@ b <- plt_dat %>%
 arrange(pred_null) %>%
 ggraph('manual', x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none',limits = c(0,1)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
   coord_sf(datum = NA) +
    labs(subtitle = 'B') +
   theme_void()
 
 c <- plt_dat %>%
-arrange(res) %>%
+arrange(res_null) %>%
 ggraph('manual', x = pts$x, y = pts$y) +
-  geom_edge_fan(aes(alpha = res, color = res)) +
+  geom_edge_fan(aes(alpha = res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none',limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none') +
   coord_sf(datum = NA) +
    labs(subtitle = 'C') +
   theme_void()
 
 d <- plt_dat %>%
-arrange(-res) %>%
+arrange(-res_null) %>%
 ggraph('manual', x = pts$x, y = pts$y) +
-  geom_edge_fan(aes(alpha = -1 * res, color = res)) +
-  scale_edge_alpha(guide = 'none') +
-    scale_edge_color_viridis(option = 'magma', guide = 'none',limits = c(0,1)) +
+  geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+    scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
   coord_sf(datum = NA) +
   labs(subtitle = 'D') +
   theme_void()
 
-a+b+c+d
+e <- plt_dat %>%
+arrange(pred_mod) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  coord_sf(datum = NA) +
+   labs(subtitle = 'E') +
+  theme_void()
+
+f <- plt_dat %>%
+arrange(res_mod) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none') +
+  coord_sf(datum = NA) +
+   labs(subtitle = 'F') +
+  theme_void()
+
+g <- plt_dat %>%
+arrange(-res_mod) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
+  scale_edge_alpha(guide = 'none') +
+    scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
+  coord_sf(datum = NA) +
+  labs(subtitle = 'G') +
+  theme_void()
+
+a+(b+c+d+ e+f+g + plot_layout(nrow = 2))
 ggsave('figures/null_model.png')
 ```
 
 ```{r}
-m1 <- dat %>%
-  filter(tie == TRUE, time == 1300) %>%
-  gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 5) + s(eof1, bs = 'cr', k = 5)+s(eof2, bs = 'cr', k = 5)+s(eof3, bs = 'cr', k = 5)+s(eof4, bs = 'cr', k = 5), method = 'ML', 
-      family = gaussian(),
-      correlation = corMLPE(form = ~from + to),
-      data = .)
-plot(m1$gam, trans = plogis)
-summary(m1$gam)
-gam.check(m1$gam)
+## Plot out different eof networks
+swsn_reof %E>% 
+  filter(time == 1200, 
+         similarity > 0) %>%
+arrange(log(eof6)) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = eof6, color = eof6)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none') +
+  coord_sf(datum = NA) +
+   labs(subtitle = 'A') +
+  theme_void()
+
+swsn_reof %E>% 
+  filter(time == 1200, 
+         similarity > 0) %>%
+  mutate(eof3 = log(eof3+.001)) %>%
+arrange(eof3) %>%
+ggraph('manual', x = pts$x, y = pts$y) +
+  geom_edge_fan(aes(alpha = eof3, color = eof3)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none') +
+  coord_sf(datum = NA) +
+   labs(subtitle = 'A') +
+  theme_void()
 ```
+
+
 ```{r}
 m1 <- dat %>%
   filter(tie == TRUE) %>%
@@ -818,31 +898,7 @@ similarity_models <- map_df(seq_len(5), ~model_list) %>%
   mutate(model = purrr::map2(formula, data, ~fit_gam_similarity(.x,.y)))
 ```
 
-```{r}
-t1 <- similarity_models %>%
-  mutate(aic = map_dbl(model, ~AIC(.$lme)))%>%
-  arrange(aic)
 
-plot(similarity_models[[3, 5]]$gam, trans = plogis)
-summary(t1[[6,5]]$gam)
-similarity_models[[3,5]]
-
-```
-
-
-```{r}
-t1[[14,5]]$gam %>% getViz %>% plot %>% print(pages=1) 
-t1[[11,5]]$gam %>% getViz %>% plot %>% print(pages=1)
-t1[[7,5]]$gam %>% getViz %>% plot %>% print(pages=1)
-t1[[4,5]]$gam %>% getViz %>% plot %>% print(pages=1)
-t1[[1,5]]$gam %>% getViz %>% plot %>% print(pages=1)
-
-t1[[13,5]]$gam %>% getViz %>% plot %>% print(pages=1)
-t1[[10,5]]$gam %>% getViz %>% plot %>% print(pages=1)
-t1[[8,5]]$gam %>% getViz %>% plot %>% print(pages=1)
-t1[[4,5]]$gam %>% getViz %>% plot %>% print(pages=1)
-t1[[2,5]]$gam %>% getViz %>% plot %>% print(pages =1)
-```
 
 ```{r}
 test <- dat %>%
@@ -1055,30 +1111,6 @@ gc()
 ```
 
 
-```{r}
-devtools::install_github("gavinsimpson/gratia")
-library(gratia)
-evaluate_smooth(t1[[4,5]]$gam, 's(distance)')  %>% draw()
-evaluate_smooth(t1[[4,5]]$gam, 's(distance)') %>% 
-  mutate(est_trans = plogis(est),
-         se_trans = est_trans * (1-est_trans)* se) %>%
-  mutate(lower = est - 2 * se, upper = est + 2 * se) %>%
-   mutate(lower_trans = est_trans - 2 * se_trans, upper_trans = est_trans + 2 * se_trans) %>%
- mutate_at(vars(lower, upper), plogis) %>%
-  ggplot(aes(x = distance)) +
-  geom_ribbon(aes(y = est_trans, ymin = lower, ymax = upper), alpha = .2, color = 'red') +
-   geom_ribbon(aes(y = est_trans, ymin = lower_trans, ymax = upper_trans), alpha = .2, color = 'blue') +
-  geom_line(aes(y = est_trans))
-#draw(t1[[4,5]]$gam) 
-
-t1[[4,5]]$gam %>% getViz %>% sm(1) %>%  plot(trans = plogis) + l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2)
-
-predict.gam
-plot(qlogis(1:10))
-
-
-plot.mgcv.smooth.1D
-```
 ```{r}
 
 
