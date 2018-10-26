@@ -2,6 +2,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{gensymb}
+\usepackage{amsmath}
 
 \title{Hydroclimate variability structures social interaction in the prehistoric American Southwest}
 
@@ -45,7 +46,9 @@ Here we use an empirical archaeological case study to examine the relationship b
 \section*{Results}
 
 \subsection*{Six modes of variability explain 80\% of drought in the Southwest}
-We extracted robust spatio-temporal modes of drought and pluvial variability from a ~100 year observational record of the \textit{Standardized Precipitation-Evapotranspiration Index} (SPEI), a drought index that measures the deviation from average climate water balance for a given month on varying time scales. SPEI is interpretable as z-scores in a normal distribution (i.e. a value of 1 is one standard deviation wetter than average for that location, -1 is one standard deviation drier). As hydrological droughts during the summer growing season are most likely to influence exchange networks, we focused our attention on the 24-month SPEI calculated in the August of each year. We use a \textit{principal components analysis} (PCA) to decompose the 100 years of space-time drought data into leading modes of variability. The principal components (PCs) represent SPEI time series that are maximally representative of the entire data set, and the leading 6 PC time series together explain 83\% of the SPEI variance from the 100 year observational record (Figure \ref{fig:variance_explained}). To reveal the latent spatial structures associated with the temporal modes of variability, we map the spatial patterns associated with each of the leading 6 PCs (Figure \ref{fig:reofs}). PCs beyond the leading 6 were not retained, as they represent spatially and temporally incoherent variability and spurious correlations introduced by sampling error in the observational record. We rotated the 6 PCs before mapping, in order to capture more physically meaningful patterns and minimize statistical artifacts. The results are robust, recurring patterns of spatially-coherent variability, and can be interpreted as the degree to which 100 year record at each grid cell correlates with the associated rotated PC time series. The spatial and temporal patterns associated with the leading 6 PCs allows us to trace the sources of each mode of variability back to the global climate system.
+We extracted robust spatio-temporal modes of drought and pluvial variability from a ~100 year observational record of the \textit{Standardized Precipitation-Evapotranspiration Index} (SPEI), a drought index that measures the deviation from average climate water balance for a given month on varying time scales. SPEI is interpretable as z-scores in a normal distribution (i.e. a value of 1 is one standard deviation wetter than average for that location, -1 is one standard deviation drier). As hydrological droughts during the summer growing season are most likely to influence exchange networks, we focused our attention on the 24-month SPEI calculated in the August of each year. We use a \textit{principal components analysis} (PCA) to decompose the 100 years of space-time drought data into leading modes of variability. The principal components (PCs) represent SPEI time series that are maximally representative of the entire data set, and the leading 6 PC time series together explain 83\% of the SPEI variance from the 100 year observational record (Figure \ref{fig:variance_explained}). 
+
+To reveal the latent spatial structures associated with the temporal modes of variability, we map the spatial patterns associated with each of the leading 6 PCs (Figure \ref{fig:reofs}). PCs beyond the leading 6 were not retained, as they represent spatially and temporally incoherent variability and spurious correlations introduced by sampling error in the observational record. We rotated the 6 PCs before mapping, in order to capture more physically meaningful patterns and minimize statistical artifacts. The results are robust, recurring patterns of spatially-coherent variability, and can be interpreted as the degree to which 100 year record at each grid cell correlates with the associated rotated PC time series. The spatial and temporal patterns associated with the leading 6 PCs allows us to trace the sources of each mode of variability back to the global climate system.
 
 \begin{figure}[!htbp]
 \centering
@@ -56,9 +59,7 @@ We extracted robust spatio-temporal modes of drought and pluvial variability fro
 
 \subsection*{Pacific and Atlantic influence predominate, but there are complex interactions with topography}
 
-Drought variability in the American Southwest is primarily influenced by tropical Pacific sea surface temperatures, additional complex interactions with the North Pacific and Atlantic. The regional expression of these global influences is in turn mediated by local terrain and atmospheric circulation. These same patterns from the observational period also show up in reconstructions pulling in data from 1100 CE to present. This underlies the fact that these are robust, time invariant spatial modes. The correlation between the amplitude time series for matching spatial patterns was XXX. These spatial and temporal drought patterns, and their hypothesized forcings from the global climate system, are largely consistent with those from other studies using varied observational data and time windows (cook meko et al 1999 j climate, mccabe et al 2004, mccabe and dettinger 1999, dean et al,)
-
-PC1 represents a center of action in the desert Southwest portions of California and Arizona, extending up to the northeast. It represents the influence of tropical Pacific sea surface temperatures, such as the North American Monsoon and tropical storms. This pattern is produced by southwesterly flow from the tropical pacific, bringing moisture up across the low desert zones. The pattern attenuates with gains in elevation, as distance from the ocean increases. On a global scale, this pattern is associated with a mode of Atlantic sea surface temperature variability called the Atlantic Multidecadal Oscillation. PC2 similarly represents southeasterly flow from the Gulf of Mexico, with a center of action in eastern New Mexico. As with PC1, the pattern attenuates with increasing elevation and distance from the ocean, due to orographic and continentality effects, respectively. It represents cyclonic storms coming from the Gulf of Mexico, in turn influenced by variability in Atlantic sea surface temperatures. The pair of Pacific and Atlantic SST dominated drought patterns in the Southwest has been previously hypothesized before in the context of archaeological change (dean and van west), but the level of spatial detail here far surpasses previous studies. There in the context of a ``bi-modal precipitation distribution'', meaning the distinguishing between regions with both summer and winter dominate precipitation (PC1) and those with just summer dominate precipitation (PC2). Although specifically growing season (summer) variability is measured here, the pattern is also consistent with winter moisture variability, as the 24 month SPEI index integrates the long lag effects of winter moisture, and the summer and winter patterns are governed by similar atmospheric teleconnections to Pacific SST variability. PC3 is a round region corresponding with the Colorado Plateau. The mode of variability here is likely temperature dependent, reflecting interactions with radiation at increased elevation. The pattern covaries with elevation, but they are not exact (TODO R2 = ). Variability here is likely linked to Atlantic multidecadal variability. PC4 clearly represents the influence of westerly flow off the Pacific Ocean, and the orographic effect of the Sierra Nevada mountains intercepting this flow. These include atmospheric rivers (TODO cite uh that paper), and are associated with coastal droughts in California. PCs 5 and 6 both represent centers of action far removed form the study area. PC5 is centered over the great plains and attenuates across the Rocky Mountains. PC6 is centered in the North West. Both these patterns are much less salient in the US Southwest, so we expect them to impose less of a structure on social dynamics in the Arizona-New Mexico study area.
+Drought variability in the American Southwest is primarily influenced by tropical Pacific sea surface temperatures, additional complex interactions with the North Pacific and Atlantic. The regional expression of these global influences is in turn mediated by local terrain and atmospheric circulation. These same patterns from the observational period also show up in reconstructions pulling in data from 1100 CE to present. This underlies the fact that these are robust, time invariant spatial modes. The correlation between the amplitude time series for matching spatial patterns was XXX. These spatial and temporal drought patterns, and their hypothesized forcings from the global climate system, are largely consistent with those from other studies using varied observational data and time windows (cook meko et al 1999 j climate, mccabe et al 2004, mccabe and dettinger 1999, dean et al,hermann et al 2016)
 
 \begin{figure}[!htbp]
 \centering
@@ -66,6 +67,10 @@ PC1 represents a center of action in the desert Southwest portions of California
 \caption{Leading 6 rotated empirical orthogonal functions. The empirical orthogonal functions are the spatial patterns associated with their respective principal component time series. The EOFs are the eigenvectors of the space-time covariance matrix, and the PCs are the eigenvalues. The leading four EOFs, which together explain 77\% of interannual drought variability in the observational record, were then subjected to varimax rotation, to make the spatial patterns more physically meaningful by relaxing the spatial orthogonality constraint.}
 \label{fig:reofs}
 \end{figure}
+
+PC1 represents a center of action in the desert Southwest portions of California and Arizona, extending up to the northeast. It represents the influence of tropical Pacific sea surface temperatures, such as the North American Monsoon and tropical storms. This pattern is produced by southwesterly flow from the tropical pacific, bringing moisture up across the low desert zones. The pattern attenuates with gains in elevation, as distance from the ocean increases. On a global scale, this pattern is associated with a mode of Atlantic sea surface temperature variability called the Atlantic Multidecadal Oscillation. PC2 similarly represents southeasterly flow from the Gulf of Mexico, with a center of action in eastern New Mexico. As with PC1, the pattern attenuates with increasing elevation and distance from the ocean, due to orographic and continentality effects, respectively. It represents cyclonic storms coming from the Gulf of Mexico, in turn influenced by variability in Atlantic sea surface temperatures. The pair of Pacific and Atlantic SST dominated drought patterns in the Southwest has been previously hypothesized before in the context of archaeological change (dean and van west), but the level of spatial detail here far surpasses previous studies. There in the context of a ``bi-modal precipitation distribution'', meaning the distinguishing between regions with both summer and winter dominate precipitation (PC1) and those with just summer dominate precipitation (PC2). Although specifically growing season (summer) variability is measured here, the pattern is also consistent with winter moisture variability, as the 24 month SPEI index integrates the long lag effects of winter moisture, and the summer and winter patterns are governed by similar atmospheric teleconnections to Pacific SST variability. 
+
+PC3 is a round region corresponding with the Colorado Plateau. The mode of variability here is likely temperature dependent, reflecting interactions with radiation at increased elevation. The pattern covaries with elevation, but they are not exact (TODO R2 = ). Variability here is likely linked to Atlantic multidecadal variability. PC4 clearly represents the influence of westerly flow off the Pacific Ocean, and the orographic effect of the Sierra Nevada mountains intercepting this flow. These include atmospheric rivers (TODO cite uh that paper), and are associated with coastal droughts in California. PCs 5 and 6 both represent centers of action far removed form the study area. PC5 is centered over the great plains and attenuates across the Rocky Mountains. PC6 is centered in the North West. Both these patterns are much less salient in the US Southwest, so we expect them to impose less of a structure on social dynamics in the Arizona-New Mexico study area.
 
 % temporal reconstruction
 
@@ -77,7 +82,8 @@ PC1 represents a center of action in the desert Southwest portions of California
 \end{figure}
 
 \subsection*{The intensity of social interaction decays with distance}
-The null model for our statistical network analysis was that distance alone accounts for the intensity of social interaction. This model simply states that the longer the time it would take a traveller on foot to move between two locations, the greater the costs of social interaction. This concept is no different from isolation by distance or distance decay models in ecology and geography, but we refer to it as distance deterrence due to its role in decision making. We calculated the cost of moving between each pair of sites as the shortest amount of time it would take a traveler to move between them. We then used a nonlinear regression model to estimate the functional relationship between distance and interaction, as there is no agreed upon functional form in the social literature. The resulting \textit{distance deterrence function} (Figure \ref{fig:distance}) shows the estimated falloff in social interaction with increasing distance. The functional form of this distance decay closely resembles the Taylor function, a combination of the traditionally used exponential and power distance deterrence functions. This represents that multiple transmission processes, with different relationships to distance, are acting together to generate the variation in the archaeological record. The two main inflection points in the decay curve are both consistent with previous work in the ecology of human mobility. Their is a plateau effect distance plays no appreciable role in interaction between sites within a day's walk of one another (johnson but cites olsson 1965 and crumley 1979, ariadne). This suggests that distance only becomes a deterring factor dealing in multiday trips. The second inflection point, at roughly 10 days is consistent with estimates of area needed to sustain the minimum viable breeding population for human groups (are they consistent with the figures of 50km-80km from rautman and drennen and others? johnson finds no marriages past 60km, maize to chaco papers also have distance). This null hypothesis, that distance alone is sufficient to explain the observed divergences between archaeological assemblages, was sufficient to explain nearly 50\% of the variability in our dataset.  
+The null model for our statistical network analysis was that distance alone accounts for the intensity of social interaction. This model simply states that the longer the time it would take a traveller on foot to move between two locations, the greater the costs of social interaction. This concept is no different from isolation by distance or distance decay models in ecology and geography, but we refer to it as distance deterrence due to its role in decision making. We calculated the cost of moving between each pair of sites as the shortest amount of time it would take a traveler to move between them. We then used a nonlinear regression model to estimate the functional relationship between distance and interaction, as there is no agreed upon functional form in the social literature. 
+The resulting \textit{distance deterrence function} (Figure \ref{fig:distance}) shows the estimated falloff in social interaction with increasing distance. The functional form of this distance decay closely resembles the Taylor function, a combination of the traditionally used exponential and power distance deterrence functions. This represents that multiple transmission processes, with different relationships to distance, are acting together to generate the variation in the archaeological record. The two main inflection points in the decay curve are both consistent with previous work in the ecology of human mobility. Their is a plateau effect distance plays no appreciable role in interaction between sites within a day's walk of one another (johnson but cites olsson 1965 and crumley 1979, ariadne). This suggests that distance only becomes a deterring factor dealing in multiday trips. The second inflection point, at roughly 10 days is consistent with estimates of area needed to sustain the minimum viable breeding population for human groups (are they consistent with the figures of 50km-80km from rautman and drennen and others? johnson finds no marriages past 60km, maize to chaco papers also have distance). This null hypothesis, that distance alone is sufficient to explain the observed divergences between archaeological assemblages, was sufficient to explain nearly 50\% of the variability in our dataset.  
 
 %The Mogollon Rim acts as a severe bottleneck for spatial flows, with paths generally constrained to one of the three river systems, the Verde, Salt, and Gila, act to channel flow across this boundary.  
 
@@ -116,63 +122,61 @@ The residuals from the fitted network models still display clear unexplained str
 
 %changes in rho value over time -- pointst tomore idiosyncratic interaction
 
-\section*{Discussion}
+\section*{Discussion and Conclusions}
+Rautman (1993 TODO cite) compared the similarity of ceramic assemblages between archaeological sites in central New Mexico to present-day weather station data and found evidence for differential ``investment of social energy in the maintenance of social ties'' between regions with negatively correlated rainfall. Cordell et al. (2007 TODO cite) also compared ceramic assemblages to patterns of rainfall variability, in this case they used 28 tree ring chronologies to to isolate robust patterns of spatial covariability in the four corners region. They found two principal modes of variability reflecting Pacific and Atlantic zones of influence, respectively, and suggest that that broad ceramic regions visible to archaeologists reflect ``maximal risk sharing networks'' that connected communities spanning these zones. Most recently, Strawhacker et al (XXXX todo cite) also used tree ring reconstructions of precipitation to estimate optimal risk sharing networks for archaeological sites in south central New Mexico, but found little evidence that these potential networks corresponded to those in the real world. Johnson finds some evidence for increased marriages between different average climate zones (coastal and inland) but the effect is weak compared to distance and  size. The r2 was .43 for distance and size, and adding dummy variable for same or different environment only increases model to .44.
 
-points to discuss:
-1. Why doesn't size matter?
-2. Why do things change over time?
-23. These patterns are only what weve seen in the observational record, there could be others
-3. What does ceramic assemblage similarity even mean?
-3b. fully connected widhgted network, but what if pruned?
-  we argue here our approach here is appropriate because we are aggregating many, sparse social networks of individuals together at the population scale. that is we look at macroscale flow patterns given microscale social networks, maxent approach means we make the fest possible assumptions about the configuration of the microscale social networks
-5. Importance of asymmetry. citing crabtree talk about asymmetric debts. also talk about differences in population size and gravity model. what do we miss out on when use symmetric data?
-4. zuni and hopi? seemingly different because different external vs internal tie patterns, but actually they both cross climate zones
-6. we just looked at summer growing season, but what about winter (where bimodal)? Site coates et al 2015 for variability in the seasonal phasing of rainfall
-7. We don't look at the role of drought in producing similarity, such as a drought leading to many migrants, but rather look at long term patterns in the differences. This is because we integrate out the mean of each site to get attractiveness, effectively integrating out utility measures (bavaud 2002, 2008). So we are specifically looking at the "deterrence" effect of claimate distances, that is the costs and beneftis of interaction.
-
-The populations of the late pre-Hispanic period in the American Southwest subsisted mainly on maize production, supplemented by a mix of beans and wild proteins. Food transfers are thought to have occurred primarily in the context of informal sharing within kin groups, reciprocal exchange at ritual ceremonies and festivals, and residential mobility on the scale of one to three generations \cite{Hegmon1991,Hegmon1996,Kohler1996TheAnasazi,Varien1999SedentismBeyond,Cordell2007MesaMigration}. The archaeological record attests to extensive exchange networks of durable goods such as ceramics and obsidian \cite{Mills2013a}, and there is direct (if limited) evidence for the long-distance transport of maize \cite{Benson2009PossibleMexico,Benson2010WhoDrought}. There is also evidence for long distance migratino (TODO cite mills again?)
-
-%% maybe break these up and cite as exmamples of x method, so reautman for useing BR coefficients and ceramic assemblages as a measure of socialinteraction (that is archaeologically accessible), cordell et all for modes of variability rather than correlations, and strwahacker et al for 
-Rautman (1993 TODO cite) compared the similarity of ceramic assemblages between archaeological sites in central New Mexico to present-day weather station data and found evidence for differential ``investment of social energy in the maintenance of social ties'' between regions with negatively correlated rainfall. Cordell et al. (2007 TODO cite) also compared ceramic assemblages to patterns of rainfall variability, in this case they used 28 tree ring chronologies to to isolate robust patterns of spatial covariability in the four corners region. They found two principal modes of variability reflecting Pacific and Atlantic zones of influence, respectively, and suggest that that broad ceramic regions visible to archaeologists reflect ``maximal risk sharing networks'' that connected communities spanning these zones. Most recently, Strawhacker et al (XXXX todo cite) also used tree ring reconstructions of precipitation to estimate optimal risk sharing networks for archaeological sites in south central New Mexico, but found little evidence that these potential networks corresponded to those in the real world.
-
-interpret relative r2 -- in johnsons chumash paper r2 was .43 for distance and size, and adding dummy variable for same or different enviroment only increases model to .44
-
-He finds some evidence for increased marriages between different average climate zones (coastal and inland) but the effect is weak compared to distance and  size
-
-The goal here is to extract robust patterns of climate variability. Measures of point-based sample correlation can easily be dominated by noise or other issues with sampling variability. The method we use here yields similar results in appearance, but in a more objective fashion designed specifically to skillfully extract signal from noise.
-
-cordell et al he argue that this pattern breaks doesn ca 1239-1488, and explain it as the source of disruption in this period as the social networks that developed to cross it over the centuries were not able to adapt in time to the temproariliy distinct precipitaiton regime. -- this is an important point, and why networks aren't always just optimally minimizing correlation, they take time to build and effort to maintain, especiailly on the time scales greater than a singel generation. so they are specifically forming in response to robust patterns of variability. In the future it will be important to model the evolution of paths separately, a la bevan and wilson, in order to capture this time lag effect.
+The specific biophysical contexts of exchange are key, including the temporal dynamics of the entities being exchanged as well as the specific combination of climate mean and variability, and specialized agricultural economies are particular more limited by by interannual deviations than average conditions \cite{Freeman2014}. Sharing and exchange are critical for maintaining population in response to interannual climate variability, although this short term stability can come at the cost of long term environmental degradation \cite{Janssen2010}.
+This work says nothing about the role of drought in \textit{producing} similarity, such as a drought leading to many migrants, but rather look at long term patterns in the differences. This is because we integrate out the mean of each site to get attractiveness, effectively integrating out utility measures (bavaud 2002, 2008). So we are specifically looking at the "deterrence" effect of climate distances, that is the costs and benefits of interaction.
+The eof patterns are in part scale dependent. This isn't necessarily a problem, its a necessity that the answer to the question what kind of variability matters is inherently tied to the scale at which on asks the question, there are no right or wrong answers. Although the particular choices of variables, resolution, domain size, truncation level, were informed here by theory and tested to as to minimize sensitivity to particular choices made by the authors, different researchers could still generate equally reasonable results given  different input parameters.  This is simply to state that the drought patterns highlighted here, while we are confident they are not statistical artifacts, should be used with caution in contexts outside of the specific context here.
+%The goal here is to extract robust patterns of climate variability. Measures of point-based sample correlation can easily be dominated by noise or other issues with sampling variability. The method we use here yields similar results in appearance, but in a more objective fashion designed specifically to skillfully extract signal from noise.
 
 This study sought specifically to investigate the impact of effective distance and drought variability using statistical models, specifically focused on the functional forms of these relationships. Future study will leverage these findings to construct dynamic simulation models. This will allow us to capture year-to-year variability, as well as the time averaging and bias introduced by archaeological investigation.
 
-\subsection*{Qualifications, Caveats, and Future Work}
-jensen inequality, E(logit(y)) >=logit(E(y)). this means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. Its a necessary evil here, becuase we do not yet have the computational abiliy to fit the corMLPE correlation structure and a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a much alrger source of bias then transforming the response variabble,so that's the tradeoffwe went with. The bias from transforming the respone leads to bias in the estimates of variance
-
-the eof patterns are in part scale dependent. Thihs iss isnt necesarily a problem, its a necessity that the answer to the question what kind of variability matters is inherently tied to the scale at which on asks the question, there are no right or wrong answers. Although the particular choices of variables, resolution, domain size, truncation level, were informed here by theory and tested to as to minimze sensitivity to paritcular choices made by the authors, different researchers could still generate equally resonable results given  different input parameters.  This is simply to state that the drought patterns highlighted here, while we are confident they are not statistical artifacts, should be used with caution in contexts outside of the specific context here.
-
-coarse graining data. what if we aggregate at 5km intervals, what about at regional intervals. better estimate of the heirarchy of flows.
-
-Social infrastructure interacts directly with physical infrastructure because social networks often must map onto spatial networks. Metabolic costs, such as the energy expended producing and transporting food over space where transportation infrastructure is sparse, provide constraints on energy flows in exchange systems \cite{Drennan1984}. In any particular case, the balance between these costs and the metabolic benefits of social interaction influences whether resources are moved in bulk to populations in need, or whether those populations move themselves to the available resources. The topology of spatial networks also constrains who can interact with whom, introducing bottlenecks and other structural flow constraints \cite{Barthelemy2011SpatialNetworks}. Improvements to transportation infrastructure, such as roads and trails, decrease the effective distance between different settlements; failure to maintain these transportation networks increases the effective distance \cite{McCall1985TheAfrica}.
-
-Future work should explore more axes of climate variaiton, includeing
-The specific biophysical contexts of exchange are key, including the temporal dynamics of the entities being exchange as well as the specific combination of climate mean and variability, and specialized agricultural economies are particular more limited by by interannual deviations than average conditions \cite{Freeman2014}. Sharing and exchange are critical for maintaining population in response to interannual climate variability, although this short term stability can come at the cost of long term environmental degradation \cite{Janssen2010}.
-
-
-this unconscious discertization is a problem because at the scale of the archaeolgoicaly record we are coarse grianing to coninuous social relaitonships, flows, between human populations, that are teh coarse grained results of small scale interactions, which may themselves be discrete. Individuals may use simple heuristics such as near and far or similar or not, but when a great many of these indivudal discete interactions occur the averaged result is a large scale continuous flow.
-
-
-Shared "regional styles of elaborate ceramic tableware suggest a major role for commensality in cultivating relationships of solidarity, bothwithin and between settlements (e.g., Tomkins, 2007; Urem-Kotsou
-and Kotsakis, 2007)." -- talk about this in the context of ceramic similarity -- tablewares important because they speak to ocmmensalism and feasting
-
-
 Tracing the flows of food, water, and energy within these complex social-ecological systems is essential for understanding their long-term behavior, and leveraging our archaeological understanding of why societies succeed or fail will be critical to anticipating the impact of impending climate changes on farming communities in the developing world.
+
+%points to discuss:
+%1. Why doesn't size matter?
+
+%2. Why do things change over time?
+%23. These patterns are only what weve seen in the observational record, there could be others
+%3. What does ceramic assemblage similarity even mean?
+%3b. fully connected widhgted network, but what if pruned?
+%  we argue here our approach here is appropriate because we are aggregating many, sparse social networks of individuals together at the population scale. that is we look at macroscale flow patterns given microscale social networks, maxent approach means we make the fest possible assumptions about the configuration of the microscale social networks
+%5. Importance of asymmetry. citing crabtree talk about asymmetric debts. also talk about differences in population size and gravity model. what do we miss out on when use symmetric data?
+% zuni and hopi? seemingly different because different external vs internal tie patterns, but actually they both cross climate zones
+%6. we just looked at summer growing season, but what about winter (where bimodal)? Site coates et al 2015 for variability in the seasonal phasing of rainfall
+
+
+
+%The populations of the late pre-Hispanic period in the American Southwest subsisted mainly on maize production, supplemented by a mix of beans and wild proteins. Food transfers are thought to have occurred primarily in the context of informal sharing within kin groups, reciprocal exchange at ritual ceremonies and festivals, and residential mobility on the scale of one to three generations \cite{Hegmon1991,Hegmon1996,Kohler1996TheAnasazi,Varien1999SedentismBeyond,Cordell2007MesaMigration}. The archaeological record attests to extensive exchange networks of durable goods such as ceramics and obsidian \cite{Mills2013a}, and there is direct (if limited) evidence for the long-distance transport of maize \cite{Benson2009PossibleMexico,Benson2010WhoDrought}. There is also evidence for long distance migration (TODO cite mills again?)
+
+%% maybe break these up and cite as exmamples of x method, so reautman for useing BR coefficients and ceramic assemblages as a measure of socialinteraction (that is archaeologically accessible), cordell et all for modes of variability rather than correlations, and strwahacker et al for 
+
+
+%cordell et al he argue that this pattern breaks doesn ca 1239-1488, and explain it as the source of disruption in this period as the social networks that developed to cross it over the centuries were not able to adapt in time to the temporarily distinct precipitaiton regime. -- this is an important point, and why networks aren't always just optimally minimizing correlation, they take time to build and effort to maintain, especially on the time scales greater than a singel generation. so they are specifically forming in response to robust patterns of variability. In the future it will be important to model the evolution of paths separately, a la bevan and wilson, in order to capture this time lag effect.
+
+
+
+%jensen inequality, E(logit(y)) >=logit(E(y)). this means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. Its a necessary evil here, becuase we do not yet have the computational abiliy to fit the corMLPE correlation structure and a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a much alrger source of bias then transforming the response variabble,so that's the tradeoffwe went with. The bias from transforming the respone leads to bias in the estimates of variance
+
+
+
+%coarse graining data. what if we aggregate at 5km intervals, what about at regional intervals. better estimate of the heirarchy of flows.
+
+%Social infrastructure interacts directly with physical infrastructure because social networks often must map onto spatial networks. Metabolic costs, such as the energy expended producing and transporting food over space where transportation infrastructure is sparse, provide constraints on energy flows in exchange systems \cite{Drennan1984}. In any particular case, the balance between these costs and the metabolic benefits of social interaction influences whether resources are moved in bulk to populations in need, or whether those populations move themselves to the available resources. The topology of spatial networks also constrains who can interact with whom, introducing bottlenecks and other structural flow constraints \cite{Barthelemy2011SpatialNetworks}. Improvements to transportation infrastructure, such as roads and trails, decrease the effective distance between different settlements; failure to maintain these transportation networks increases the effective distance \cite{McCall1985TheAfrica}.
+
+%Future work should explore more axes of climate variaiton, includeing
+
+
+
+%this unconscious discertization is a problem because at the scale of the archaeolgoicaly record we are coarse grianing to coninuous social relaitonships, flows, between human populations, that are teh coarse grained results of small scale interactions, which may themselves be discrete. Individuals may use simple heuristics such as near and far or similar or not, but when a great many of these indivudal discete interactions occur the averaged result is a large scale continuous flow.
+
 
 \section*{Methods}
 
 \subsection*{Archaeological similarity networks}
 
 I draw on an extensive archaeological database from the US Southwest (Figure \ref{fig:swsn}) to address this question. The Southwest Social Networks (SWSN) database is a compendium of material-culture data from nearly 1,000 well-dated sites in Arizona and western New Mexico from between 1200 and 1500 CE \cite{Mills2012,Mills2013a,Peeples2013,Borck2015,Hill2015,Mills2015a}. Drawing on a large sample of sites from the earlier Coalescent Communities database of all recorded prehistoric settlements with more than 12 rooms in the Southwest from 1200 to 1700 CE \cite{Hill2004}, the SWSN project analyzed nearly 4.7 million ceramic artifacts and nearly 5,000 obsidian artifacts \cite{Mills2015a}. Using an index of the similarity of ceramic assemblages and geochemical sourcing as proxies for the intensity of social interaction between settlements, the SWSN database provides quantitative estimates of the topology of the region-wide social network during six 50 year time steps \cite{Mills2013a}.
-
 
 We start with a symmetric similarity matrix $\mathbf{T}$ with elements $T_{ij} = T_{ji} = BR_{ij}$ with $BR$ defined as the scaled Brainerd-Robinson coefficient of similarity between the proportions of decorated ceramic ware types.
 
@@ -182,40 +186,34 @@ where $P_{ik}$ is the proportion of ceramics of type $k$ at site $i$.
 
 This metric estimates the similarity in the ceramic discard assemblages between pairs of sites, which in turn is a proxy for cultural preferences, food consumption differences, access to raw materials, and access to trade networks. The index can be loosely interpreted as a probability of interaction between two sites, with identical patterns of ceramic discard indicating a high likelihood of interaction via either direct migration or trade or indirect cultural diffusion.
 
-This is a standard metric in archaeology (cowgill 1990, golitko et al 2009, hart engelbrecht 2012), similar to the xy distances used in other fields, and is used to .
-
-
-
+This is a standard metric in archaeology (cowgill 1990, golitko et al 2009, hart engelbrecht 2012), similar to the xy distances used in other fields.
 
 \subsection*{Spatial interaction model}
-
-
-Hence spatial interaction models, which account for this endogenous structure using entropy maximization techniques, which ensure that simulated networks satisfy simple self-consistency constraints, such as that the sum of outflows of from a region is proportional to its inflows.
-
-
-I will then use nonlinear regression (generalized additive models for beta-distributed data \cite{Wood2006a}) to determine whether the patterns of interaction strength from the SWSN database are significantly related to the patterns of variability captured in the EOFs (Figure \ref{fig:eofs}).
+Spatial interaction models account for this endogenous structure using entropy maximization techniques, which ensure that simulated networks satisfy simple self-consistency constraints, such as that the sum of outflows of from a region is proportional to its inflows.
+I will then use nonlinear regression (generalized additive models for beta-distributed data \cite{Wood2006a}) to determine whether the patterns of interaction strength from the SWSN database are significantly related to the patterns of variability captured in the EOFs.
 We fit generalized additive mixed models, and select the most parsimonious model from all candidate models using Akaike's Information Criterion. AIC selection between linear mixed models outperformed several other estimating techniques in landscape genetics in simulation studies by \cite{Shirk et al 2018}. We account for nonindependence of observed edges that share origin or destination sites using the maximum likelihood population effects correlation structure, which models the co dependence of errors on shared sites. This helps account for the nature of pairwise data, including overpowered.
 We fit models of the form
 
-$$T_{ij} = k v_i^\mu w_j^\alpha \exp(\beta c_{ij})$$
+\begin{equation}
+T_{ij} = k v_i^\mu w_j^\alpha \exp(\beta c_{ij})
+\end{equation}
 
-where $c_{ij}$ is some notion of the generalized cost of moving from $i$ to $j$ and is symmetric, meaning $c_{ij} = c_{ji}$.
-
-Gravity models of this form are quasisymmetric, and can be decomposed into symmetric and asymmetric components
+where $c_{ij}$ is some notion of the generalized cost of moving from $i$ to $j$ and is symmetric, meaning $c_{ij} = c_{ji}$.Gravity models of this form are quasisymmetric, and can be decomposed into symmetric and asymmetric components. We use this basic principle to fit regression models of the form
 
 \begin{equation}
+\begin{split}
     g(E(Y_{ij})) = \alpha + \sum_k f_k(x_k) + \tau_i + \tau_j + \epsilon_{ij}, j = 2, ..., n, i = 1, ..., j - 1\\
     g(x) = log(\frac{x}{1-x})\\
     \tau_i \sim \mathcal{N}(0,\,\sigma^{2}_{\tau})\\
-    \epsilon_i \sim \mathcal{N}(0,\,\sigma^{2}_{\epsilon})
+    \epsilon_i \sim \mathcal{N}(0,\,\sigma^{2}_{\epsilon}),
+\end{split}
 \end{equation}
 
-and with the Maximum Likelihood Population Effects covariance paramterization:
-
-\begin{equation}
-    var(Y_{ij}) = \sigma^2 = 2\sigma^{2}_{\tau} + \sigma^{2}_{\epsilon}
-    covar(Y_{ij}, Y_{kl}) =  
-\end{equation}
+and with the Maximum Likelihood Population Effects covariance parameterization:
+\begin{gather}
+    var(Y_{ij}) &= \sigma^2 = 2\sigma^{2}_{\tau} + \sigma^{2}_{\epsilon}\\
+    covar(Y_{ij}, Y_{kl}) &=  
+\end{gather}
 
 Which states that the flow of people, goods, or information from site $i$ to site $j$ is a function of some property $v$ of site $i$, property $w$ of site $j$, and the distance between them $c_{ij}$ with $c_{ij} = c_{ji}$
 
