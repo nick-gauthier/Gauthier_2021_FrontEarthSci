@@ -331,7 +331,7 @@ ggplot(eofs_recon, aes(x, y, fill = value)) +
   coord_quickmap()
 ```
 
-The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, so these loadings represent the covariance between each grid cell and each amplitdue (principal component). A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
+The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, so these loadings represent the covariance between each grid cell and each amplitude (principal component). A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
 
 ```{r plot_recon_reofs, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
 as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
@@ -369,7 +369,7 @@ obs_eof_amp <- calc_amplitude(obs_pca, n_modes)
 
 ggplot(obs_eof_amp, aes( year, amplitude, color = PC)) +
   geom_line() +
-  facet_wrap(~PC) + geom_vline(xintercept = 1956)
+  facet_wrap(~PC) + geom_vline(xintercept = 1956) + geom_smooth()
 recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
 
 amplitude_modern <- recon_eof_amp %>% 
@@ -387,9 +387,72 @@ recon_reof_amp <- recon_reof$amplitude %>%
   gather(PC, amplitude, -year) %>%
   mutate(PC = if_else(PC == 'EOF2', 'EOF4', if_else(PC == 'EOF4', 'EOF2', PC)))
 
+ggplot(obs_reof_amp, aes( year, amplitude, color = PC)) +
+  geom_line() +
+  facet_wrap(~PC) + geom_vline(xintercept = 1956) + geom_smooth()
+
 amplitude_modern <- obs_reof_amp %>%
   inner_join(recon_reof_amp, by = c('year', 'PC'),
             suffix = c('_obs', '_recon'))
+```
+To cite use of dataset: Boyin Huang, Peter W. Thorne, Viva F. Banzon, Tim Boyer, Gennady Chepurin, Jay H. Lawrimore, Matthew J. Menne, Thomas M. Smith, Russell S. Vose, and Huai-Min Zhang (2017): NOAA Extended Reconstructed Sea Surface Temperature (ERSST), Version 5. [indicate subset used]. NOAA National Centers for Environmental Information. doi:10.7289/V5T72FNM [access date].
+Please note: If you acquire NOAA_ERSST_V5 data products from PSD, we ask that you acknowledge us in your use of the data. This may be done by including text such as NOAA_ERSST_V5 data provided by the NOAA/OAR/ESRL PSD, Boulder, Colorado, USA, from their Web site at https://www.esrl.noaa.gov/psd/ in any documents or publications using these data. We would also appreciate receiving a copy of the relevant publications. This will help PSD to justify keeping the NOAA_ERSST_V5 data set freely available online in the future. Thank you!
+```{r}
+library(rpdo)
+data(pdo)
+pdo.test <- filter(pdo, Month == 1, Year >=1897)
+test <-  calc(sst_jan[[-c(1:3)]], fun=function(x) cor(c(x),pdo.test))
+plot(test)
+
+       sst_mean <- brick('data/sst.mon.ltm.1981-2010.nc')
+
+sst_jan <- brick('data/sst.mnmean.nc') %>% 
+  .[[517:1978]] %>%
+  .[[seq(1, 1462, 12)]] %>% 
+  `-`(sst_mean[[1]]) %>% crop(extent(c(-1, 359, -75, 75))) %>%
+  disaggregate(fact = 2, method = 'bilinear')
+
+world <- maps::map('world',wrap=c(0,360),fill = TRUE, plot = FALSE)
+
+reof_cor <- brick(calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,1]))),
+calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,2]))),
+calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,3]))),
+calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,4]))),
+calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,5]))),
+calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,6]))))
+
+eof_cor <- brick(calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 1) %>% pull(amplitude))),
+calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 2) %>% pull(amplitude))),
+calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 3) %>% pull(amplitude))),
+calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 4) %>% pull(amplitude))),
+calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 5) %>% pull(amplitude))),
+calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 6) %>% pull(amplitude))))
+
+eof_cor %>% 
+  as.data.frame(xy = T, na.rm = T) %>%
+  gather(eof, value, layer.1:layer.6) %>%
+  filter(value > .1 | value < -.1) %>%
+  ggplot(aes(x, y)) +
+  geom_raster(aes(fill = value)) +
+  facet_wrap(~eof, nrow = 3) +
+  scale_fill_distiller(palette = 'RdBu', direction = -1, limits = c(-.7,.7)) +
+  coord_quickmap(ylim = c(-75,75), expand = FALSE) +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group)) +
+  ggtitle('EOFs') +
+  theme_bw()
+
+reof_cor %>% 
+  as.data.frame(xy = T, na.rm = T) %>%
+  gather(eof, value, layer.1:layer.6) %>%
+    filter(value > .1 | value < -.1) %>%
+  ggplot(aes(x, y)) +
+  geom_raster(aes(fill = value)) +
+  facet_wrap(~eof, nrow = 3) +
+  scale_fill_distiller(palette = 'RdBu', direction = -1, limits = c(-.7,.7)) +
+  coord_quickmap(ylim = c(-75,75), expand = FALSE) +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group)) +
+  ggtitle('reofs') +
+  theme_bw()
 ```
 
 
