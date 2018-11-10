@@ -74,7 +74,7 @@ knitr::kable(
 )
 ```
 
-Next import the edge data. Our data come in the form of similarity matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a directed graph. 
+Next import the edge data. Our data come in the form of JSD matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a directed graph. 
 
 ```{r read_swsn}
 read_swsn <- function(net, time){
@@ -83,7 +83,7 @@ read_swsn <- function(net, time){
     replace(. == 0, 999) %>% # replace 0 values with 999 temporarily
     as_tbl_graph(directed = TRUE) %E>% # convert to directed graph
     mutate(weight = if_else(weight == 999, 0, weight)) %>% # convert 999 values back to 0
-    rename(similarity = weight) %>% # rename the edge weights
+    rename(JSD = weight) %>% # rename the edge weights
     filter(!edge_is_loop()) %>% # remove self loops
     mutate(time = 1150 + 50 * time) %>%  # set the time period
     activate('nodes') # activate node data
@@ -92,9 +92,9 @@ read_swsn <- function(net, time){
 
 Row normalization allows us to compare the edges without the node effects, measuring the similarities onthe same scale.
 
-Next we map this function over a lists of simlaritity matrices. Get a list of the similarity files, map the above function over them, reduce to a single graph.  Use reduce and graph join to combiine all of these networks into a single netwtork, retaining the edge weights for each  separate period.
+Next we map this function over a lists of simlaritity matrices. Get a list of the JSD files, map the above function over them, reduce to a single graph.  Use reduce and graph join to combiine all of these networks into a single netwtork, retaining the edge weights for each  separate period.
 
-Start by getting a list of the similarity file names, map the read_swsn function over these files, combine into a single graph using the reduce function, and then join to the site database.
+Start by getting a list of the JSD file names, map the read_swsn function over these files, combine into a single graph using the reduce function, and then join to the site database.
 
 ```{r swsn_import}
 swsn <- list.files('data/wares/', full.names = TRUE) %>%
@@ -107,7 +107,7 @@ swsn <- list.files('data/wares/', full.names = TRUE) %>%
 sim_tmp <- read.csv('data/wares/AD1200js', row.names = 1, check.names = FALSE) %>%
   as.matrix %>%
   .[1:3,1:3]
-knitr::kable(sim_tmp, caption = 'Example similarity matrix')
+knitr::kable(sim_tmp, caption = 'Example JSD matrix')
 ```
 
 ```{r}
@@ -127,24 +127,24 @@ pts <- swsn %N>% # use swsn instead of sites to get the order right
 
 plot_swsn <- function(net, ncols = 3){
   net %E>%
-    filter(similarity > .001) %>%
+    filter(JSD > .001) %>%
     filter(from < to) %>%
-     mutate(similarity = qlogis(if_else(similarity > .999, .999, similarity))) %>%
-    arrange(similarity) %>%
+     mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
+    arrange(JSD) %>%
   ggraph('manual', x = pts$x, y = pts$y) +
-  geom_edge_fan(aes( color = similarity)) +
+  geom_edge_fan(aes( color = JSD)) +
           geom_sf(data = states, fill = NA, color = 'black') +
   facet_edges(~time, ncol = ncols) +
   scale_edge_alpha(guide = 'none') +
-  #scale_edge_color_viridis(name = 'Similarity', option = 'magma') +#, limits = c(0,1)
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'Similarity') +
+  #scale_edge_color_viridis(name = 'JSD', option = 'magma') +#, limits = c(0,1)
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'JSD') +
   coord_sf(datum = NA) +
   theme_void() +
   theme(legend.position = c(1, 0),legend.justification = c(2.5,0))
 }
 
 plot_swsn(swsn, ncols = 3)
-ggsave('figures/similarity_network.png', width = 7)
+ggsave('figures/JSD_network.png', width = 7)
 ```
 
 ## Data Extraction
@@ -189,6 +189,97 @@ reof_raster %>%
   facet_wrap(~layer) +
   coord_sf(datum = NA) +
   theme_void()
+```
+```{r}
+reof_raster %>%
+  crop(states) %>%
+  mask(states) %>%
+  as.data.frame(xy = TRUE, na.rm = TRUE, long = TRUE) %>%
+  ggplot() +
+  geom_raster(aes(x, y, fill = value)) +
+  scale_fill_distiller(palette = 'BrBG', limits = c(-1, 1)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  geom_sf(data = filter(sites, P4room > 0)) +
+  facet_wrap(~layer) +
+  coord_sf(datum = NA) +
+  theme_void()
+```
+
+```{r}
+cells <- reof_raster %>%
+  aggregate(fact = 2) %>%
+  raster::extract(sites, cellnumbers = TRUE) %>%
+  .[,1] %>%
+  as.character
+
+sites <- mutate(sites, cell = cells)
+
+load('ware_matrices')
+
+library(philentropy)
+getJS <- function(dat, period){
+  names <- pull(dat, cell)
+  dat %>%
+    .[,-1] %>%
+  select_if(~!all(. == 0)) %>%
+    as.matrix %>%
+    philentropy::distance(method = 'jensen-shannon', est.prob = 'empirical') %>%
+    `/`(., max(.)) %>%
+  `-`(1,.) %>%
+  `rownames<-`(names) %>%
+    `colnames<-`(names) %>%
+    as_tbl_graph %E>%
+        mutate(time = 1150 + 50 * period)  # set the time period
+
+}
+
+coarse_jsd <-left_join(list(AD1200cer, 
+          AD1250cer, 
+          AD1300cer, 
+          AD1350cer, 
+          AD1400cer) %>%
+  purrr::map(rownames_to_column) %>%
+  bind_rows(.id = 'period_num') %>%
+  mutate(period_num = as.numeric(period_num)) %>%
+  rename(SWSN_Site = rowname),
+sites %>%
+  gather(period, rooms, P1room:P6room) %>%
+  mutate(period_num = parse_number(period)) %>%
+  filter(period_num < 6)) %>%
+  group_by(period_num, cell) %>% 
+  select(`Babacomari Series`:`Trincheras Series`) %>%
+ summarise_all(sum, na.rm = TRUE) %>%
+  nest %>%  
+  mutate(net = map2(data, period_num, getJS)) %>%
+  pull(net) %>%
+  reduce(graph_join, by = 'name') %>%
+  filter(!edge_is_loop()) %>%
+  rename(JSD = weight) %>%
+  activate(nodes)
+
+
+pts_jsd <- coarse_jsd %>%
+  pull(name) %>%
+  as.numeric %>%
+  xyFromCell(reof_raster %>%
+  aggregate(fact = 2), .) %>% 
+  as.data.frame()
+
+coarse_jsd %E>%
+    filter(JSD > .001) %>%
+    filter(from < to) %>%
+     mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
+    arrange(JSD) %>%
+ggraph('manual',node.positions = pts_jsd) +
+  geom_edge_fan(aes( color = JSD)) +
+          geom_sf(data = states, fill = NA, color = 'black') +
+  facet_edges(~time, ncol = 3) +
+  scale_edge_alpha(guide = 'none') +
+  #scale_edge_color_viridis(name = 'JSD', option = 'magma') +#, limits = c(0,1)
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'JSD') +
+  coord_sf(datum = NA) +
+  theme_void() +
+  theme(legend.position = c(1, 0),legend.justification = c(2.5,0))
 ```
 
 ```{r, echo = FALSE}
@@ -235,11 +326,12 @@ Now that we have all the data imported and preprocessed, let's put it all togeth
 Define a function to calculate the relative difference between two numbers. We use this becuase it is a measure of multiplicative distance, rather than additive such as euclidean distance, which makes the values more robust to deviations.
 
 ```{r data_preparation}
+swsn <- coarse_jsd
 swsn_reof <- swsn %N>%
   #mutate(elev = raster::extract(elev, st_coordinates(geometry))) %E>%
   mutate(ws = raster::extract(ws, st_coordinates(geometry))) %E>%
-  mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
-  #filter(between(similarity, .001, .999)) %>%
+  mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
+  #filter(between(JSD, .001, .999)) %>%
   mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
   group_by(from_tmp, to_tmp, time) %>%
   sample_n(1) %>%
@@ -249,9 +341,9 @@ swsn_reof <- swsn %N>%
   convert(to_undirected) %>%
     mutate(dist_geo = geosphere::distGeo(st_coordinates(.N()$geometry[from]), st_coordinates(.N()$geometry[to])) / 1000) %N>%
  # morph(to_split, time, split_by = 'edges') %N>% # split into subgraphs
-#  mutate(degree = centrality_degree(weights = similarity),
-#         trans = local_transitivity(weights = similarity),
-#         cluster = group_leading_eigen(weights = similarity)) %E>%
+#  mutate(degree = centrality_degree(weights = JSD),
+#         trans = local_transitivity(weights = JSD),
+#         cluster = group_leading_eigen(weights = JSD)) %E>%
 #  mutate(size = .N()$degree[from] * .N()$degree[to],
 #         trans_edge = .N()$trans[from] * .N()$trans[to],
 #         cluster_same = .N()$cluster[from] == .N()$cluster[to]) %N>%
@@ -294,7 +386,7 @@ eof5 = abs(.N()$eof5[from] - .N()$eof5[to]),
 dat <- swsn_reof %E>%
   as_tibble %>%
   mutate(from = as.factor(from), to = as.factor(to), time = as.factor(time)) %>%
-  mutate(tie = similarity >= .001) %>%
+  mutate(tie = JSD >= .001) %>%
   filter(tie == TRUE)
 write_csv(dat,'dat.csv')
 #amplitudes <- read_csv('output/amplitudes.csv') %>%
@@ -315,7 +407,7 @@ ggplot(dat, aes(log(rooms))) +
 ggplot(dat, aes(log(distance + .6))) +
   geom_histogram() + facet_wrap(~time)
 
-ggplot(dat, aes(qlogis(similarity))) +
+ggplot(dat, aes(qlogis(JSD))) +
   geom_histogram() + facet_wrap(~time)
 
 ggplot(dat, aes(log(eof1 + .001))) +
@@ -331,7 +423,7 @@ ggplot(dat, aes((ws))) +
 ```
 
 ```{r}
-fit_gam_similarity <- function(x, y){
+fit_gam_JSD <- function(x, y){
   gamm(x, method = 'ML', 
             family = gaussian(),
       correlation = corMLPE(form = ~from + to),
@@ -351,10 +443,10 @@ s(log(ws_mul), bs ='cs', k = 6) +
 s(reof5, bs = 'cs', k = 6) +
  s(reof6, bs = 'cs', k = 6)"
    ) %>%
-  paste('qlogis(similarity) ~', .) %>%
+  paste('qlogis(JSD) ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
-         model = future_map(formula, fit_gam_similarity)) %>%
+         model = future_map(formula, fit_gam_JSD)) %>%
   mutate(lme = map(model, ~.$lme),
          gam = map(model, ~.$gam),
          aic = map_dbl(lme, AIC)) %>%
@@ -400,24 +492,24 @@ library(patchwork)
 
 plt_dat <- swsn_reof %E>% 
   filter(time == 1200, 
-         similarity > 0.001) %>%
-  mutate(similarity = if_else(similarity > .999, .999, similarity),
+         JSD > 0.001) %>%
+  mutate(JSD = if_else(JSD > .999, .999, JSD),
          pred_mod = plogis(predict(models$gam[[1]], newdata = as_tibble(.), type = 'response')),
          pred_null = plogis(predict(models$gam[[2]], newdata = as_tibble(.), type = 'response')),
           #pred_null = (predict(m3, newdata = as_tibble(.), type = 'response')),
          #pred_mod = (predict(m4, newdata = as_tibble(.), type = 'response')),
-         res_null = (similarity) - pred_null,
-         res_mod = (similarity) - pred_mod)
+         res_null = (JSD) - pred_null,
+         res_mod = (JSD) - pred_mod)
   
 
 
 a <- plt_dat %>%
-arrange(similarity) %>%
+arrange(JSD) %>%
 ggraph('manual', x = pts$x, y = pts$y) +
-  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  geom_edge_fan(aes(alpha = JSD, color = JSD)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'Similarity', limits = c(0,1)) +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
   coord_sf(datum = NA) +
    labs(subtitle = 'A') +
   theme_void()
@@ -428,7 +520,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
  # scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'Similarity', limits = c(0,1)) +
+    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
   coord_sf(datum = NA) +
    labs(subtitle = 'B') +
   theme_void()
@@ -439,7 +531,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none') +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
-    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'Similarity', limits = c(-1,1)) +
+    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
   coord_sf(datum = NA) +
    labs(subtitle = 'C') +
   theme_void()
@@ -450,7 +542,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
     #scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
-    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'Similarity', limits = c(-1,1)) +
+    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
   coord_sf(datum = NA) +
   labs(subtitle = 'D') +
   theme_void()
@@ -461,7 +553,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'Similarity', limits = c(0,1)) +
+    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
   coord_sf(datum = NA) +
    labs(subtitle = 'E') +
   theme_void()
@@ -472,7 +564,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
   scale_edge_alpha(guide = 'none') +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
-    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'Similarity', limits = c(-1,1)) +
+    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
   coord_sf(datum = NA) +
    labs(subtitle = 'F') +
   theme_void()
@@ -483,7 +575,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
   scale_edge_alpha(guide = 'none') +
    # scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
-    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'Similarity', limits = c(-1,1)) +
+    scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
   coord_sf(datum = NA) +
   labs(subtitle = 'G') +
   theme_void()
@@ -495,20 +587,20 @@ ggsave('figures/null_model.png')
 ```{r}
 m1 <- dat %>%
   filter(tie == TRUE) %>%
-  gam(similarity ~ s(from, bs = 're') + s(to, bs = 're') + s(distance, bs ='cr', k = 5) + time, data = ., discrete = TRUE, family = betar)
+  gam(JSD ~ s(from, bs = 're') + s(to, bs = 're') + s(distance, bs ='cr', k = 5) + time, data = ., discrete = TRUE, family = betar)
 m2 <- dat %>%
   filter(tie == TRUE) %>%
-  gam(similarity ~ s(from, bs = 're') + s(distance, bs ='cr', k = 5) + time, data = ., discrete = TRUE, family = betar)
+  gam(JSD ~ s(from, bs = 're') + s(distance, bs ='cr', k = 5) + time, data = ., discrete = TRUE, family = betar)
 
 m3 <- dat %>%
   filter(tie == TRUE) %>%
-  gam(similarity ~ s(from, bs = 're') + s(to, bs = 're') + s(distance, bs ='cr') +
+  gam(JSD ~ s(from, bs = 're') + s(to, bs = 're') + s(distance, bs ='cr') +
        s(reof1, time, bs = 'fs') + s(reof2, time, bs = 'fs') + 
         s(reof3, time, bs = 'fs') + s(reof4, time, bs = 'fs') +
         s(reof5, time, bs = 'fs') + s(reof6, time, bs = 'fs'), data = .,discrete = TRUE, family = betar)
 m4 <- dat %>%
   filter(tie == TRUE) %>%
-  gam(similarity ~ s(from, bs = 're') + s(distance, bs ='cr', k = 5) +
+  gam(JSD ~ s(from, bs = 're') + s(distance, bs ='cr', k = 5) +
         s(eof1, bs = 'cs', k = 6) +
        s(eof2, bs = 'cs', k = 6) +
        s(eof3, bs = 'cs', k = 6) +
@@ -524,7 +616,7 @@ plot(m3)
 ```{r}
 m2 <- dat %>%
   filter(tie == TRUE) %>%
-  bam(similarity ~ s(distance) + 
+  bam(JSD ~ s(distance) + 
         s(size) + s(log(rooms)) + 
         s(reof1, time, bs = 'fs') + s(reof2, time, bs = 'fs') + 
         s(reof3, time, bs = 'fs') + s(reof4, time, bs = 'fs'), 
@@ -534,7 +626,7 @@ gam.check(m2)
 summary(m2)
 
 swsn_reof %E>% 
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   mutate(pred = predict(m2, newdata = as_tibble(.), type = 'response')) %>%
   arrange(pred) %>%
 ggraph('manual', node.positions = pts) +
@@ -549,7 +641,7 @@ ggraph('manual', node.positions = pts) +
 
 ```{r}
 test1 <- swsn_reof %>%
-  filter(similarity > 0,
+  filter(JSD > 0,
          from < to) #%>%
 
 test1 %>%
@@ -587,22 +679,22 @@ We use a time factor variable, in part, to allow for the varying amplitudes of e
 ```{r}
 swsn_norm <- swsn_reof %>%
   morph(to_split, time, split_by = 'edges') %N>% # split into subgraphs
-  mutate(outflow = centrality_degree(weights = similarity, mode = 'out')) %E>%
-  #mutate(trans_weight = similarity / .N()$outflow[from]) %>%
+  mutate(outflow = centrality_degree(weights = JSD, mode = 'out')) %E>%
+  #mutate(trans_weight = JSD / .N()$outflow[from]) %>%
   mutate(rel_size = .N()$outflow[from] * .N()$outflow[to],
-         test = similarity * sum(similarity) / rel_size) %N>%
+         test = JSD * sum(JSD) / rel_size) %N>%
   select(-outflow) %>%
   unmorph %E>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   filter(from < to) %>%
   mutate(test = (test - 1) / (test + 1), test = (test+ 1) / 2)
 
 mod1 <- swsn_norm %E>%
   as_tibble %>%
   mutate(from = as.factor(from), to = as.factor(to), time = as.factor(time)) %>%
-  mutate(tie = similarity > 0) %>%
+  mutate(tie = JSD > 0) %>%
   mutate(time_num = as.numeric(time)) %>%
-  mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
+  mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
   filter(tie == TRUE) %>% 
   bam(test ~ s(distance, bs = 'cr', k = 6) +
          te(reof1, time_num, k = c(6, 4), fx = c(F,T)) +
@@ -627,9 +719,9 @@ plot(mod1, scheme = 2, trans = plogis)
 mod2 <- swsn_norm %E>%
   as_tibble %>%
   mutate(from = as.factor(from), to = as.factor(to), time = as.factor(time)) %>%
-  mutate(tie = similarity > 0) %>%
+  mutate(tie = JSD > 0) %>%
   mutate(time_num = as.numeric(time)) %>%
-  mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
+  mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
   filter(tie == TRUE) %>% 
   bam(test ~ s(distance, bs = 'cr', k = 4),# +
        #  s(reof1, bs = 'cr', k = 6) +
@@ -663,11 +755,11 @@ knitr::kable(
 
 ```{r}
 swsn_reof %E>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   filter(from < to) %>%
-  arrange(similarity) %>%
+  arrange(JSD) %>%
 ggraph('manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  geom_edge_fan(aes(alpha = JSD, color = JSD)) +
   geom_sf(data = states, fill = NA, color = 'black') +
   facet_edges(~time) +
   scale_edge_alpha(guide = 'none') +
@@ -676,13 +768,13 @@ ggraph('manual', node.positions = pts) +
   theme_void()
 
 swsn_reof %E>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   filter(from < to) %>%
-  mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
-  mutate(similarity = qlogis(similarity)) %>%
-  arrange(similarity) %>% 
+  mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
+  mutate(JSD = qlogis(JSD)) %>%
+  arrange(JSD) %>% 
 ggraph('manual', node.positions = pts) +
-  geom_edge_fan(aes(alpha = similarity, color = similarity)) +
+  geom_edge_fan(aes(alpha = JSD, color = JSD)) +
   geom_sf(data = states, fill = NA, color = 'black') +
   facet_edges(~time) +
   scale_edge_alpha(guide = 'none') +
@@ -692,7 +784,7 @@ ggraph('manual', node.positions = pts) +
 
 
 swsn_reof %E>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   filter(from < to) %>%
   mutate(time_num = as.numeric(time)) %>%
   mutate(., pred = predict(mod2, as_tibble(.))) %>% pull(pred)
@@ -728,7 +820,7 @@ dat %>%
 
 ## Distance modeling
 
-Our data have a lot of zeros in them. To do this, we'll actually fit two models: a logistic regression for the presence or absence of any material culture similarity between two sites, and a beta regression for the intensity of the interaction when it does exist. 
+Our data have a lot of zeros in them. To do this, we'll actually fit two models: a logistic regression for the presence or absence of any material culture JSD between two sites, and a beta regression for the intensity of the interaction when it does exist. 
 
 First we predict the presence of a tie via logistic regression. Should we include size as a default predictor in the model? It doesn't increase the deviance explaned at all, but AIC says yes
 
@@ -795,7 +887,7 @@ Next model the interaction intensities.
 
 Define a function that, when applied to a dataset and a gam formula, will fit a gam of that formula.
 ```{r fit_gam}
-fit_gam_similarity <- function(x, y){
+fit_gam_JSD <- function(x, y){
   gamm(x, method = 'ML', 
       family = gaussian(),
       correlation = corMLPE(form = ~from + to),
@@ -808,7 +900,7 @@ model_list <- c(
     s(pc3, bs = 'cs') + s(pc4, bs = 'cs')",
   "s(distance, bs = 'cr') + s(reof1, bs = 'cs') + s(reof2,  bs = 'cs') + 
     s(reof3, bs = 'cs') + s(reof4, bs = 'cs')") %>%
-  paste('qlogis(similarity) ~', .) %>%
+  paste('qlogis(JSD) ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula))
   
@@ -816,36 +908,36 @@ model_list <- c(
 
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula)) 
-         model = purrr::map(formula, fit_gam_similarity)) %>%
+         model = purrr::map(formula, fit_gam_JSD)) %>%
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
 
 test <- dat %>%
-  filter(similarity > 0) %>%
-  mutate(similarity = if_else(similarity >= .999, 0.999, similarity)) %>%
+  filter(JSD > 0) %>%
+  mutate(JSD = if_else(JSD >= .999, 0.999, JSD)) %>%
   group_by(time) %>%
   sample_frac(.5) %>%
   nest
 
-similarity_models <- map_df(seq_len(5), ~model_list) %>%
+JSD_models <- map_df(seq_len(5), ~model_list) %>%
   mutate(time = levels(dat$time) %>% rep(3)) %>%
   left_join(test) %>%
-  mutate(model = purrr::map2(formula, data, ~fit_gam_similarity(.x,.y)))
+  mutate(model = purrr::map2(formula, data, ~fit_gam_JSD(.x,.y)))
 ```
 
 
 
 ```{r}
 test <- dat %>%
-  filter(similarity > 0) %>%
-  mutate(similarity = if_else(similarity > .999, .999, similarity)) %>%
+  filter(JSD > 0) %>%
+  mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
   #filter(time == 1350) %>%
  # filter(time %in% c(1250, 1300, 1350, 1400)) %>%
   #group_by(time) %>%
   sample_frac(.4) %>%
   mutate(time_num = as.numeric(time)) 
 
-test1 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr') + time,
+test1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr') + time,
               method = 'REML',
               correlation = corMLPE(form = ~from + to|time),
               data = test)
@@ -853,7 +945,7 @@ test1 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr') + time,
 summary(test1$gam)
 plot(test1$gam, trans = plogis, residuals = T)
 swsn_reof %E>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   filter(from < to) %>%
   mutate(., pred = plogis(predict(test1$gam, as_tibble(.)))) %>%
   arrange(pred) %>%
@@ -866,10 +958,10 @@ ggraph('manual', node.positions = pts) +
   coord_sf(datum = NA) +
   theme_void()
 swsn_reof %E>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   filter(from < to) %>%
   mutate(., pred = predict(test1$gam, as_tibble(.))) %>%
-  mutate(res = similarity - pred) %>%
+  mutate(res = JSD - pred) %>%
   arrange(res) %>%
 ggraph('manual', node.positions = pts) +
   geom_edge_fan(aes(alpha = res, color = res)) +
@@ -880,10 +972,10 @@ ggraph('manual', node.positions = pts) +
   coord_sf(datum = NA) +
   theme_void()
 swsn_reof %E>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   filter(from < to) %>%
   mutate(., pred = plogis(predict(test1$gam, as_tibble(.)))) %>%
-  mutate(res = similarity - pred) %>%
+  mutate(res = JSD - pred) %>%
   arrange(-res) %>%
 ggraph('manual', node.positions = pts) +
   geom_edge_fan(aes(alpha = res, color = res)) +
@@ -896,7 +988,7 @@ ggraph('manual', node.positions = pts) +
 ```
 
 ```{r}
-test3 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 6)   +
+test3 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6)   +
          s(log(rooms), bs = 'cs', k = 6) +
            s(elev, bs = 'cr', k = 6) +
        s(reof1, bs = 'cs', k = 6) +
@@ -917,7 +1009,7 @@ test3 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 6)   +
 summary(test3$gam)
 plot(test3$gam, trans = plogis)
 swsn_reof %E>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   filter(from < to) %>%
   mutate(., pred = (predict(test3$gam, as_tibble(.)))) %>%
   arrange(pred) %>%
@@ -934,7 +1026,7 @@ ggraph('manual', node.positions = pts) +
 
 
 ```{r}
-test3 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 6)   +
+test3 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6)   +
        # s(log(size), bs = 'cs', k = 6) +
          s(log(reof1), bs = 'cs', k = 6) +
          s(log(reof2), bs = 'cs', k = 6) +
@@ -950,7 +1042,7 @@ test3 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 6)   +
          correlation = corMLPE(form = ~from + to),
          data = test)
 
-test2 <- gamm(qlogis(similarity) ~ s(distance, time_num, k = c(6, 4), fx = c(F,T))   +
+test2 <- gamm(qlogis(JSD) ~ s(distance, time_num, k = c(6, 4), fx = c(F,T))   +
         te(log(size), time_num, k = c(6, 4), fx = c(F,T)) +
          te(log(reof1), time_num, k = c(6, 4), fx = c(F,T)) +
          te(log(reof2), time_num, k = c(6, 4), fx = c(F,T)) +
@@ -966,7 +1058,7 @@ test2 <- gamm(qlogis(similarity) ~ s(distance, time_num, k = c(6, 4), fx = c(F,T
          data = test)
 
 test6
-test4 <- gamm(qlogis(similarity) ~ s(distance, bs = 'cr', k = 6)   +
+test4 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6)   +
          log(reof1)+
          log(reof2)+
          log(reof3) +
@@ -987,7 +1079,7 @@ plot(test2$gam, pages = 1, scale = )
 plot(test1$gam, pages = 1, scale = 0)
 ```
 ```{r}
-test1 <- gamm(qlogis(similarity) ~  s(distance, bs = 'cr', m = 2, k = 4) + s(distance, by = time, bs = 'cs', m = 1, k = 4) + 
+test1 <- gamm(qlogis(JSD) ~  s(distance, bs = 'cr', m = 2, k = 4) + s(distance, by = time, bs = 'cs', m = 1, k = 4) + 
   s(reof1, bs = 'cr', m = 2, k = 4) + s(reof1, by = time, bs = 'cs', m = 1, k = 4) + 
   s(reof2, bs = 'cr', m = 2, k = 4) + s(reof2, by = time, bs = 'cs', m = 1, k = 4) +
   s(reof3, bs = 'cr', m = 2, k = 4) + s(reof3, by = time, bs = 'cs', m = 1, k = 4) + 
@@ -1002,28 +1094,28 @@ test1 <- gamm(qlogis(similarity) ~  s(distance, bs = 'cr', m = 2, k = 4) + s(dis
       correlation = corMLPE(form = ~from + to),
       data = test)
 
-t5 <-gls(qlogis(similarity) ~ time + log(distance) + reof1, correlation = corMLPE(form = ~from + to|time), data = test, method = 'ML')
+t5 <-gls(qlogis(JSD) ~ time + log(distance) + reof1, correlation = corMLPE(form = ~from + to|time), data = test, method = 'ML')
 
 test %>%
   modelr::add_predictions(t4) %>%
   mutate(pred = plogis(pred)) %>%
-  ggplot(aes(distance, pred, color = time)) + geom_point(aes(y = similarity), alpha = .1) + geom_line() +geom_smooth()
+  ggplot(aes(distance, pred, color = time)) + geom_point(aes(y = JSD), alpha = .1) + geom_line() +geom_smooth()
 test %>%
   modelr::add_predictions(t4) %>%
   mutate(pred = pred) %>%
-  mutate(res = qlogis(similarity) - pred) %>%
+  mutate(res = qlogis(JSD) - pred) %>%
   ggplot(aes(log(reof2), res, color = time)) + geom_point(alpha = .1) + geom_smooth()
 AIC(t1,t2,t3, t4)
 summary(t4)
 plot(test$distance, predict(t4, newd))
 
-test2 <- gamm(qlogis(similarity) ~ time + pair,
+test2 <- gamm(qlogis(JSD) ~ time + pair,
   method = 'REML', 
       family = gaussian(),
       correlation = corMLPE(form = ~from + to),
       data = test)
 
-test3 <- gamm(qlogis(similarity) ~  te(distance, time_num) +
+test3 <- gamm(qlogis(JSD) ~  te(distance, time_num) +
   te(pc1, time_num) +
   te(pc2, time_num) +
   te(pc3, time_num) +
@@ -1085,10 +1177,10 @@ beta_models <- c(
   s(reof4, bs = 'ts', m = 2) + s(reof4, by = time, bs = 'ts', m = 1) + 
   time + macro_same"
    ) %>%
-  paste('similarity ~', .) %>%
+  paste('JSD ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
-         model = purrr::map(formula, fit_gam_similarity)) %>%
+         model = purrr::map(formula, fit_gam_JSD)) %>%
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
 ```
@@ -1107,10 +1199,10 @@ geo_models <- c(
     "s(distance, by = time, bs = 'tp', m = 2) + s(time, bs = 're', k = 5)",
     "s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + s(time, bs = 're', k = 5)"
    ) %>%
-  paste('similarity ~', .) %>%
+  paste('JSD ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
-         model = purrr::map(formula, fit_gam_similarity)) %>%
+         model = purrr::map(formula, fit_gam_JSD)) %>%
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
 ```
@@ -1125,7 +1217,7 @@ size_models <-  c(
     "s(log(distance), by = time, bs = 'ts', m = 2) + s(time, bs = 're', k = 5) + s(size, by = time, bs = 'ts', m = 2)",
     "s(log(distance), by = time, bs = 'ts', m = 2) + s(time, bs = 're', k = 5) + s(log(size), by = time, bs = 'ts', m = 2)"
    ) %>%
-  paste('similarity ~', .) %>%
+  paste('JSD ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
          model = purrr::map(formula, fit_gam)) %>%
@@ -1160,12 +1252,12 @@ library(corMLPE)
 library(tidyverse)
 library(mgcv)
 test2 <-  dat %>%
-  filter(similarity > 0) %>%
-  mutate(similarity = if_else(similarity >= .999, 0.999, similarity)) %>%
+  filter(JSD > 0) %>%
+  mutate(JSD = if_else(JSD >= .999, 0.999, JSD)) %>%
   group_by(time)%>%
   sample_n(886) %>%
  # filter(time %in% c(1250,1300, 1350, 1400)) %>%
-  gamm(qlogis(similarity) ~ te(distance, as.numeric(time), k = 4),
+  gamm(qlogis(JSD) ~ te(distance, as.numeric(time), k = 4),
   # s(reof1, by = time, bs = 'ts', m = 2) + 
    #s(reof2, by = time, bs = 'ts', m = 2) +
    #s(reof3, by = time, bs = 'ts', m = 2) + 
@@ -1175,11 +1267,11 @@ test2 <-  dat %>%
          data = .)
 
 test <-  dat %>%
-  filter(similarity > 0) %>%
-  mutate(similarity = if_else(similarity >= .999, 0.999, similarity)) %>%
+  filter(JSD > 0) %>%
+  mutate(JSD = if_else(JSD >= .999, 0.999, JSD)) %>%
   group_by(time)%>%
   sample_frac(.) %>%
-  gamm(qlogis(similarity) ~  s(distance, bs = 'cr') + time +
+  gamm(qlogis(JSD) ~  s(distance, bs = 'cr') + time +
   s(pc1, bs = 'cs') + 
   s(pc2, bs = 'cs') + 
    s(pc3, bs = 'cs') +
@@ -1194,24 +1286,24 @@ test <-  dat %>%
 test
 
 test <-  dat %>%
-  filter(similarity > 0) %>%
-  mutate(similarity = if_else(similarity >= .999, 0.999, similarity)) %>%
+  filter(JSD > 0) %>%
+  mutate(JSD = if_else(JSD >= .999, 0.999, JSD)) %>%
 filter(time = 1300) %>%
-  gamm(qlogis(similarity) ~  s(distance, bs = 'cr'), 
+  gamm(qlogis(JSD) ~  s(distance, bs = 'cr'), 
          correlation = corMLPE(form = ~from + to|time),
   method = 'REML',
          data = .)
 
 plot(test$gam, trans = plogis)
 plot(test2$gam, scheme = 1)
-summary(qlogis(dat$similarity))
+summary(qlogis(dat$JSD))
 plot(test$gam)
 summary(test$gam)
 
 concurvity(test$gam)
 
-test <- lme(qlogis(similarity) ~ distance, random = ~distance|time, correlation = corMLPE(form = ~from + to | time), data = dat %>%
-  mutate(similarity = if_else(similarity == 1.0, 1 - .0001, if_else(similarity == 0, .0001, similarity)), from = as.character(from), to = 
+test <- lme(qlogis(JSD) ~ distance, random = ~distance|time, correlation = corMLPE(form = ~from + to | time), data = dat %>%
+  mutate(JSD = if_else(JSD == 1.0, 1 - .0001, if_else(JSD == 0, .0001, JSD)), from = as.character(from), to = 
     as.character(to)))
 ```
 
@@ -1251,7 +1343,7 @@ expand.grid(distance = 100000,
 ```
 
 ```{r}
-mod <- bam(similarity ~ 
+mod <- bam(JSD ~ 
   s(distance, bs = 'tp', m = 2) + s(distance, by = time, bs = 'ts', m = 1) + 
   s(size, bs = 'ts', m = 2) + s(size, by = time, bs = 'ts', m = 1) + 
   s(pc1, bs = 'ts', m = 2) + s(pc1, by = time, bs = 'ts', m = 1) + 
@@ -1277,7 +1369,7 @@ concurvity(mod)
 ```
 
 ```{r}
-mod3 <- bam(similarity ~ 
+mod3 <- bam(JSD ~ 
    s(distance, time, bs = 'fs', m = 2) + 
    s(log(size), time, bs = 'fs', m = 2) + 
    s(reof1, time, bs = 'fs', m = 2) + 
@@ -1295,7 +1387,7 @@ plot(mod3)
 
 
 ```{r}
-mod2 <- bam(similarity ~ 
+mod2 <- bam(JSD ~ 
    s(distance, by = time, bs = 'cr') + 
    s(log(size), by = time, bs = 'cr') + 
    s(reof1, by = time, bs = 'cr') + 
@@ -1377,7 +1469,7 @@ all_models <- c(
   s(reof4, bs = 'ts') +
   s(time, bs = 're', k = 5)"
    ) %>%
-  paste('similarity ~', .) %>%
+  paste('JSD ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
          model = purrr::map(formula, fit_gam)) %>%
@@ -1450,7 +1542,7 @@ plot(all_models[[2,3]], scale = -1)
 ```
 
 ```{r}
-ggplot(dat, aes(abs(reof1_from - reof1_to), similarity)) +
+ggplot(dat, aes(abs(reof1_from - reof1_to), JSD)) +
   geom_point(alpha = .1, aes(color = time)) +
     scale_color_brewer(palette = 'Spectral', direction = 1) +
   geom_smooth(aes(group = time, color = time)) +
@@ -1465,7 +1557,7 @@ ggplot(aes(abs(reof4_from - reof4_to), resid)) +
   geom_smooth(aes(group = time, color= time)) +
   geom_smooth() +
   scale_color_brewer(palette = 'Spectral', direction = 1) +
-  #labs(title = '', x = 'Distance', y = 'Similarity') +
+  #labs(title = '', x = 'Distance', y = 'JSD') +
   theme_bw()
 
 dat %>%
@@ -1476,7 +1568,7 @@ ggplot(aes(abs(size_from - size_to), resid)) +
   geom_smooth(aes(group = time, color= time)) +
   geom_smooth() +
   scale_color_brewer(palette = 'Spectral', direction = 1) +
-  #labs(title = '', x = 'Distance', y = 'Similarity') +
+  #labs(title = '', x = 'Distance', y = 'JSD') +
   theme_bw()
 
 dat %>%
@@ -1487,18 +1579,18 @@ ggplot(aes(abs(pc4_from - pc4_to), resid)) +
   geom_smooth(aes(group = time, color= time)) +
   geom_smooth() +
   scale_color_brewer(palette = 'Spectral', direction = 1) +
-  #labs(title = '', x = 'Distance', y = 'Similarity') +
+  #labs(title = '', x = 'Distance', y = 'JSD') +
   theme_bw()
 ```
 
 
 ## Cultural costs
-Higher than average similarity within macroregions, but not significantly when you control for distance. Looks like there are a lot of outliers withhigh simliarity between macroregion that we're not yet capturing. the difference shrinks when we control for difference, because the "same macrogregion" will covary with distance
+Higher than average JSD within macroregions, but not significantly when you control for distance. Looks like there are a lot of outliers withhigh simliarity between macroregion that we're not yet capturing. the difference shrinks when we control for difference, because the "same macrogregion" will covary with distance
 
 ```{r}
-ggplot(dat, aes(macro_same, similarity)) +
+ggplot(dat, aes(macro_same, JSD)) +
   geom_boxplot() +
-  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  labs(title = '', x = 'Share macroregion?', y = 'JSD') +
   theme_bw()
 
 ggplot(dat, aes(macro_same, distance)) +
@@ -1511,19 +1603,19 @@ dat %>%
   mutate(resid = residuals(mod, type = 'response')) %>%
 ggplot(aes(macro_same, resid)) +
   geom_boxplot() +
-  labs(title = '', x = 'Distance', y = 'Similarity') +
+  labs(title = '', x = 'Distance', y = 'JSD') +
   theme_bw()
 ```
 
 ```{r}
-ggplot(dat, aes(macro_from, similarity)) +
+ggplot(dat, aes(macro_from, JSD)) +
   geom_boxplot() +
-  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  labs(title = '', x = 'Share macroregion?', y = 'JSD') +
   theme_bw()
 
-ggplot(dat, aes(macro_to, similarity)) +
+ggplot(dat, aes(macro_to, JSD)) +
   geom_boxplot() +
-  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  labs(title = '', x = 'Share macroregion?', y = 'JSD') +
   theme_bw()
 ```
 
@@ -1533,14 +1625,14 @@ dat %>%
   mutate(resid = residuals(mod1, type = 'response')) %>%
 ggplot(aes(macro_from, resid)) +
   geom_boxplot() +
-  labs(title = '', x = 'Distance', y = 'Similarity') +
+  labs(title = '', x = 'Distance', y = 'JSD') +
   theme_bw()
 ```
 
 ```{r}
-ggplot(dat, aes(micro_same, similarity)) +
+ggplot(dat, aes(micro_same, JSD)) +
   geom_boxplot() +
-  labs(title = '', x = 'Share microregion?', y = 'Similarity') +
+  labs(title = '', x = 'Share microregion?', y = 'JSD') +
   theme_bw()
 
 ggplot(dat, aes(micro_same, distance)) +
@@ -1553,19 +1645,19 @@ dat %>%
   mutate(resid = residuals(mod, type = 'response')) %>%
 ggplot(aes(micro_same, resid)) +
   geom_boxplot() +
-  labs(title = '', x = 'Distance', y = 'Similarity') +
+  labs(title = '', x = 'Distance', y = 'JSD') +
   theme_bw()
 ```
 
 ```{r}
-ggplot(dat, aes(micro_from, similarity)) +
+ggplot(dat, aes(micro_from, JSD)) +
   geom_boxplot() +
-  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  labs(title = '', x = 'Share macroregion?', y = 'JSD') +
   theme_bw()
 
-ggplot(dat, aes(micro_to, similarity)) +
+ggplot(dat, aes(micro_to, JSD)) +
   geom_boxplot() +
-  labs(title = '', x = 'Share macroregion?', y = 'Similarity') +
+  labs(title = '', x = 'Share macroregion?', y = 'JSD') +
   theme_bw()
 
 
@@ -1574,7 +1666,7 @@ dat %>%
   mutate(resid = residuals(mod1, type = 'response')) %>%
 ggplot(aes(micro_to, resid)) +
   geom_boxplot() +
-  labs(title = '', x = 'Distance', y = 'Similarity') +
+  labs(title = '', x = 'Distance', y = 'JSD') +
   theme_bw()
 ```
 
@@ -1611,7 +1703,7 @@ dat %>%
 ggplot(aes(macro_from == macro_to, resid)) +
   geom_point(alpha = .1) +
   geom_smooth() +
-  labs(title = '', x = 'Distance', y = 'Similarity') +
+  labs(title = '', x = 'Distance', y = 'JSD') +
   theme_bw()
 ```
 So think about the models to fit. micro same, macro same, and micro and macro same. repeat for micro/macro from/to pairs. Nest all that in same not same. then compare with no distance, distance, and distance + centrality
@@ -1643,7 +1735,7 @@ clim_models2 <- c(
       "s(distance, bs = 'cr') + s(abs(pc1_from - pc1_to), bs = 'cr') + s(abs(pc2_from - pc2_to), bs = 'cr') + s(abs(pc3_from - pc3_to), bs = 'cr') + s(abs(pc4_from - pc4_to), bs = 'cr')"
            #"s(distance, bs = 'cr') + s(abs(reof1_from - reof1_to), bs = 'cr') + s(abs(reof2_from - reof2_to), bs = 'cr') + s(abs(reof3_from - reof3_to), bs = 'cr') + s(abs(reof4_from - reof4_to), bs = 'cr') + s(abs(pc1_from - pc1_to), bs = 'cr') + s(abs(pc2_from - pc2_to), bs = 'cr') + s(abs(pc3_from - pc3_to), bs = 'cr') + s(abs(pc4_from - pc4_to), bs = 'cr')"
       ) %>%
-  paste('similarity ~', .) %>%
+  paste('JSD ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
          model = purrr::map(formula, fit_gam)) %>%
@@ -1670,7 +1762,7 @@ gam.check(clim_models2[[1,3]])
 ```
 
 
-Interesting. Looks like there is increased similarity between locations with similar precipitation patterns or different temperature patterns. I should:
+Interesting. Looks like there is increased JSD between locations with similar precipitation patterns or different temperature patterns. I should:
 1. compare temperature and elevation regressions alone to see which is better
 2. use unrotated EOFs, maybe winter ones too?
 3. Use PCA of bioclim variables
@@ -1684,7 +1776,7 @@ Interesting. Looks like there is increased similarity between locations with sim
 ```
 
 ```{r eval = FALSE}
-mod5 <- gam(fractional_similarity ~ s(distance, bs = 'cr') +
+mod5 <- gam(fractional_JSD ~ s(distance, bs = 'cr') +
               s(eof1, bs = 'cr') +
               s(eof2, bs = 'cr') +
               s(eof3, bs = 'cr') +
@@ -1694,7 +1786,7 @@ mod5 <- gam(fractional_similarity ~ s(distance, bs = 'cr') +
             family = betar(link = 'cloglog'),
             data = dat)
 
-mod6 <- gam(similarity ~ s(distance, bs = 'cr') +
+mod6 <- gam(JSD ~ s(distance, bs = 'cr') +
               s(abs(eof1), bs = 'cr') +
               s(abs(eof2), bs = 'cr') +
               s(abs(eof3), bs = 'cr') +
@@ -1726,7 +1818,7 @@ swsn %E>%
 ```
 ```{r eval = FALSE}
 swsn %N>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   mutate(resid = residuals(geo_models[[6,2]], type = 'response')) %>%
   filter(resid > .25 | resid < -.25) %>%
   mutate(fac = if_else(resid > 0, 'pos', 'neg')) %>%
@@ -1741,24 +1833,24 @@ swsn %N>%
 Looks like distance is correlated with residuals
 ```{r eval = FALSE}
 dat %>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
   as_tibble %>%
   qplot(distance, resid, data = ., geom = 'point', alpha = I(.1), color = as.factor(time))
 ```
 ```{r eval = FALSE}
 dat %>%
-  filter(similarity > 0) %>%
+  filter(JSD > 0) %>%
   mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
   as_tibble %>%
   qplot(abs(eof1), resid, data = ., geom = 'point', alpha = I(.1), color = as.factor(time))
 ```
 ```{r eval = FALSE}
 swsn %E>%
-    filter(similarity > 0) %>%
+    filter(JSD > 0) %>%
   mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
   filter(time == 1) %N>%
-  mutate(centrality = centrality_eigen(weights = similarity)) %E>%
+  mutate(centrality = centrality_eigen(weights = JSD)) %E>%
   mutate(cent = .N()$centrality[from] * .N()$centrality[to]) %>%
   as_tibble %>%
   qplot(cent, resid, data = ., geom = 'point', alpha = I(.1))
@@ -1766,13 +1858,13 @@ swsn %E>%
 
 ```{r eval = FALSE}
 swsn %E>%
-    filter(similarity > 0) %>%
+    filter(JSD > 0) %>%
   mutate(resid = residuals(geo_models[[1,2]], type = 'response')) %>%
   filter(time == 3) %N>%
-  mutate(centrality = centrality_eigen(weights = similarity)) %E>%
+  mutate(centrality = centrality_eigen(weights = JSD)) %E>%
   mutate(cent = .N()$centrality[from] + .N()$centrality[to]) %>%
   as_tibble %>%
-  qplot(cent, similarity, data = ., geom = 'point', alpha = I(.1))
+  qplot(cent, JSD, data = ., geom = 'point', alpha = I(.1))
 ```
 
 ```{r echo = FALSE, eval = FALSE}
