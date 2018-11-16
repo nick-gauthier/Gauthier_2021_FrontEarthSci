@@ -20,7 +20,6 @@ monofont: courier
 ```{r, message = FALSE}
 library(raster)
 library(tidyverse)
-library(rayshader)
 library(gdistance)
 library(sf)
 library(smoothr)
@@ -41,19 +40,8 @@ bbox <- extent(c(-113, -107, 31, 37.5)) # define our study area
 
 elev <- raster('~/SRTM_NE_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
   crop(bbox) %>% # crop to study area
-  aggregate(fact  = 2) # aggregate to 750m resolution
+  aggregate(fact = 2) # aggregate to 750m resolution
 ```
-
-Let's plot the elevation with a 50x vertical exaggeration to better visualize the regional terrain.
-
-```{r rayshader, fig.fullwidth = TRUE, echo = FALSE}
-matrix(raster::extract(elev,raster::extent(elev),buffer=1000),
-               nrow=ncol(elev),ncol=nrow(elev)) %>%
-  sphere_shade(texture = "imhof1", zscale = 10, progbar = FALSE) %>%
-  plot_map()
-#ggRGB {RStoolbox} for the future
-```
-
 
 ## Hiking Speeds
 
