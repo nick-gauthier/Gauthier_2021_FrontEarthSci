@@ -21,6 +21,8 @@ monofont: courier
 library(raster)
 library(tidyverse)
 library(gdistance)
+library(tidygraph)
+library(ggraph)
 library(sf)
 library(smoothr)
 ```
@@ -40,7 +42,7 @@ bbox <- extent(c(-113, -107, 31, 37.5)) # define our study area
 
 elev <- raster('~/SRTM_NE_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
   crop(bbox) %>% # crop to study area
-  aggregate(fact = 2) # aggregate to 750m resolution
+  aggregate(fact = 2) # aggregate to ~500m resolution
 ```
 
 ## Hiking Speeds
@@ -50,7 +52,7 @@ Now we use the package *gdistance* to calculate the time it would take for a hik
 The maximum walking speed of 5 assumes on path movement.
 ```{r}
 tobler_adjusted <- function(x){
-  5 * exp(-3.5 * 2.15 * x) / 3.6 # 3.6 turns km/h into m/s
+  3 * exp(-3.5 * 2.15 * x) / 3.6 # 3.6 turns km/h into m/s
 }
 ```
 
@@ -110,24 +112,24 @@ Using the conductance matrix, calculate the full pairwise least cost distance ma
 The points of sites are originally in utm zone 12, so reproject to latlong
 
 ```{r}
-crs_utm <- '+proj=utm +zone=12 +datum=NAD27'
+swsn <- readRDS('output/swsn')
+patches <- swsn %N>%
+  as_tibble %>%
+  st_as_sf
 ```
 
-```{r, message = FALSE}
-sites <- read_csv('data/attributes_orig.csv') %>%
-  st_as_sf(coords = c('EASTING', 'NORTHING'), crs = crs_utm) %>%
-  st_transform('+proj=longlat +datum=WGS84')
-```
+
 
 ```{r least-cost-distances, cache = TRUE}
-distances <- sites %>%
+distances <- patches %>%
   st_coordinates %>%
   costDistance(conductance_c, .) %>% # least cost distances
   as.matrix %>% 
-  `colnames<-`(sites$SWSN_Site) %>%
+  `colnames<-`(patches$name) %>%
   as_tibble %>%
-  mutate(from_site = sites$SWSN_Site) %>%
-  gather(to_site, distance, -from_site)
+  mutate(from_patch = patches$name) %>%
+  gather(to_patch, distance, -from_patch) %>%
+  mutate(distance = distance / 3600)
 ```
 
 ```{r}
@@ -144,11 +146,14 @@ knitr::knit_exit()
 Now we prune the full pairwise distance matrix to only include each site's 15 nearest neighbors.^[This is assuming each site has a conserved amount of potential short distance travel destinations, rather than a fixed travel threshold.] In the case where the path from site i to j is in i's shortest paths but not in j's, the path is included anyway.
 
 ```{r nearest_neighbor}
-nn_mat <- distances %>% 
-  left_join(activate(swsn, edges), ., copy = TRUE, by = c('from', 'to')) %>% # join full SWSN edge data
+nn_mat <- swsn %N>%
+  select(-site, -geometry) %E>%
+  mutate(from_patch = .N()$name[from],
+         to_patch = .N()$name[to]) %>%
+  left_join(distances) %>%
   morph(to_split, time, split_by = 'edges') %>% # split into subgraphs
   group_by(from) %>% 
-  top_n(-5, distance) %>% # retain the top 15 smallest (i.e. shortest) edges
+  top_n(-10, distance) %>% # retain the top 15 smallest (i.e. shortest) edges
   crystallize %>% # make new graphs from the transformed graphs
   pull(graph) %>% # extract just the graph information
   purrr::map(as.undirected, mode = 'collapse', edge.attr.comb = 'first') %>%
@@ -156,16 +161,40 @@ nn_mat <- distances %>%
   reduce(graph_join) %>% # rejoin the subgraphs from each period into a single graph
   convert(to_undirected, .clean = TRUE)
 ```
-
-
 ```{r, echo = FALSE, fig.fullwidth = TRUE}
-ggraph(nn_mat, 'manual', node.positions = pts) +
+ggraph(nn_mat, 'manual', x =x, y=y) +
   geom_edge_link(alpha = .1) +
   facet_edges(~time, nrow = 1) +
   theme_void() +
   coord_equal() +
-  ggtitle('Nearest neighbor network', 'k = 12')
+  ggtitle('Nearest neighbor network', 'k = 10')
 ```
+
+```{r time_mat, fig.margin = TRUE, echo = FALSE}
+time_mat <- swsn %N>%
+  select(-site, -geometry) %E>%
+  mutate(from_patch = .N()$name[from],
+         to_patch = .N()$name[to]) %>%
+  left_join(distances) %>%
+  filter(distance <= 12)# %>%
+  # mutate(max_dist = case_when(
+  #     distance <= 3600 * 1 ~'1 Hours',
+  #     distance <= 3600 * 2 ~'2 Hours',
+  #     distance <= 3600 * 3 ~'3 Hours',
+  #    distance <= 3600 * 4 ~'4 Hours',
+  #    distance <= 3600 * 5 ~'5 Hours',
+  #     distance <= 3600 * 6 ~'6 Hours',
+  #     distance <= 3600 * 7 ~'7 Hours',
+  #     distance <= 3600 * 8 ~'8 Hours')) #%>%
+
+ggraph(time_mat, 'manual', x =x, y = y) +
+  geom_edge_link(alpha = .1) +
+  theme_void() +
+  facet_edges(~time) +
+  coord_equal()
+```
+
+
 
 ```{r}
 distances_indirect <- nn_mat %>%  
@@ -212,8 +241,10 @@ ggraph(test_spat, 'manual', node.positions = pts) +
 ## Least-cost Paths
 
 ```{r shortest_paths}
+library(furrr)
 plan(multicore)
-path_dat <- nn_mat %E>% # neighbor matrix edgelist
+
+path_dat <- swsn_reof %>%   filter(distance <= 12) %E>% # neighbor matrix edgelist
   as_tibble %>% 
   select(from,to) %>% # extract the node ids for each edge pair
   distinct %>% # limit to distinct edges
@@ -228,7 +259,11 @@ path_dat <- nn_mat %E>% # neighbor matrix edgelist
 ```
 
 ```{r, include = FALSE, eval = FALSE}
-path_dat <- swsn %E>% # neighbor matrix edgelist
+pts <- nn_mat %>%
+  as_tibble %>%
+  select(x, y) %>%
+  as.matrix
+path_dat <- nn_mat %E>% # neighbor matrix edgelist
   as_tibble %>% 
   select(from,to) %>% # extract the node ids for each edge pair
   filter(from < to) %>%
@@ -239,9 +274,9 @@ path_dat <- swsn %E>% # neighbor matrix edgelist
   select(-data) %>%
   # calculate the shortest paths
   mutate(paths = future_map2(from, to, ~shortestPath(conductance_c, 
-                                    as.matrix(pts)[.x,], as.matrix(pts)[.y,], 
+                                    pts[.x,], pts[.y,], 
                                     output = 'SpatialLines'), .progress = TRUE))
-```
+plan```
 
 Merge all the lines into one object.
 TODO need to find a way to dissolve overlapping line segments and add either the number or the similarities from each. right now having all these line segments makes plotting virtual impossible because it eats up ram.
