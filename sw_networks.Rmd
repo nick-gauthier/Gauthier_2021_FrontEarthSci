@@ -54,98 +54,6 @@ library(gratia)
 theme_set(theme_bw())
 ```
 
-# Network Analysis: Spatial Interaction Modeling
-
-Now we move on to the archaeological social network proxies.^[Go to http://www.southwestsocialnetworks.net for more information on this dataset and the project] First we read in a csv file containing information for all of the archaeological sites in the database, including spatial location and number of rooms present from each time period. These will become the node-level data for the network.
-
-```{r}
-crs_utm <- '+proj=utm +zone=12 +datum=NAD27'
-```
-
-```{r, message = FALSE}
-sites <- read_csv('data/attributes_orig.csv') %>%
-  st_as_sf(coords = c('EASTING', 'NORTHING'), crs = crs_utm) %>%
-  st_transform('+proj=longlat +datum=WGS84')
-```
-
-```{r, echo = FALSE}
-knitr::kable(
-  sites[1:3,c(1:4,8:10)], caption = 'A subset of the node level data.'
-)
-```
-
-Next import the edge data. Our data come in the form of JSD matrices, one for each time step. We need to define a function for importing and processing a single time step of the edge datasets. This function imports the csv, turns it into a matrix, and then a directed graph. 
-
-```{r read_swsn}
-read_swsn <- function(net, time){
-  read.csv(net, row.names = 1, check.names = FALSE) %>% 
-    as.matrix %>% # convert to a matrix
-    replace(. == 0, 999) %>% # replace 0 values with 999 temporarily
-    as_tbl_graph(directed = TRUE) %E>% # convert to directed graph
-    mutate(weight = if_else(weight == 999, 0, weight)) %>% # convert 999 values back to 0
-    rename(JSD = weight) %>% # rename the edge weights
-    filter(!edge_is_loop()) %>% # remove self loops
-    mutate(time = 1150 + 50 * time) %>%  # set the time period
-    activate('nodes') # activate node data
-}
-```
-
-Row normalization allows us to compare the edges without the node effects, measuring the similarities onthe same scale.
-
-Next we map this function over a lists of simlaritity matrices. Get a list of the JSD files, map the above function over them, reduce to a single graph.  Use reduce and graph join to combiine all of these networks into a single netwtork, retaining the edge weights for each  separate period.
-
-Start by getting a list of the JSD file names, map the read_swsn function over these files, combine into a single graph using the reduce function, and then join to the site database.
-
-```{r swsn_import}
-swsn <- list.files('data/wares/', full.names = TRUE) %>%
-  imap(read_swsn) %>%
-  reduce(graph_join, by = 'name') %>%
-  left_join(sites, by = c('name' = 'SWSN_Site')) 
-```
-
-```{r echo = FALSE, fig.margin = TRUE, fig.cap = 'Example 6x6 simililarity matrix. Note the symmetry'}
-sim_tmp <- read.csv('data/wares/AD1200js', row.names = 1, check.names = FALSE) %>%
-  as.matrix %>%
-  .[1:3,1:3]
-knitr::kable(sim_tmp, caption = 'Example JSD matrix')
-```
-
-```{r}
-states <- maps::map('state', regions = c('arizona', 'new mexico'), 
-                    fill = TRUE, plot = FALSE) %>%
-  st_as_sf
-```
-
-```{r network_plot, echo = FALSE}
-# igraph is very particular about how it wants the points for plotting,
-# requires a data frame with x and y columns
-pts <- swsn %N>% # use swsn instead of sites to get the order right
-  pull(geometry) %>%
-  st_coordinates %>%
-  as_tibble %>%
-  rename(x = X, y = Y)
-
-plot_swsn <- function(net, ncols = 3){
-  net %E>%
-    filter(JSD > .001) %>%
-    filter(from < to) %>%
-     mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
-    arrange(JSD) %>%
-  ggraph('manual', x = pts$x, y = pts$y) +
-  geom_edge_fan(aes( color = JSD)) +
-          geom_sf(data = states, fill = NA, color = 'black') +
-  facet_edges(~time, ncol = ncols) +
-  scale_edge_alpha(guide = 'none') +
-  #scale_edge_color_viridis(name = 'JSD', option = 'magma') +#, limits = c(0,1)
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'JSD') +
-  coord_sf(datum = NA) +
-  theme_void() +
-  theme(legend.position = c(1, 0),legend.justification = c(2.5,0))
-}
-
-plot_swsn(swsn, ncols = 3)
-ggsave('figures/JSD_network.png', width = 7)
-```
 
 ## Data Extraction
 
@@ -199,88 +107,26 @@ reof_raster %>%
   geom_raster(aes(x, y, fill = value)) +
   scale_fill_distiller(palette = 'BrBG', limits = c(-1, 1)) +
   geom_sf(data = states, fill = NA, color = 'black') +
-  geom_sf(data = filter(sites, P4room > 0)) +
+  geom_sf(data = filter(sites, P1room > 0)) +
   facet_wrap(~layer) +
+  coord_sf(datum = NA) +
+  theme_void()
+
+reof_raster %>%
+  disaggregate(fact = 2, method = 'bilinear') %>%
+    abs %>%
+    which.max %>%
+    crop(states) %>%
+    mask(states) %>%
+    as.data.frame(xy = TRUE, na.rm = TRUE) %>%
+  ggplot() +
+  geom_raster(aes(x, y, fill = as.ordered(layer))) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  geom_sf(data = filter(sites, P3room > 0)) +
   coord_sf(datum = NA) +
   theme_void()
 ```
 
-```{r}
-cells <- reof_raster %>%
-  aggregate(fact = 2) %>%
-  raster::extract(sites, cellnumbers = TRUE) %>%
-  .[,1] %>%
-  as.character
-
-sites <- mutate(sites, cell = cells)
-
-load('ware_matrices')
-
-library(philentropy)
-getJS <- function(dat, period){
-  names <- pull(dat, cell)
-  dat %>%
-    .[,-1] %>%
-  select_if(~!all(. == 0)) %>%
-    as.matrix %>%
-    philentropy::distance(method = 'jensen-shannon', est.prob = 'empirical') %>%
-    `/`(., max(.)) %>%
-  `-`(1,.) %>%
-  `rownames<-`(names) %>%
-    `colnames<-`(names) %>%
-    as_tbl_graph %E>%
-        mutate(time = 1150 + 50 * period)  # set the time period
-
-}
-
-coarse_jsd <-left_join(list(AD1200cer, 
-          AD1250cer, 
-          AD1300cer, 
-          AD1350cer, 
-          AD1400cer) %>%
-  purrr::map(rownames_to_column) %>%
-  bind_rows(.id = 'period_num') %>%
-  mutate(period_num = as.numeric(period_num)) %>%
-  rename(SWSN_Site = rowname),
-sites %>%
-  gather(period, rooms, P1room:P6room) %>%
-  mutate(period_num = parse_number(period)) %>%
-  filter(period_num < 6)) %>%
-  group_by(period_num, cell) %>% 
-  select(`Babacomari Series`:`Trincheras Series`) %>%
- summarise_all(sum, na.rm = TRUE) %>%
-  nest %>%  
-  mutate(net = map2(data, period_num, getJS)) %>%
-  pull(net) %>%
-  reduce(graph_join, by = 'name') %>%
-  filter(!edge_is_loop()) %>%
-  rename(JSD = weight) %>%
-  activate(nodes)
-
-
-pts_jsd <- coarse_jsd %>%
-  pull(name) %>%
-  as.numeric %>%
-  xyFromCell(reof_raster %>%
-  aggregate(fact = 2), .) %>% 
-  as.data.frame()
-
-coarse_jsd %E>%
-    filter(JSD > .001) %>%
-    filter(from < to) %>%
-     mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
-    arrange(JSD) %>%
-ggraph('manual',node.positions = pts_jsd) +
-  geom_edge_fan(aes( color = JSD)) +
-          geom_sf(data = states, fill = NA, color = 'black') +
-  facet_edges(~time, ncol = 3) +
-  scale_edge_alpha(guide = 'none') +
-  #scale_edge_color_viridis(name = 'JSD', option = 'magma') +#, limits = c(0,1)
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'JSD') +
-  coord_sf(datum = NA) +
-  theme_void() +
-  theme(legend.position = c(1, 0),legend.justification = c(2.5,0))
-```
 
 ```{r, echo = FALSE}
 eof_raster %>%
@@ -326,10 +172,20 @@ Now that we have all the data imported and preprocessed, let's put it all togeth
 Define a function to calculate the relative difference between two numbers. We use this becuase it is a measure of multiplicative distance, rather than additive such as euclidean distance, which makes the values more robust to deviations.
 
 ```{r data_preparation}
-swsn <- coarse_jsd
-swsn_reof <- swsn %N>%
+swsn <-sites %>%
+  group_by(cell) %>%
+  sample_n(1) %>%
+  left_join(coarse_jsd, ., by = c('name' ='cell'))
+
+swsn_reof <- swsn  %N>%
+  mutate(reof1 = raster::extract(reof_raster, st_coordinates(geometry))[,1],
+         reof2 = raster::extract(reof_raster, st_coordinates(geometry))[,2],
+         reof3 = raster::extract(reof_raster, st_coordinates(geometry))[,3],
+         reof4 = raster::extract(reof_raster, st_coordinates(geometry))[,4],
+         reof5 = raster::extract(reof_raster, st_coordinates(geometry))[,5],
+         reof6 = raster::extract(reof_raster, st_coordinates(geometry))[,6]) %E>%
   #mutate(elev = raster::extract(elev, st_coordinates(geometry))) %E>%
-  mutate(ws = raster::extract(ws, st_coordinates(geometry))) %E>%
+#  mutate(ws = raster::extract(ws, st_coordinates(geometry))) %E>%
   mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
   #filter(between(JSD, .001, .999)) %>%
   mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
@@ -338,8 +194,8 @@ swsn_reof <- swsn %N>%
   ungroup %>%
   select(-from_tmp, -to_tmp) %>%
   #filter(from < to) %>%
-  convert(to_undirected) %>%
-    mutate(dist_geo = geosphere::distGeo(st_coordinates(.N()$geometry[from]), st_coordinates(.N()$geometry[to])) / 1000) %N>%
+  convert(to_undirected) %E>%
+    mutate(dist_geo = geosphere::distGeo(st_coordinates(.N()$geometry[from]), st_coordinates(.N()$geometry[to])) / 1000) %E>%
  # morph(to_split, time, split_by = 'edges') %N>% # split into subgraphs
 #  mutate(degree = centrality_degree(weights = JSD),
 #         trans = local_transitivity(weights = JSD),
@@ -349,8 +205,9 @@ swsn_reof <- swsn %N>%
 #         cluster_same = .N()$cluster[from] == .N()$cluster[to]) %N>%
  # select(-degree, -trans) %>%
 #  unmorph %>%
-  left_join(eof_dat) %>%
-  left_join(reof_dat) %E>%
+  
+#left_join(eof_dat) %>%
+  #left_join(reof_dat) %E>%
   mutate(from_site = .N()$name[from], 
          to_site = .N()$name[to]) %>%
   left_join(distances) %>%
@@ -358,8 +215,8 @@ swsn_reof <- swsn %N>%
   select(-c(from_site:to_site)) %>%
   mutate(
   #  elev = abs(.N()$elev[from] - .N()$elev[to]),
-    ws = abs(.N()$ws[from] - .N()$ws[to]),
-    ws_mul = .N()$ws[from] * .N()$ws[to],
+ #   ws = abs(.N()$ws[from] - .N()$ws[to]),
+#    ws_mul = .N()$ws[from] * .N()$ws[to],
     rooms = case_when(
       time == 1200 ~ .N()$P1room[from] * .N()$P1room[to],
       time == 1250 ~ .N()$P2room[from] * .N()$P2room[to],
@@ -372,12 +229,12 @@ swsn_reof <- swsn %N>%
   reof4 = abs(.N()$reof4[from] - .N()$reof4[to]),
   reof5 = abs(.N()$reof5[from] - .N()$reof5[to]),
   reof6 = abs(.N()$reof6[from] - .N()$reof6[to]),
-  eof1 = abs(.N()$eof1[from] - .N()$eof1[to]),
-  eof2 = abs(.N()$eof2[from] - .N()$eof2[to]),
-  eof3 = abs(.N()$eof3[from] - .N()$eof3[to]),
- eof4 = abs(.N()$eof4[from] - .N()$eof4[to]),
-eof5 = abs(.N()$eof5[from] - .N()$eof5[to]),
-  eof6 = abs(.N()$eof6[from] - .N()$eof6[to]),
+ # eof1 = abs(.N()$eof1[from] - .N()$eof1[to]),
+#  eof2 = abs(.N()$eof2[from] - .N()$eof2[to]),
+#  eof3 = abs(.N()$eof3[from] - .N()$eof3[to]),
+# eof4 = abs(.N()$eof4[from] - .N()$eof4[to]),
+#eof5 = abs(.N()$eof5[from] - .N()$eof5[to]),
+ # eof6 = abs(.N()$eof6[from] - .N()$eof6[to]),
   macro_same = .N()$Macro[from] == .N()$Macro[to],
   micro_same = .N()$Micro[from] == .N()$Micro[to])
 ```
@@ -385,7 +242,7 @@ eof5 = abs(.N()$eof5[from] - .N()$eof5[to]),
 ```{r}
 dat <- swsn_reof %E>%
   as_tibble %>%
-  mutate(from = as.factor(from), to = as.factor(to), time = as.factor(time)) %>%
+  mutate(from = as.factor(from), to = as.factor(to), time_num = time, time = as.factor(time)) %>%
   mutate(tie = JSD >= .001) %>%
   filter(tie == TRUE)
 write_csv(dat,'dat.csv')
@@ -410,7 +267,7 @@ ggplot(dat, aes(log(distance + .6))) +
 ggplot(dat, aes(qlogis(JSD))) +
   geom_histogram() + facet_wrap(~time)
 
-ggplot(dat, aes(log(eof1 + .001))) +
+ggplot(dat, aes(log(reof1 + .001))) +
   geom_histogram() + facet_wrap(~time)
 
 # look at the plot of ws_mul, basically its all the links with low productivity that die out and the ones with high that survive!
@@ -427,21 +284,20 @@ fit_gam_JSD <- function(x, y){
   gamm(x, method = 'ML', 
             family = gaussian(),
       correlation = corMLPE(form = ~from + to),
-      data = filter(dat, time == 1200))
+      data = dat)
 }
-plan(multicore, workers = 1)
+plan(multicore, workers = 2)
 
 models <- c(
-"s(distance, bs = 'cr', k = 6)",
-"s(distance, bs = 'cr', k = 6) + s(log(ws_mul), bs = 'cs', k = 6)",
-      "s(distance, bs = 'cr', k = 6) + 
-s(log(ws_mul), bs ='cs', k = 6) +
-         s(reof1, bs = 'cs', k = 6) +
-         s(reof2, bs = 'cs', k = 6) +
-         s(reof3, bs = 'cs', k = 6) +
-         s(reof4, bs = 'cs', k = 6) +
-s(reof5, bs = 'cs', k = 6) +
- s(reof6, bs = 'cs', k = 6)"
+"s(dist_geo, bs = 'cr', k = 6)",
+#"s(distance, bs = 'cr', k = 6) + s(log(ws_mul), bs = 'cs', k = 6)",
+      "s(dist_geo, bs = 'cr', k = 6) + 
+           te(reof1, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof2, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof3, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof4, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof5, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof6, time_num, k = c(6, 4), fx = c(F,T))"
    ) %>%
   paste('qlogis(JSD) ~', .) %>%
   tibble(formula_chr = .) %>%
@@ -454,6 +310,7 @@ s(reof5, bs = 'cs', k = 6) +
 
 models
 summary(models$gam[[1]])
+plot(models)
 ```
 
 ```{r}
@@ -462,14 +319,14 @@ concurvity(geo_models2$gam[[2]])
 ```
 
 ```{r}
-evaluate_smooth(models$gam[[1]], 's(distance)')  %>% draw()
-evaluate_smooth(models$gam[[1]], 's(distance)') %>% 
+evaluate_smooth(models$gam[[1]], 's(dist_geo)')  %>% draw()
+evaluate_smooth(models$gam[[1]], 's(dist_geo)') %>% 
   mutate(est_trans = plogis(est),
          se_trans = est_trans * (1-est_trans)* se) %>%
   mutate(lower = est - 2 * se, upper = est + 2 * se) %>%
    mutate(lower_trans = est_trans - 2 * se_trans, upper_trans = est_trans + 2 * se_trans) %>%
  mutate_at(vars(lower, upper), plogis) %>%
-  ggplot(aes(x = distance)) +
+  ggplot(aes(x = dist_geo)) +
   geom_ribbon(aes(y = est_trans, ymin = lower, ymax = upper), alpha = .2, color = 'red') +
    geom_ribbon(aes(y = est_trans, ymin = lower_trans, ymax = upper_trans), alpha = .2, color = 'blue') +
   geom_line(aes(y = est_trans))
@@ -491,7 +348,7 @@ ggsave('figures/smooths.pdf', width = 6, height = 6)
 library(patchwork)
 
 plt_dat <- swsn_reof %E>% 
-  filter(time == 1200, 
+  filter(time == 1350, 
          JSD > 0.001) %>%
   mutate(JSD = if_else(JSD > .999, .999, JSD),
          pred_mod = plogis(predict(models$gam[[1]], newdata = as_tibble(.), type = 'response')),
@@ -505,7 +362,7 @@ plt_dat <- swsn_reof %E>%
 
 a <- plt_dat %>%
 arrange(JSD) %>%
-ggraph('manual', x = pts$x, y = pts$y) +
+ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = JSD, color = JSD)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
@@ -516,7 +373,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
 
 b <- plt_dat %>%
 arrange(pred_null) %>%
-ggraph('manual', x = pts$x, y = pts$y) +
+ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
  # scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
@@ -527,7 +384,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
 
 c <- plt_dat %>%
 arrange(res_null) %>%
-ggraph('manual', x = pts$x, y = pts$y) +
+ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none') +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
@@ -538,7 +395,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
 
 d <- plt_dat %>%
 arrange(-res_null) %>%
-ggraph('manual', x = pts$x, y = pts$y) +
+ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
     #scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
@@ -549,7 +406,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
 
 e <- plt_dat %>%
 arrange(pred_mod) %>%
-ggraph('manual', x = pts$x, y = pts$y) +
+ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
@@ -560,7 +417,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
 
 f <- plt_dat %>%
 arrange(res_mod) %>%
-ggraph('manual', x = pts$x, y = pts$y) +
+ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
   scale_edge_alpha(guide = 'none') +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
@@ -571,7 +428,7 @@ ggraph('manual', x = pts$x, y = pts$y) +
 
 g <- plt_dat %>%
 arrange(-res_mod) %>%
-ggraph('manual', x = pts$x, y = pts$y) +
+ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$y) +
   geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
   scale_edge_alpha(guide = 'none') +
    # scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
@@ -587,30 +444,47 @@ ggsave('figures/null_model.png')
 ```{r}
 m1 <- dat %>%
   filter(tie == TRUE) %>%
-  gam(JSD ~ s(from, bs = 're') + s(to, bs = 're') + s(distance, bs ='cr', k = 5) + time, data = ., discrete = TRUE, family = betar)
+     mutate(from_time = interaction(from, time),
+         to_time = interaction(to, time)) %>%
+  bam(JSD ~ s(from_time, bs = 're') + s(to_time, bs = 're') + s(dist_geo, bs ='cr', k = 6) +time, data = ., discrete = TRUE, family = betar)
 m2 <- dat %>%
   filter(tie == TRUE) %>%
-  gam(JSD ~ s(from, bs = 're') + s(distance, bs ='cr', k = 5) + time, data = ., discrete = TRUE, family = betar)
+    mutate(from_time = interaction(from, time),
+         to_time = interaction(to, time)) %>%
+  gam(JSD ~ s(from_time, bs = 're') + s(dist_geo, bs ='cr', k = 6) + time , data = ., discrete = TRUE, family = betar)
 
 m3 <- dat %>%
   filter(tie == TRUE) %>%
-  gam(JSD ~ s(from, bs = 're') + s(to, bs = 're') + s(distance, bs ='cr') +
-       s(reof1, time, bs = 'fs') + s(reof2, time, bs = 'fs') + 
-        s(reof3, time, bs = 'fs') + s(reof4, time, bs = 'fs') +
-        s(reof5, time, bs = 'fs') + s(reof6, time, bs = 'fs'), data = .,discrete = TRUE, family = betar)
+  mutate(from_time = interaction(from, time),
+         to_time = interaction(to, time)) %>%
+  bam(JSD ~ s(from_time, bs = 're') + s(dist_geo, k = 6, bs ='cr') +
+         te(reof1, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof2, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof3, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof4, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof5, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof6, time_num, k = c(6, 4), fx = c(F,T)) + time, data = .,discrete = TRUE, family = betar)
+
 m4 <- dat %>%
   filter(tie == TRUE) %>%
-  gam(JSD ~ s(from, bs = 're') + s(distance, bs ='cr', k = 5) +
-        s(eof1, bs = 'cs', k = 6) +
-       s(eof2, bs = 'cs', k = 6) +
-       s(eof3, bs = 'cs', k = 6) +
-         s(eof4, bs = 'cs', k = 6) +
-         s(eof5, bs = 'cs', k = 6) +
-         s(eof6, bs = 'cs', k = 6) + time, data = ., discrete = TRUE, family = betar)
+  mutate(from_time = interaction(from, time),
+         to_time = interaction(to, time)) %>%
+  bam(JSD ~ s(from_time, bs = 're') + s(to_time, bs = 're') + s(dist_geo, k = 6, bs ='cr') +
+         te(reof1, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof2, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof3, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof4, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof5, time_num, k = c(6, 4), fx = c(F,T)) +
+         te(reof6, time_num, k = c(6, 4), fx = c(F,T)) + time, data = .,discrete = TRUE, family = betar)
 
 AIC(m1,m2,m3,m4)
-summary(m3)
-plot(m3)
+summary(m1)
+plot(m4, scheme = 1)
+AIC(m2,m3)
+
+```
+```{r}
+amplitudes
 ```
 
 ```{r}
@@ -626,10 +500,42 @@ gam.check(m2)
 summary(m2)
 
 swsn_reof %E>% 
+  mutate(from_time = interaction(from, time),
+         to_time = interaction(to, time)) %>%
   filter(JSD > 0) %>%
-  mutate(pred = predict(m2, newdata = as_tibble(.), type = 'response')) %>%
+  mutate(pred = predict(m1, newdata = as_tibble(.), type = 'response')) %>%
   arrange(pred) %>%
-ggraph('manual', node.positions = pts) +
+ggraph('manual', node.positions = as.data.frame(pts_jsd)) +
+  geom_edge_fan(aes(alpha = pred, color = pred)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  facet_edges(~time) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
+  coord_sf(datum = NA) +
+  theme_void()
+swsn_reof %E>% 
+  mutate(time_num = as.numeric(time)) %>%
+  mutate(from_time = interaction(from, time),
+         to_time = interaction(to, time)) %>%
+  filter(JSD > 0) %>%
+  mutate(pred = predict(m4, newdata = as_tibble(.), type = 'response')) %>%
+  arrange(pred) %>%
+ggraph('manual', node.positions = as.data.frame(pts_jsd)) +
+  geom_edge_fan(aes(alpha = pred, color = pred)) +
+  geom_sf(data = states, fill = NA, color = 'black') +
+  facet_edges(~time) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
+  coord_sf(datum = NA) +
+  theme_void()
+swsn_reof %E>% 
+  mutate(time_num = as.numeric(time)) %>%
+  mutate(from_time = interaction(from, time),
+         to_time = interaction(to, time)) %>%
+  filter(JSD > 0) %>%
+  mutate(pred = JSD - predict(m3, newdata = as_tibble(.), type = 'response')) %>%
+  arrange(pred) %>%
+ggraph('manual', node.positions = as.data.frame(pts_jsd)) +
   geom_edge_fan(aes(alpha = pred, color = pred)) +
   geom_sf(data = states, fill = NA, color = 'black') +
   facet_edges(~time) +
