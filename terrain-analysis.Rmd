@@ -52,7 +52,7 @@ Now we use the package *gdistance* to calculate the time it would take for a hik
 The maximum walking speed of 5 assumes on path movement.
 ```{r}
 tobler_adjusted <- function(x){
-  3 * exp(-3.5 * 2.15 * x) / 3.6 # 3.6 turns km/h into m/s
+  4 * exp(-3.5 * 2.15 * x) / 3.6 # 3.6 turns km/h into m/s
 }
 ```
 
@@ -95,9 +95,9 @@ conductance_c <- geoCorrection(speed_c, type = 'c')
 speed_c %>%
   raster %>%
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
-ggplot(aes(x, y, fill = layer * 3.6)) +
+ggplot(aes(x, y, fill = layer * 3.6)) + # convert back to km/h
   geom_raster() +
-  scale_fill_viridis_c(guide = 'legend', name = 'Walking\nspeed (km/h)') +
+  scale_fill_viridis_c(guide = 'legend', name = 'Walking\nspeed (km/h)', limits = c(NA,4)) +
   coord_quickmap() +
   labs(x = 'Longitude', y = 'Latitude') +
   theme_minimal()
@@ -176,7 +176,7 @@ time_mat <- swsn %N>%
   mutate(from_patch = .N()$name[from],
          to_patch = .N()$name[to]) %>%
   left_join(distances) %>%
-  filter(distance <= 12)# %>%
+  filter(distance <= 9)# %>%
   # mutate(max_dist = case_when(
   #     distance <= 3600 * 1 ~'1 Hours',
   #     distance <= 3600 * 2 ~'2 Hours',
@@ -242,7 +242,7 @@ ggraph(test_spat, 'manual', node.positions = pts) +
 
 ```{r shortest_paths}
 library(furrr)
-plan(multicore)
+plan(multicore, workers = 1)
 
 path_dat <- swsn_reof %>%   filter(distance <= 12) %E>% # neighbor matrix edgelist
   as_tibble %>% 
@@ -276,7 +276,7 @@ path_dat <- nn_mat %E>% # neighbor matrix edgelist
   mutate(paths = future_map2(from, to, ~shortestPath(conductance_c, 
                                     pts[.x,], pts[.y,], 
                                     output = 'SpatialLines'), .progress = TRUE))
-plan```
+```
 
 Merge all the lines into one object.
 TODO need to find a way to dissolve overlapping line segments and add either the number or the similarities from each. right now having all these line segments makes plotting virtual impossible because it eats up ram.
@@ -290,6 +290,31 @@ paths_sf <- path_dat %>%
   filter(., st_is_valid(.)) %>%
   smooth(method = 'ksmooth', smoothness = 20) 
 ```
+
+
+```{r}
+18/4
+nn_mat %E>%
+  left_join(paths_sf) %>%
+  as_tibble %>%
+  mutate(len = st_length(geometry),
+         len = as.numeric(len) / 1000) %>%
+  ggplot(aes(as.numeric(len), distance)) +
+  geom_point() +
+  geom_smooth(method = 'lm')
+  
+nn_mat %E>%
+  left_join(paths_sf) %>%
+  as_tibble %>%
+  ggplot() +
+    geom_raster(data = as.data.frame(raster(speed_c), xy = T, na.rm = T), aes(x, y, fill = layer)) +
+    geom_sf(alpha = .5) +
+  scale_fill_viridis_c() +
+  facet_wrap(~time) +
+  coord_sf(datum = NA) +
+  theme_void()
+```
+
 
 ```{r, eval = FALSE, include = FALSE}
 paths_sf %>%
