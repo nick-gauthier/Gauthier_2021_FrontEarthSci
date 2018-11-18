@@ -57,113 +57,45 @@ theme_set(theme_bw())
 
 ## Data Extraction
 
-Import the data produced in the other analyses to add to the sites data.
-
-```{r}
-eof_raster <- brick('output/eofs.tif')  %>%
-  `names<-`(., paste0('eof', 1:nlayers(.)))
-
-eof_dat <- eof_raster %>%
-  raster::extract(sites, df = TRUE) %>%
-  cbind(sites$SWSN_Site, .) %>%
-  select(-ID) %>%
-  rename(name = `sites$SWSN_Site`)
-```
-
-
-```{r echo = FALSE, include = FALSE }
-reof_raster <- brick('output/reofs.tif')  %>%
-  `names<-`(., paste0('reof', 1:nlayers(.)))
-reof_dat <- reof_raster %>%
-  raster::extract(sites, df = TRUE) %>%
-  cbind(sites$SWSN_Site, .) %>%
-  select(-ID) %>%
-  rename(name = `sites$SWSN_Site`)
-reof_raster_3 <- brick('output/reofs_3.tif')  %>%
-  `names<-`(., paste0('reof', 1:nlayers(.)))
-reof_dat_3 <- reof_raster_3 %>%
-  raster::extract(sites, df = TRUE) %>%
-  cbind(sites$SWSN_Site, .) %>%
-  select(-ID) %>%
-  rename(name = `sites$SWSN_Site`)
-reof_raster %>%
-  crop(states) %>%
-  mask(states) %>%
-  as.data.frame(xy = TRUE, na.rm = TRUE, long = TRUE) %>%
-  ggplot() +
-  geom_raster(aes(x, y, fill = value)) +
-  scale_fill_distiller(palette = 'BrBG', limits = c(-1, 1)) +
-  geom_sf(data = states, fill = NA, color = 'black') +
-  facet_wrap(~layer) +
-  coord_sf(datum = NA) +
-  theme_void()
-```
-```{r}
-reof_raster %>%
-  crop(states) %>%
-  mask(states) %>%
-  as.data.frame(xy = TRUE, na.rm = TRUE, long = TRUE) %>%
-  ggplot() +
-  geom_raster(aes(x, y, fill = value)) +
-  scale_fill_distiller(palette = 'BrBG', limits = c(-1, 1)) +
-  geom_sf(data = states, fill = NA, color = 'black') +
-  geom_sf(data = filter(sites, P1room > 0)) +
-  facet_wrap(~layer) +
-  coord_sf(datum = NA) +
-  theme_void()
-
-reof_raster %>%
-  disaggregate(fact = 2, method = 'bilinear') %>%
-    abs %>%
-    which.max %>%
-    crop(states) %>%
-    mask(states) %>%
-    as.data.frame(xy = TRUE, na.rm = TRUE) %>%
-  ggplot() +
-  geom_raster(aes(x, y, fill = as.ordered(layer))) +
-  geom_sf(data = states, fill = NA, color = 'black') +
-  geom_sf(data = filter(sites, P3room > 0)) +
-  coord_sf(datum = NA) +
-  theme_void()
-```
-
-
-```{r, echo = FALSE}
-eof_raster %>%
-  crop(states) %>%
-  mask(states) %>%
-  as.data.frame(xy = TRUE, na.rm = TRUE, long = TRUE) %>%
-  ggplot() +
-  geom_raster(aes(x, y, fill = value)) +
-  scale_fill_distiller(palette = 'BrBG', limits = c(-1, 1)) +
-  geom_sf(data = states, fill = NA, color = 'black') +
-  facet_wrap(~layer) +
-  coord_sf(datum = NA) +
-  theme_void()
-
-plot(reof_raster%>%
-  crop(states) %>%
-  mask(states) )
-```
-
-
+Import the least cost distances.
 ```{r, message = FALSE}
 distances <- read_csv('output/distances.csv')
 ```
 
+Import the data produced in the other analyses to add to the sites data.
 ```{r}
 bbox <- extent(c(-113, -107, 31, 37.5)) # define our study area
 
 elev <- raster('~/SRTM_NE_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
-  crop(bbox)
+  crop(bbox) %>% # crop to study area
+  aggregate(fact = 40) # aggregate to 10km resolution
 
 ws <- list.files('data/water_defecit/def_1900_2009',full.names = TRUE) %>%
   map(raster) %>%
   map(crop, bbox) %>%
   brick %>%
-  mean
-plot(ws)
+  mean %>%
+  resample(elev)
+
+reofs <- brick('output/reofs.tif')  %>%
+  `names<-`(., paste0('reof', 1:nlayers(.))) %>%
+  crop(bbox) %>%
+  resample(elev)
+
+env_rasters <- brick(c(elev, ws, reofs))
 ```
+
+```{r}
+plot(env_rasters)
+pairs(env_rasters)
+```
+
+```{r}
+states <- maps::map('state', regions = c('arizona', 'new mexico'), 
+                    fill = TRUE, plot = FALSE) %>%
+  st_as_sf
+```
+
 
 ## Data Preparation
 
@@ -172,30 +104,127 @@ Now that we have all the data imported and preprocessed, let's put it all togeth
 Define a function to calculate the relative difference between two numbers. We use this becuase it is a measure of multiplicative distance, rather than additive such as euclidean distance, which makes the values more robust to deviations.
 
 ```{r data_preparation}
-swsn <-sites %>%
-  group_by(cell) %>%
-  sample_n(1) %>%
-  left_join(coarse_jsd, ., by = c('name' ='cell'))
-
-swsn_reof <- swsn  %N>%
-  mutate(reof1 = raster::extract(reof_raster, st_coordinates(geometry))[,1],
-         reof2 = raster::extract(reof_raster, st_coordinates(geometry))[,2],
-         reof3 = raster::extract(reof_raster, st_coordinates(geometry))[,3],
-         reof4 = raster::extract(reof_raster, st_coordinates(geometry))[,4],
-         reof5 = raster::extract(reof_raster, st_coordinates(geometry))[,5],
-         reof6 = raster::extract(reof_raster, st_coordinates(geometry))[,6]) %E>%
-  #mutate(elev = raster::extract(elev, st_coordinates(geometry))) %E>%
-#  mutate(ws = raster::extract(ws, st_coordinates(geometry))) %E>%
-  mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
-  #filter(between(JSD, .001, .999)) %>%
-  mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
+swsn <- readRDS('output/swsn')  %N>%
+  mutate(elev = raster::extract(env_rasters, st_coordinates(geometry))[,1],
+         water_stress = raster::extract(env_rasters, st_coordinates(geometry))[,2],
+         reof1 = raster::extract(env_rasters, st_coordinates(geometry))[,3],
+         reof2 = raster::extract(env_rasters, st_coordinates(geometry))[,4],
+         reof3 = raster::extract(env_rasters, st_coordinates(geometry))[,5],
+         reof4 = raster::extract(env_rasters, st_coordinates(geometry))[,6],
+         reof5 = raster::extract(env_rasters, st_coordinates(geometry))[,7],
+         reof6 = raster::extract(env_rasters, st_coordinates(geometry))[,8]) %E>%
+  mutate(from_patch = as.numeric(.N()$name[from]),
+         to_patch = as.numeric(.N()$name[to]),
+         dist_geo = geosphere::distGeo(st_coordinates(.N()$geometry[from]), st_coordinates(.N()$geometry[to])) / 1000) %>%
+  left_join(distances) %>%
+  mutate(
+    elev = abs(.N()$elev[from] - .N()$elev[to]),
+    water_stress = abs(.N()$water_stress[from] - .N()$water_stress[to]),
+    water_stress_mul = .N()$water_stress[from] * .N()$water_stress[to],
+    rooms = case_when(
+      time == 1200 ~ .N()$X1200[from] * .N()$X1200[to],
+      time == 1250 ~ .N()$X1250[from] * .N()$X1250[to],
+      time == 1300 ~ .N()$X1300[from] * .N()$X1300[to],
+      time == 1350 ~ .N()$X1350[from] * .N()$X1350[to],
+      time == 1400 ~ .N()$X1400[from] * .N()$X1400[to]),
+    reof1 = abs(.N()$reof1[from] - .N()$reof1[to]),
+    reof2 = abs(.N()$reof2[from] - .N()$reof2[to]),
+    reof3 = abs(.N()$reof3[from] - .N()$reof3[to]),
+    reof4 = abs(.N()$reof4[from] - .N()$reof4[to]),
+    reof5 = abs(.N()$reof5[from] - .N()$reof5[to]),
+    reof6 = abs(.N()$reof6[from] - .N()$reof6[to]),
+    macro_same = .N()$Macro[from] == .N()$Macro[to]) %>%
+mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
   group_by(from_tmp, to_tmp, time) %>%
   sample_n(1) %>%
   ungroup %>%
   select(-from_tmp, -to_tmp) %>%
-  #filter(from < to) %>%
-  convert(to_undirected) %E>%
-    mutate(dist_geo = geosphere::distGeo(st_coordinates(.N()$geometry[from]), st_coordinates(.N()$geometry[to])) / 1000) %E>%
+  convert(to_undirected)
+```
+```{r}
+r1 <- swsn %E>%
+  arrange(reof1) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof1, color = reof1)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r2 <- swsn %E>%
+  arrange(reof2) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof2, color = reof2)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r3 <- swsn %E>%
+  arrange(reof3) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof3, color = reof3)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r4 <- swsn %E>%
+  arrange(reof4) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof4, color = reof4)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r5 <- swsn %E>%
+  arrange(reof5) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof5, color = reof5)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r6 <- swsn %E>%
+  arrange(reof6) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof6, color = reof6)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+
+library(patchwork)
+r1 +r2+r3+r4+r5+r6  +plot_layout(nrow = 1)
+```
+
+```{r}
+# this plot should actually be done with the model predictions, using the predicted strength accounting for distance and reof distances
+swsn %E>%
+  filter(JSD >= .001) %N>%
+  mutate(strength = centrality_degree(weights = JSD),
+         elev_strength = centrality_degree(weights = elev),
+         reof1_strength = centrality_degree(weights = reof1),
+         reof2_strength = centrality_degree(weights = reof2),
+         reof3_strength = centrality_degree(weights = reof3)) %>%
+  as_tibble %>%
+  ggplot() +
+  geom_sf(aes(size = reof1_strength, color = Macro, fill = Macro)) +
+  scale_size_area(guide = 'none') +
+  coord_sf()
+```
+
+
+```{r}
  # morph(to_split, time, split_by = 'edges') %N>% # split into subgraphs
 #  mutate(degree = centrality_degree(weights = JSD),
 #         trans = local_transitivity(weights = JSD),
@@ -205,47 +234,18 @@ swsn_reof <- swsn  %N>%
 #         cluster_same = .N()$cluster[from] == .N()$cluster[to]) %N>%
  # select(-degree, -trans) %>%
 #  unmorph %>%
-  
-#left_join(eof_dat) %>%
-  #left_join(reof_dat) %E>%
-  mutate(from_site = .N()$name[from], 
-         to_site = .N()$name[to]) %>%
-  left_join(distances) %>%
-  mutate(distance = distance / 3600) %>%
-  select(-c(from_site:to_site)) %>%
-  mutate(
-  #  elev = abs(.N()$elev[from] - .N()$elev[to]),
- #   ws = abs(.N()$ws[from] - .N()$ws[to]),
-#    ws_mul = .N()$ws[from] * .N()$ws[to],
-    rooms = case_when(
-      time == 1200 ~ .N()$P1room[from] * .N()$P1room[to],
-      time == 1250 ~ .N()$P2room[from] * .N()$P2room[to],
-      time == 1300 ~ .N()$P3room[from] * .N()$P3room[to],
-      time == 1350 ~ .N()$P4room[from] * .N()$P4room[to],
-      time == 1400 ~ .N()$P5room[from] * .N()$P5room[to]),
-  reof1 = abs(.N()$reof1[from] - .N()$reof1[to]),
-  reof2 = abs(.N()$reof2[from] - .N()$reof2[to]),
-  reof3 = abs(.N()$reof3[from] - .N()$reof3[to]),
-  reof4 = abs(.N()$reof4[from] - .N()$reof4[to]),
-  reof5 = abs(.N()$reof5[from] - .N()$reof5[to]),
-  reof6 = abs(.N()$reof6[from] - .N()$reof6[to]),
- # eof1 = abs(.N()$eof1[from] - .N()$eof1[to]),
-#  eof2 = abs(.N()$eof2[from] - .N()$eof2[to]),
-#  eof3 = abs(.N()$eof3[from] - .N()$eof3[to]),
-# eof4 = abs(.N()$eof4[from] - .N()$eof4[to]),
-#eof5 = abs(.N()$eof5[from] - .N()$eof5[to]),
- # eof6 = abs(.N()$eof6[from] - .N()$eof6[to]),
-  macro_same = .N()$Macro[from] == .N()$Macro[to],
-  micro_same = .N()$Micro[from] == .N()$Micro[to])
 ```
 
 ```{r}
-dat <- swsn_reof %E>%
+dat <- swsn %E>%
   as_tibble %>%
-  mutate(from = as.factor(from), to = as.factor(to), time_num = time, time = as.factor(time)) %>%
+  mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
   mutate(tie = JSD >= .001) %>%
   filter(tie == TRUE)
 write_csv(dat,'dat.csv')
+```
+
+```{r}
 #amplitudes <- read_csv('output/amplitudes.csv') %>%
 #  mutate(time = as.factor(time))
 
@@ -258,10 +258,11 @@ write_csv(dat,'dat.csv')
 ```
 
 ```{r}
+#this room plot shows a process of aggregation over time (mean room size increases)
 ggplot(dat, aes(log(rooms))) +
   geom_histogram() + facet_wrap(~time)
 
-ggplot(dat, aes(log(distance + .6))) +
+ggplot(dat, aes(log(distance))) +
   geom_histogram() + facet_wrap(~time)
 
 ggplot(dat, aes(qlogis(JSD))) +
@@ -271,13 +272,17 @@ ggplot(dat, aes(log(reof1 + .001))) +
   geom_histogram() + facet_wrap(~time)
 
 # look at the plot of ws_mul, basically its all the links with low productivity that die out and the ones with high that survive!
-ggplot(dat, aes(log(ws_mul))) +
-  geom_histogram() + facet_wrap(~time)
-ggplot(dat, aes(log(elev+1))) +
-  geom_histogram() + facet_wrap(~time)
-ggplot(dat, aes((ws))) +
+ggplot(dat, aes(log(water_stress_mul))) +
   geom_histogram() + facet_wrap(~time)
 ```
+
+```{r}
+ggplot(dat, aes(dist_geo, distance)) +
+  labs(x = 'Kilometers', y = 'Hours') +
+  geom_point(alpha = .1) +
+  geom_smooth()
+```
+
 
 ```{r}
 fit_gam_JSD <- function(x, y){
@@ -367,7 +372,6 @@ ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
-  coord_sf(datum = NA) +
    labs(subtitle = 'A') +
   theme_void()
 
@@ -378,7 +382,6 @@ ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
  # scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
-  coord_sf(datum = NA) +
    labs(subtitle = 'B') +
   theme_void()
 
@@ -389,7 +392,6 @@ ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$
   scale_edge_alpha(guide = 'none') +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
-  coord_sf(datum = NA) +
    labs(subtitle = 'C') +
   theme_void()
 
@@ -411,7 +413,6 @@ ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
-  coord_sf(datum = NA) +
    labs(subtitle = 'E') +
   theme_void()
 
@@ -422,7 +423,6 @@ ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$
   scale_edge_alpha(guide = 'none') +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
-  coord_sf(datum = NA) +
    labs(subtitle = 'F') +
   theme_void()
 
@@ -433,7 +433,6 @@ ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$
   scale_edge_alpha(guide = 'none') +
    # scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
-  coord_sf(datum = NA) +
   labs(subtitle = 'G') +
   theme_void()
 
