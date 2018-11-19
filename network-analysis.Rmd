@@ -48,6 +48,9 @@ library(furrr)
 
 #devtools::install_github("gavinsimpson/gratia")
 library(gratia)
+
+library(patchwork)
+
 ```
 
 ```{r include = FALSE}
@@ -141,7 +144,7 @@ mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
   select(-from_tmp, -to_tmp) %>%
   convert(to_undirected)
 ```
-```{r}
+```{r,eval = FALSE}
 r1 <- swsn %E>%
   arrange(reof1) %>%
 ggraph('manual', x = x, y = y ) +
@@ -240,15 +243,19 @@ swsn %E>%
 dat <- swsn %E>%
   as_tibble %>%
   mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
-  mutate(tie = JSD >= .001) %>%
+  mutate(tie = JSD >= .001) #%>%
   filter(tie == TRUE)
 write_csv(dat,'dat.csv')
 ```
 
 ```{r}
-#amplitudes <- read_csv('output/amplitudes.csv') %>%
-#  mutate(time = as.factor(time))
+dat <- read_csv('dat.csv')
+```
 
+```{r}
+amplitudes <- read_csv('output/amplitudes.csv')
+ggplot(amplitudes, aes(time, amplitude, group = PC, color = PC)) +
+  geom_smooth()
 #dat <- dat %>%
 #  gather(PC,value, reof1:reof4) %>%
 #  left_join(amplitudes) %>%
@@ -283,9 +290,87 @@ ggplot(dat, aes(dist_geo, distance)) +
   geom_smooth()
 ```
 
+```{r}
+fit_gam_JSD <- function(x){
+   bam(x, method = 'fREML',
+       select = TRUE,
+       discrete = TRUE,
+       family = betar(link = 'logit', eps = .001),
+      data = mutate(dat, from = as.factor(from)))
+}
+plan(multicore, workers = 2)
+
+dist_models <- c(
+  "s(from, bs = 're') + as.factor(time)",
+"s(from, bs = 're') + s(dist_geo, bs = 'cr', k = 6) + as.factor(time)",
+"s(from, bs = 're') + s(distance, bs = 'cr', k = 6) + as.factor(time)"
+
+   ) %>%
+  paste('JSD ~', .) %>%
+  tibble(formula_chr = .) %>%
+  mutate(formula = purrr::map(formula_chr, as.formula), 
+         model = future_map(formula, fit_gam_JSD)) %>%
+  mutate(aic = map_dbl(model, AIC)) %>%
+  arrange(aic)
+
+dist_models
+summary(dist_models$model[[1]])
+gam.check(dist_models$model[[1]])
+plot(dist_models$model[[1]], trans = plogis)
+```
 
 ```{r}
-fit_gam_JSD <- function(x, y){
+
+m2 <- dat %>%
+  mutate(from = as.factor(from)) %>%
+  bam(JSD ~ s(from, bs = 're') + 
+        as.factor(time), 
+      data = ., discrete = TRUE, family = betar, select = TRUE)
+m3 <- dat %>%
+  mutate(from = as.factor(from)) %>%
+  bam(JSD ~ s(from, bs = 're') + 
+        s(time, k = 5) + macro_same, 
+      data = ., discrete = TRUE, family = betar, select = TRUE)
+
+m1 <- dat %>%
+  mutate(from = as.factor(from)) %>%
+  bam(JSD ~ s(from, bs = 're') + 
+         s(distance, k = 6, bs ='cr') +
+         te(reof1, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof2, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof3, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof4, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof5, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof6, time, k = c(6, 4), fx = c(F,T)) + 
+        as.factor(time) +
+        macro_same, 
+      data = ., discrete = TRUE, family = betar, select = TRUE)
+
+plot(m3, scheme =1)
+summary(m3)
+draw(m1)
+
+m2 <- dat %>%
+  mutate(from = as.factor(from), to = as.factor(to)) %>%
+  bam(JSD ~ s(from, bs = 're') + 
+         s(distance, k = 4, bs ='cr') +
+        s(reof1, bs = 'cr', k = 4) +
+          s(reof2, bs = 'cr', k = 4) +
+         s(reof3, bs = 'cr', k = 4) +
+         s(reof4, bs = 'cr', k = 4) +
+       s(reof5, bs = 'cr', k = 4) +
+        s(reof6, bs = 'cr', k = 4) +
+        as.factor(time) +
+        macro_same, 
+      data = ., discrete = TRUE, family = betar, select = TRUE)
+
+plot(m3, scheme =1, trans = plogis)
+summary(m3)
+```
+
+
+```{r}
+fit_gam_JSD <- function(x){
   gamm(x, method = 'ML', 
             family = gaussian(),
       correlation = corMLPE(form = ~from + to),
@@ -352,12 +437,12 @@ ggsave('figures/smooths.pdf', width = 6, height = 6)
 ```{r}
 library(patchwork)
 
-plt_dat <- swsn_reof %E>% 
-  filter(time == 1350, 
+plt_dat <- swsn %E>% 
+  filter(time == 1200, 
          JSD > 0.001) %>%
   mutate(JSD = if_else(JSD > .999, .999, JSD),
-         pred_mod = plogis(predict(models$gam[[1]], newdata = as_tibble(.), type = 'response')),
-         pred_null = plogis(predict(models$gam[[2]], newdata = as_tibble(.), type = 'response')),
+         pred_mod = (predict(dist_models$model[[1]], newdata = as_tibble(.), type = 'response')),
+         pred_null = (predict(dist_models$model[[3]], newdata = as_tibble(.), type = 'response')),
           #pred_null = (predict(m3, newdata = as_tibble(.), type = 'response')),
          #pred_mod = (predict(m4, newdata = as_tibble(.), type = 'response')),
          res_null = (JSD) - pred_null,
@@ -367,7 +452,7 @@ plt_dat <- swsn_reof %E>%
 
 a <- plt_dat %>%
 arrange(JSD) %>%
-ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$y) +
+ggraph('manual',x = x, y = y) +
   geom_edge_fan(aes(alpha = JSD, color = JSD)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
@@ -377,7 +462,7 @@ ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$
 
 b <- plt_dat %>%
 arrange(pred_null) %>%
-ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$y) +
+ggraph('manual',x = x, y = y) +
   geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
  # scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
@@ -387,7 +472,7 @@ ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$
 
 c <- plt_dat %>%
 arrange(res_null) %>%
-ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$y) +
+ggraph('manual',x = x, y = y) +
   geom_edge_fan(aes(alpha = res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none') +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
@@ -397,7 +482,7 @@ ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$
 
 d <- plt_dat %>%
 arrange(-res_null) %>%
-ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$y) +
+ggraph('manual',x = x, y = y) +
   geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
     #scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
@@ -408,7 +493,7 @@ ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$
 
 e <- plt_dat %>%
 arrange(pred_mod) %>%
-ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$y) +
+ggraph('manual',x = x, y = y) +
   geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
@@ -418,7 +503,7 @@ ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$
 
 f <- plt_dat %>%
 arrange(res_mod) %>%
-ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$y) +
+ggraph('manual',x = x, y = y) +
   geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
   scale_edge_alpha(guide = 'none') +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
@@ -428,7 +513,7 @@ ggraph('manual',  node.positions = as.data.frame(pts_jsd)) +#x = pts$x, y = pts$
 
 g <- plt_dat %>%
 arrange(-res_mod) %>%
-ggraph('manual', node.positions = as.data.frame(pts_jsd)) +# x = pts$x, y = pts$y) +
+ggraph('manual',x = x, y = y) +
   geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
   scale_edge_alpha(guide = 'none') +
    # scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
@@ -453,7 +538,6 @@ m2 <- dat %>%
   gam(JSD ~ s(from_time, bs = 're') + s(dist_geo, bs ='cr', k = 6) + time , data = ., discrete = TRUE, family = betar)
 
 m3 <- dat %>%
-  filter(tie == TRUE) %>%
   mutate(from_time = interaction(from, time),
          to_time = interaction(to, time)) %>%
   bam(JSD ~ s(from_time, bs = 're') + s(dist_geo, k = 6, bs ='cr') +
