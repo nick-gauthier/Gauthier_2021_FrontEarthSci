@@ -232,7 +232,7 @@ recon_eigs %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
           test = cumsum(separated),
          weights = if_else(PC < 3, 0, 1))%>%
-  filter(PC <=15) %>%
+  filter(PC <=12) %>%
 ggplot(aes(x = PC, y = percent * 100)) +
   geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
   geom_point(size = 3, aes(color = as.factor(test))) + 
@@ -375,39 +375,75 @@ recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
 amplitude_modern <- recon_eof_amp %>% 
   inner_join(obs_eof_amp, by = c('year', 'PC'), 
             suffix = c('_recon', '_obs'))
+```
 
+```{r}
 #this is the temporary workaround while I still use wql
 obs_reof_amp <- obs_reof$amplitude %>%
   as_tibble(rownames = 'year') %>%
   mutate(year = parse_number(year)) %>%
-  gather(PC, amplitude, -year)
+  gather(PC, amplitude, -year) %>%
+  mutate(PC = case_when(PC == 'EOF1' ~ 'REOF1',
+                        PC == 'EOF2' ~ 'REOF2',
+                        PC == 'EOF3' ~ 'REOF3',
+                        PC == 'EOF4' ~ 'REOF4',
+                        PC == 'EOF5' ~ 'REOF5',
+                        PC == 'EOF6' ~ 'REOF6'))
+
 recon_reof_amp <- recon_reof$amplitude %>%
   as_tibble(rownames = 'year') %>%
   mutate(year = parse_number(year)) %>%
   gather(PC, amplitude, -year) %>%
-  mutate(PC = if_else(PC == 'EOF2', 'EOF4', if_else(PC == 'EOF4', 'EOF2', PC)))
+  mutate(PC = case_when(PC == 'EOF1' ~ 'REOF2',
+                        PC == 'EOF2' ~ 'REOF4',
+                        PC == 'EOF3' ~ 'REOF5',
+                        PC == 'EOF4' ~ 'REOF1',
+                        PC == 'EOF5' ~ 'REOF3',
+                        PC == 'EOF6' ~ 'REOF6')) %>%
+  arrange(PC)
+```
 
+```{r}
 ggplot(obs_reof_amp, aes( year, amplitude, color = PC)) +
   geom_line() +
   facet_wrap(~PC) + geom_vline(xintercept = 1956) + geom_smooth()
-
-amplitude_modern <- obs_reof_amp %>%
-  inner_join(recon_reof_amp, by = c('year', 'PC'),
-            suffix = c('_obs', '_recon'))
 ```
+
+
+```{r eval = FALSE, include = FALSE}
+obs_reof_amp %>%
+  group_by(PC) %>%
+  filter(amplitude == max(amplitude) | amplitude == min(amplitude)) %>%
+  pull(year) %>%
+  `-`(1895) %>%
+  spei_obs[[.]] %>%
+  as.data.frame(xy = TRUE, na.rm = TRUE) %>%
+  gather(year, SPEI, X1915:X2008) %>%
+  mutate(year = factor(year, levels = paste0('X', c(1915, 1996 ,1987, 2011, 1934, 1984, 2014, 2017, 1947, 1963, 1977, 2008)))) %>%
+  ggplot(aes(x, y, fill = SPEI)) +
+  geom_raster() +
+  facet_wrap(~year) +
+  coord_quickmap() +
+  scale_fill_distiller(palette = 'Spectral', limits = c(NA, 4), direction = -1)
+```
+
+
+
 To cite use of dataset: Boyin Huang, Peter W. Thorne, Viva F. Banzon, Tim Boyer, Gennady Chepurin, Jay H. Lawrimore, Matthew J. Menne, Thomas M. Smith, Russell S. Vose, and Huai-Min Zhang (2017): NOAA Extended Reconstructed Sea Surface Temperature (ERSST), Version 5. [indicate subset used]. NOAA National Centers for Environmental Information. doi:10.7289/V5T72FNM [access date].
 Please note: If you acquire NOAA_ERSST_V5 data products from PSD, we ask that you acknowledge us in your use of the data. This may be done by including text such as NOAA_ERSST_V5 data provided by the NOAA/OAR/ESRL PSD, Boulder, Colorado, USA, from their Web site at https://www.esrl.noaa.gov/psd/ in any documents or publications using these data. We would also appreciate receiving a copy of the relevant publications. This will help PSD to justify keeping the NOAA_ERSST_V5 data set freely available online in the future. Thank you!
-```{r}
-library(rpdo)
-data(pdo)
-pdo.test <- filter(pdo, Month == 1, Year >=1897)
-test <-  calc(sst_jan[[-c(1:3)]], fun=function(x) cor(c(x),pdo.test))
-plot(test)
 
-       sst_mean <- brick('data/sst.mon.ltm.1981-2010.nc')
+```{r, eval = FALSE}
+sst_mean <- brick('data/sst.mon.ltm.1981-2010.nc')
+
+#this is for the 24 month map
+# sst_jan <- brick('data/sst.mnmean.nc') %>% 
+#   .[[517:1978]] %>%
+#   .[[seq(1, 1462, 12)]] %>% 
+#   `-`(sst_mean[[1]]) %>% crop(extent(c(-1, 359, -75, 75))) %>%
+#   disaggregate(fact = 2, method = 'bilinear')
 
 sst_jan <- brick('data/sst.mnmean.nc') %>% 
-  .[[517:1978]] %>%
+  .[[505:1966]] %>%
   .[[seq(1, 1462, 12)]] %>% 
   `-`(sst_mean[[1]]) %>% crop(extent(c(-1, 359, -75, 75))) %>%
   disaggregate(fact = 2, method = 'bilinear')
@@ -419,8 +455,28 @@ calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,2]))),
 calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,3]))),
 calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,4]))),
 calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,5]))),
-calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,6]))))
+calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,6])))) %>%
+  `names<-`(paste0('PC', 1:6))
 
+
+reof_cor %>% 
+  as.data.frame(xy = T, na.rm = T) %>%
+  gather(eof, value, PC1:PC6) %>%
+    filter(value > .1 | value < -.1) %>%
+  ggplot(aes(x, y)) +
+  geom_raster(aes(fill = value)) +
+  facet_wrap(~eof, nrow = 3) +
+  scale_fill_distiller(name = 'Correlation', palette = 'RdBu', direction = -1, limits = c(-.7,.7)) +
+  coord_quickmap(ylim = c(-75,75), expand = FALSE) +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group)) +
+  labs(title = 'Drought teleconnections', 
+       subtitle = 'PC correlation to winter sea surface temperatures',
+       x = 'Longitude', y = 'Latitude') +
+  theme_bw()
+ggsave('figures/sst_correlation.pdf')
+```
+
+```{r, eval = FALSE}
 eof_cor <- brick(calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 1) %>% pull(amplitude))),
 calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 2) %>% pull(amplitude))),
 calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 3) %>% pull(amplitude))),
@@ -440,56 +496,8 @@ eof_cor %>%
   geom_polygon(data = world, aes(x = long, y = lat, group = group)) +
   ggtitle('EOFs') +
   theme_bw()
-
-reof_cor %>% 
-  as.data.frame(xy = T, na.rm = T) %>%
-  gather(eof, value, layer.1:layer.6) %>%
-    filter(value > .1 | value < -.1) %>%
-  ggplot(aes(x, y)) +
-  geom_raster(aes(fill = value)) +
-  facet_wrap(~eof, nrow = 3) +
-  scale_fill_distiller(palette = 'RdBu', direction = -1, limits = c(-.7,.7)) +
-  coord_quickmap(ylim = c(-75,75), expand = FALSE) +
-  geom_polygon(data = world, aes(x = long, y = lat, group = group)) +
-  ggtitle('reofs') +
-  theme_bw()
 ```
 
-
-```{r eval = FALSE, include = FALSE}
-obs_reof$amplitude %>%
-    as_tibble %>%
-    mutate(year = 1896:2017) %>%
-    gather(reof, obs, 1:n_modes) %>%
-  group_by(reof) %>%
-  filter(obs == max(obs) | obs == min(obs))
-
-plot(spei_obs[[20]])
-plot(spei_obs[[101]])
-#eof1 is scaled correctly, ie if amplitude is negative it is in fact a drought
-plot(spei_obs[[23]])
-plot(spei_obs[[80]])
-#ditto eof2, positive amplitude is a wet year
-plot(spei_obs[[53]])
-plot(spei_obs[[82]])
-# eof3 should be reversed
-plot(spei_obs[[29]])
-plot(spei_obs[[63]])
-#reverse
-plot(spei_obs[[16]])
-plot(spei_obs[[52]])
-#revers
-#6 is reversed too
-plot(spei_obs[[14]])
-plot(spei_obs[[82]])
-# 7 is ok
-plot(spei_obs[[10]])
-plot(spei_obs[[26]]) 
-# 8 reverse
-plot(spei_obs[[17]])
-plot(spei_obs[[93]])
-#not sure, but maybe reverse
-```
 
 
 Need to just switch
@@ -505,41 +513,12 @@ ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
   theme(legend.position = "bottom")
 ```
 
-```{r, eval = FALSE}
-#t1 <- paste0('s(EOF',1:n_modes, '_recon, by = eof_num, k = 10)') %>% 
-#  paste(collapse = ' + ') %>% 
-#  paste0('amplitude_obs', ., sep = ' ~ ') %>% 
-#  as.formula# %>% 
-  
-t1 <- bam(amplitude_obs ~ s(amplitude_recon, by = PC) + PC,
-      method = 'fREML', select = TRUE, 
-      AR.start = new_pc,
-      data = mutate(amplitude_modern, new_pc = PC != lag(PC)))
-
-summary(t1)
-plot(t1)
-
-recon_amplitudes <- recon_reof$amplitude %>%
-    as_tibble %>%
-    rename_all(funs(paste0(.,'_recon'))) %>%
-    mutate(year = 1100:1999) %>%
-  slice(rep(1:n(), each = 9)) %>%
-  mutate(eof_num = rep(levels(reof_dat$eof_num), 900)) %>% mutate(., preds = predict(t1, .)) %>%
-  select(year:preds) %>%
-  filter(year >= 1100 & year <=1500) %>%
-  mutate(period = floor((year/50)) * 50) 
-```
-
 Now let's fit these models in practice. First create a data frame of past amplitudes.
 ```{r past_amplitudes}
-past_amplitudes <- recon_reof$amplitude %>%
-    as_tibble %>%
-    mutate(year = 1100:1999) %>%
-    gather(reof, recon, 1:n_modes) %>%
-  rename(amplitude_recon = recon) %>%
-  group_by(reof) %>%
-  nest(.key = 'recons')
-past_amplitudes <- recon_reof_amp %>%
+amplitudes_modern <- obs_reof_amp %>%
+  inner_join(amplitudes_past, by = c('year', 'PC'),
+            suffix = c('_obs', '_recon'))
+amplitudes_past <- recon_reof_amp %>%
   rename(amplitude_recon = amplitude) %>%
   group_by(PC) %>%
   nest(.key = 'recons')
@@ -548,17 +527,17 @@ past_amplitudes <- recon_reof_amp %>%
 
 We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
 ```{r recon_amplitudes, eval = FALSE}
-recon_amplitudes <- amplitude_modern %>%
+recon_amplitudes <- amplitudes_modern %>%
   group_by(PC) %>%
   nest %>%
   mutate(mod = purrr::map(data, ~lm(amplitude_obs ~ amplitude_recon, 
                                      data = .))) %>%
-  left_join(past_amplitudes) %>%
+  left_join(amplitudes_past) %>%
   mutate(predictions = purrr::map2(mod, recons, 
                                    ~predict(.x, .y, type = 'response')),
          predictions = purrr::map(predictions, 
-                                  ~tibble(amplitude = .,
-                                          amp_smooth = zoo::rollmean(amplitude, k = 15,fill = NA)))) %>%
+                                  ~tibble(recons = .,
+                                          amp_smooth = zoo::rollmean(recons, k = 15,fill = NA)))) %>%
   select(PC, recons, predictions) %>%
   unnest %>%
   select(-amplitude_recon) %>%
@@ -567,28 +546,20 @@ recon_amplitudes <- amplitude_modern %>%
 
 How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
 ```{r plot_recon_amplitudes, eval = FALSE, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
-ggplot(filter(recon_amplitudes, between(year, 1200, 1450)), aes(year, amplitude, group = PC)) +
-  geom_line(aes(color = PC), alpha = .7) +
+ggplot(filter(recon_amplitudes, between(year, 1200, 1450)), aes(year, recons, group = PC)) +
+  geom_line(aes(color = PC), alpha = 1) +
   geom_line(aes(y = amp_smooth)) +
   scale_color_brewer(palette = 'Spectral') +
   facet_wrap(~PC) +
   theme_minimal()+
   theme(legend.position = "bottom")+  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
-
-ggplot(recon_amplitudes, aes(year, amplitude, group = PC)) +
-  geom_line(aes(color = PC), alpha = .7) +
-  #geom_line(aes(y = amp_smooth)) +
-  scale_color_brewer(palette = 'Spectral') +
-  facet_wrap(~PC) +
-  theme_minimal()+
-  theme(legend.position = "bottom") +  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
 ```
 
-These results point to EOFs 3 and 4 as having major shocks at around 1300 AD.
+These results point to REOFs 2 and 3 as having major shocks at around 1300 AD.
 ```{r, eval = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
 recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
-  ggplot(aes(factor(period), abs(amplitude))) +
+  ggplot(aes(factor(period), abs(recons))) +
   geom_boxplot() +
   geom_hline(yintercept = 0, color = 'red', linetype = 2) +
   scale_color_brewer(palette = 'Spectral') +
@@ -600,16 +571,17 @@ recon_amplitudes %>%
   rename(time = period) %>%
   filter(between(time, 1200, 1400)) %>%
   group_by(PC, time) %>% 
-  summarise(amplitude = mean(abs(amplitude))) %>%
+  summarise(amplitude = mean(abs(recons))) %>%
   mutate(time = as.factor(time)) %>%
   write_csv('output/amplitudes.csv')
 
 recon_amplitudes %>%
   filter(between(period, 1200, 1400)) %>%
-  ggplot(aes(abs(amplitude), as.factor(period),fill = ..x.., height = ..density..)) +
+  ggplot(aes((recons), as.factor(period),fill = ..x.., height = ..density..)) +
     ggridges::geom_density_ridges_gradient(stat = 'density', scale = 1.5)+
   facet_wrap(~PC) +
   scale_fill_viridis_c(guide = F) +
+  geom_vline(xintercept= 0, linetype = 2) +
   ggridges::theme_ridges(grid = FALSE, center_axis_labels = TRUE)
 ```
 
