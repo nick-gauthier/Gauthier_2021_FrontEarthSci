@@ -74,7 +74,7 @@ spei_obs <- ((brick('data/spei12_6_PRISM.nc') +
   .[[-1]] # SPEI calculated on 12 month lag, so drop 1st year
 ```
 
-```{r}
+```{r, eval = FALSE, include = FALSE}
 # calculate average JJA SPEI
 spei_obs <- brick('data/spei24_8_PRISM.nc') %>%
   crop(bbox_wus) %>% # crop to the study area bounding box
@@ -351,7 +351,7 @@ To confirm this, let's plot the time series (PCs) of each observed and reconstru
 
 These are the amplitudes of the EOFs, not the REOFs
 
-```{r amplitudes}
+```{r amplitudes, eval = FALSE, include = FALSE}
 calc_amplitude <- function(x, n_modes){
   x %>%
     tidy(matrix = 'samples') %>%
@@ -370,6 +370,7 @@ obs_eof_amp <- calc_amplitude(obs_pca, n_modes)
 ggplot(obs_eof_amp, aes( year, amplitude, color = PC)) +
   geom_line() +
   facet_wrap(~PC) + geom_vline(xintercept = 1956) + geom_smooth()
+
 recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
 
 amplitude_modern <- recon_eof_amp %>% 
@@ -432,15 +433,8 @@ obs_reof_amp %>%
 To cite use of dataset: Boyin Huang, Peter W. Thorne, Viva F. Banzon, Tim Boyer, Gennady Chepurin, Jay H. Lawrimore, Matthew J. Menne, Thomas M. Smith, Russell S. Vose, and Huai-Min Zhang (2017): NOAA Extended Reconstructed Sea Surface Temperature (ERSST), Version 5. [indicate subset used]. NOAA National Centers for Environmental Information. doi:10.7289/V5T72FNM [access date].
 Please note: If you acquire NOAA_ERSST_V5 data products from PSD, we ask that you acknowledge us in your use of the data. This may be done by including text such as NOAA_ERSST_V5 data provided by the NOAA/OAR/ESRL PSD, Boulder, Colorado, USA, from their Web site at https://www.esrl.noaa.gov/psd/ in any documents or publications using these data. We would also appreciate receiving a copy of the relevant publications. This will help PSD to justify keeping the NOAA_ERSST_V5 data set freely available online in the future. Thank you!
 
-```{r, eval = FALSE}
+```{r, warning = FALSE}
 sst_mean <- brick('data/sst.mon.ltm.1981-2010.nc')
-
-#this is for the 24 month map
-# sst_jan <- brick('data/sst.mnmean.nc') %>% 
-#   .[[517:1978]] %>%
-#   .[[seq(1, 1462, 12)]] %>% 
-#   `-`(sst_mean[[1]]) %>% crop(extent(c(-1, 359, -75, 75))) %>%
-#   disaggregate(fact = 2, method = 'bilinear')
 
 sst_jan <- brick('data/sst.mnmean.nc') %>% 
   .[[505:1966]] %>%
@@ -448,17 +442,27 @@ sst_jan <- brick('data/sst.mnmean.nc') %>%
   `-`(sst_mean[[1]]) %>% crop(extent(c(-1, 359, -75, 75))) %>%
   disaggregate(fact = 2, method = 'bilinear')
 
-world <- maps::map('world',wrap=c(0,360),fill = TRUE, plot = FALSE)
-
-reof_cor <- brick(calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,1]))),
-calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,2]))),
-calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,3]))),
-calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,4]))),
-calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,5]))),
-calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,6])))) %>%
+reof_cor <- brick(
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,1]))),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,2]))),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,3]))),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,4]))),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,5]))),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,6])))) %>%
   `names<-`(paste0('PC', 1:6))
+```
 
+```{r include = FALSE}
+#this is for the 24 month map
+# sst_jan <- brick('data/sst.mnmean.nc') %>% 
+#   .[[517:1978]] %>%
+#   .[[seq(1, 1462, 12)]] %>% 
+#   `-`(sst_mean[[1]]) %>% crop(extent(c(-1, 359, -75, 75))) %>%
+#   disaggregate(fact = 2, method = 'bilinear')
+```
 
+```{r, include = FALSE}
+world <- maps::map('world',wrap=c(0,360),fill = TRUE, plot = FALSE)
 reof_cor %>% 
   as.data.frame(xy = T, na.rm = T) %>%
   gather(eof, value, PC1:PC6) %>%
@@ -476,7 +480,7 @@ reof_cor %>%
 ggsave('figures/sst_correlation.pdf')
 ```
 
-```{r, eval = FALSE}
+```{r eval = FALSE, include = FALSE}
 eof_cor <- brick(calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 1) %>% pull(amplitude))),
 calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 2) %>% pull(amplitude))),
 calc(sst_jan, fun=function(x) cor(c(x),obs_eof_amp %>% filter(PC == 3) %>% pull(amplitude))),
@@ -499,10 +503,19 @@ eof_cor %>%
 ```
 
 
+Now let's fit these models in practice. First create a data frame of past amplitudes.
+```{r past_amplitudes}
+amplitudes_modern <- obs_reof_amp %>%
+  inner_join(recon_reof_amp, by = c('year', 'PC'),
+            suffix = c('_obs', '_recon'))
+amplitudes_past <- recon_reof_amp %>%
+  rename(amplitude_recon = amplitude) %>%
+  group_by(PC) %>%
+  nest(.key = 'recons')
+```
 
-Need to just switch
 ```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
-ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
+ggplot(amplitudes_modern, aes(amplitude_recon, amplitude_obs)) +
   geom_point(aes(color = year)) +
   geom_smooth(method = 'lm') +
   scale_color_viridis_c() +
@@ -512,18 +525,6 @@ ggplot(amplitude_modern, aes(amplitude_recon, amplitude_obs)) +
   coord_fixed() +
   theme(legend.position = "bottom")
 ```
-
-Now let's fit these models in practice. First create a data frame of past amplitudes.
-```{r past_amplitudes}
-amplitudes_modern <- obs_reof_amp %>%
-  inner_join(amplitudes_past, by = c('year', 'PC'),
-            suffix = c('_obs', '_recon'))
-amplitudes_past <- recon_reof_amp %>%
-  rename(amplitude_recon = amplitude) %>%
-  group_by(PC) %>%
-  nest(.key = 'recons')
-```
-
 
 We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
 ```{r recon_amplitudes, eval = FALSE}
@@ -593,16 +594,16 @@ reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
   cbind(obs_reof$REOF) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0')
+writeRaster(reof_raster, 'output/reofs.tif', overwrite = TRUE)
+```
+
+
+```{r eval = FALSE, include = FALSE}
 eof_raster <- eofs_obs %>%
   select(-std.dev, -column) %>%
   spread(PC, value)  %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0')
-```
-
-
-```{r}
-writeRaster(reof_raster, 'output/reofs.tif', overwrite = TRUE)
 writeRaster(eof_raster, 'output/eofs.tif', overwrite = TRUE)
 ```
 
@@ -617,6 +618,12 @@ which.max(abs(reof_raster)) %>%
   coord_quickmap() +
   theme(legend.position = "bottom")
 ```
+
+```{r}
+knitr::knit_exit()
+```
+
+
 One issue with these reconstructions is that they are sensitive to the number of proxies in the assimilation. That means the variance in srought appears to increase with time, but that this is entirely a function of the proxies. To eliminate this source of bias, we calculate a relationship between the number of proxies and the variance of the time series, and use this to reqeight the time series to remove any spurious trends in the variance.
 
 Read in data on the number of proxies for each time period. Interpolate from the observations to get an approximate estimate of the number of proxies for each year of the calcualtion. In the future, this step can be replace by the actual proxy counts from PHYDA
