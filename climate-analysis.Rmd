@@ -407,11 +407,11 @@ recon_reof_amp <- recon_reof$amplitude %>%
 ```{r}
 ggplot(obs_reof_amp, aes( year, amplitude, color = PC)) +
   geom_line() +
-  facet_wrap(~PC) + geom_vline(xintercept = 1956) + geom_smooth()
+  facet_wrap(~PC) + geom_vline(xintercept = c(1956, 1977), linetype = 2) + geom_smooth()
 ```
 
-
-```{r eval = FALSE, include = FALSE}
+So from this plot, we can tell that PCs 1, 2, 3, and 5 are of the right sign (high pc amplirude == high positive SPEI), and PCs 4 and 6 need to be reversed.
+```{r}
 obs_reof_amp %>%
   group_by(PC) %>%
   filter(amplitude == max(amplitude) | amplitude == min(amplitude)) %>%
@@ -425,7 +425,7 @@ obs_reof_amp %>%
   geom_raster() +
   facet_wrap(~year) +
   coord_quickmap() +
-  scale_fill_distiller(palette = 'Spectral', limits = c(NA, 4), direction = -1)
+  scale_fill_distiller(palette = 'Spectral', limits = c(NA, 4), direction = 1)
 ```
 
 
@@ -477,7 +477,7 @@ reof_cor %>%
        subtitle = 'PC correlation to winter sea surface temperatures',
        x = 'Longitude', y = 'Latitude') +
   theme_bw()
-ggsave('figures/sst_correlation.pdf')
+ggsave('figures/sst_correlation.pdf', width = 6.5)
 ```
 
 ```{r eval = FALSE, include = FALSE}
@@ -527,7 +527,7 @@ ggplot(amplitudes_modern, aes(amplitude_recon, amplitude_obs)) +
 ```
 
 We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
-```{r recon_amplitudes, eval = FALSE}
+```{r recon_amplitudes}
 recon_amplitudes <- amplitudes_modern %>%
   group_by(PC) %>%
   nest %>%
@@ -546,14 +546,19 @@ recon_amplitudes <- amplitudes_modern %>%
 ```
 
 How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
-```{r plot_recon_amplitudes, eval = FALSE, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
-ggplot(filter(recon_amplitudes, between(year, 1200, 1450)), aes(year, recons, group = PC)) +
+```{r plot_recon_amplitudes, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
+recon_amplitudes %>%
+  filter(between(year, 1200, 1450)) %>%
+  mutate(recons = if_else(PC %in% c('REOF4', 'REOF6'), recons * -1, recons),
+         amp_smooth = if_else(PC %in% c('REOF4', 'REOF6'), amp_smooth * -1, amp_smooth)) %>%
+ggplot(aes(year, recons, group = PC)) +
   geom_line(aes(color = PC), alpha = 1) +
   geom_line(aes(y = amp_smooth)) +
   scale_color_brewer(palette = 'Spectral') +
   facet_wrap(~PC) +
   theme_minimal()+
   theme(legend.position = "bottom")+  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
+ggsave('figures/spei_reconstruction.pdf', width = 10, height = 4)
 ```
 
 These results point to REOFs 2 and 3 as having major shocks at around 1300 AD.
