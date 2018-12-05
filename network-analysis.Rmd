@@ -48,9 +48,8 @@ library(furrr)
 
 #devtools::install_github("gavinsimpson/gratia")
 library(gratia)
-
+#devtools::install_github('thomasp85/patchwork') 
 library(patchwork)
-
 ```
 
 ```{r include = FALSE}
@@ -69,7 +68,7 @@ Import the data produced in the other analyses to add to the sites data.
 ```{r}
 bbox <- extent(c(-113, -107, 31, 37.5)) # define our study area
 
-elev <- raster('~/SRTM_NE_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
+elev <- raster('~/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
   crop(bbox) %>% # crop to study area
   aggregate(fact = 40) # aggregate to 10km resolution
 
@@ -144,6 +143,7 @@ mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
   select(-from_tmp, -to_tmp) %>%
   convert(to_undirected)
 ```
+
 ```{r,eval = FALSE}
 r1 <- swsn %E>%
   arrange(reof1) %>%
@@ -243,19 +243,21 @@ swsn %E>%
 dat <- swsn %E>%
   as_tibble %>%
   mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
-  mutate(tie = JSD >= .001) #%>%
+  mutate(from = as.factor(from), to = as.factor(to), time_fact = as.factor(time)) %>%
+  mutate(tie = JSD >= .001) %>%
   filter(tie == TRUE)
 write_csv(dat,'dat.csv')
 ```
 
 ```{r}
-dat <- read_csv('dat.csv')
+dat <- read_csv('dat.csv') %>%
+  mutate(from = as.factor(from), to = as.factor(to), time_fact = as.factor(time))
 ```
 
 ```{r}
 amplitudes <- read_csv('output/amplitudes.csv')
 ggplot(amplitudes, aes(time, amplitude, group = PC, color = PC)) +
-  geom_smooth()
+  geom_line()
 #dat <- dat %>%
 #  gather(PC,value, reof1:reof4) %>%
 #  left_join(amplitudes) %>%
@@ -292,19 +294,28 @@ ggplot(dat, aes(dist_geo, distance)) +
 
 ```{r}
 fit_gam_JSD <- function(x){
-   bam(x, method = 'fREML',
-       select = TRUE,
-       discrete = TRUE,
+   bam(x, method = 'ML',
        family = betar(link = 'logit', eps = .001),
-      data = mutate(dat, from = as.factor(from)))
+      data = dat,
+      cluster = cl)
 }
-plan(multicore, workers = 2)
 
-dist_models <- c(
-  "s(from, bs = 're') + as.factor(time)",
-"s(from, bs = 're') + s(dist_geo, bs = 'cr', k = 6) + as.factor(time)",
-"s(from, bs = 're') + s(distance, bs = 'cr', k = 6) + as.factor(time)"
+cl <- parallel::makeCluster(6)
+plan(multicore, workers = 1)
 
+models <- c(
+  "s(time, by = from, bs = 'cs', k = 4, m = 1) + 
+  s(from, bs = 're')",
+  "s(log(rooms), bs = 'cr', k = 6) + s(distance, bs = 'cr', k = 6) +
+  s(time, by = from, bs = 'cs', k = 4, m = 1) + s(from, bs = 're')",
+"s(distance, bs = 'cr', k = 6) + s(log(rooms), bs = 'cr', k = 6) +
+         te(reof1, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof2, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof3, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof4, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof5, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof6, time, k = c(6, 4), fx = c(F,T)) +
+s(time, by = from, bs = 'cs', k = 4, m = 1) + s(from, bs = 're')"
    ) %>%
   paste('JSD ~', .) %>%
   tibble(formula_chr = .) %>%
@@ -313,152 +324,180 @@ dist_models <- c(
   mutate(aic = map_dbl(model, AIC)) %>%
   arrange(aic)
 
-dist_models
-summary(dist_models$model[[1]])
-gam.check(dist_models$model[[1]])
-plot(dist_models$model[[1]], trans = plogis)
+ models
+summary(models$model[[2]])
+gam.check(dist_models$model[[3]])
+plot(models$model[[2]], scheme = 1)
 ```
 
-```{r}
-
-m2 <- dat %>%
-  mutate(from = as.factor(from)) %>%
-  bam(JSD ~ s(from, bs = 're') + 
-        as.factor(time), 
-      data = ., discrete = TRUE, family = betar, select = TRUE)
-m3 <- dat %>%
-  mutate(from = as.factor(from)) %>%
-  bam(JSD ~ s(from, bs = 're') + 
-        s(time, k = 5) + macro_same, 
-      data = ., discrete = TRUE, family = betar, select = TRUE)
-
-m1 <- dat %>%
-  mutate(from = as.factor(from)) %>%
-  bam(JSD ~ s(from, bs = 're') + 
-         s(distance, k = 6, bs ='cr') +
-         te(reof1, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof2, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof3, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof4, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof5, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof6, time, k = c(6, 4), fx = c(F,T)) + 
-        as.factor(time) +
-        macro_same, 
-      data = ., discrete = TRUE, family = betar, select = TRUE)
-
-plot(m3, scheme =1)
-summary(m3)
-draw(m1)
-
-m2 <- dat %>%
-  mutate(from = as.factor(from), to = as.factor(to)) %>%
-  bam(JSD ~ s(from, bs = 're') + 
-         s(distance, k = 4, bs ='cr') +
-        s(reof1, bs = 'cr', k = 4) +
-          s(reof2, bs = 'cr', k = 4) +
-         s(reof3, bs = 'cr', k = 4) +
-         s(reof4, bs = 'cr', k = 4) +
-       s(reof5, bs = 'cr', k = 4) +
-        s(reof6, bs = 'cr', k = 4) +
-        as.factor(time) +
-        macro_same, 
-      data = ., discrete = TRUE, family = betar, select = TRUE)
-
-plot(m3, scheme =1, trans = plogis)
-summary(m3)
-```
 
 
 ```{r}
 fit_gam_JSD <- function(x){
   gamm(x, method = 'ML', 
             family = gaussian(),
-      correlation = corMLPE(form = ~from + to),
+      correlation = corMLPE(form = ~from + to|time_fact),
       data = dat)
 }
 plan(multicore, workers = 2)
 
 models <- c(
-"s(dist_geo, bs = 'cr', k = 6)",
-#"s(distance, bs = 'cr', k = 6) + s(log(ws_mul), bs = 'cs', k = 6)",
-      "s(dist_geo, bs = 'cr', k = 6) + 
-           te(reof1, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof2, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof3, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof4, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof5, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof6, time_num, k = c(6, 4), fx = c(F,T))"
+ "s(distance, bs = 'cr', k = 6)",
+       "s(distance, bs = 'cr', k = 6) +
+          s(reof1, by = time_fact, bs = 'cr', k = 6) +
+          s(reof2, by = time_fact, bs = 'cr', k = 6) +
+       s(reof3, by = time_fact, bs = 'cr', k = 6) +
+       s(reof4,  by = time_fact, bs = 'cr', k = 6) +
+      s(reof5, by = time_fact, bs = 'cr', k = 6) +
+      s(reof6, by = time_fact, bs = 'cr', k = 6)",
+        "s(distance, bs = 'cr', k = 6) +
+          s(reof1, by = time_fact, bs = 'cr', k = 6)",
+        "s(distance, bs = 'cr', k = 6) +
+          s(reof2, by = time_fact, bs = 'cr', k = 6)",
+        "s(distance, bs = 'cr', k = 6) +
+       s(reof3, by = time_fact, bs = 'cr', k = 6)",
+   "s(distance, bs = 'cr', k = 6) +
+       s(reof4, by = time_fact, bs = 'cr', k = 6)",
+   "s(distance, bs = 'cr', k = 6) +
+       s(reof5, by = time_fact, bs = 'cr', k = 6)",
+   "s(distance, bs = 'cr', k = 6) +
+       s(reof6, by = time_fact, bs = 'cr', k = 6)"
    ) %>%
   paste('qlogis(JSD) ~', .) %>%
   tibble(formula_chr = .) %>%
   mutate(formula = purrr::map(formula_chr, as.formula), 
          model = future_map(formula, fit_gam_JSD)) %>%
-  mutate(lme = map(model, ~.$lme),
-         gam = map(model, ~.$gam),
+  mutate(lme = purrr::map(model, ~.$lme),
+         gam = purrr::map(model, ~.$gam),
          aic = map_dbl(lme, AIC)) %>%
   arrange(aic)
 
 models
-summary(models$gam[[1]])
-plot(models)
+models %>% pull(aic) %>% plot
+summary(models$gam[[8]])
+plot(models$gam[[1]], pages = 1)
+plot(models$gam[[1]], trans = plogis)
+```
+
+We have moderate to strong concurvity
+```{r}
+concurvity(models$gam[[1]])
 ```
 
 ```{r}
-concurvity(geo_models2$gam[[1]])
-concurvity(geo_models2$gam[[2]])
-```
-
-```{r}
-evaluate_smooth(models$gam[[1]], 's(dist_geo)')  %>% draw()
-evaluate_smooth(models$gam[[1]], 's(dist_geo)') %>% 
+evaluate_smooth(models$gam[[1]], 's(distance)')  %>% draw()
+evaluate_smooth(models$gam[[1]], 's(distance)') %>% 
   mutate(est_trans = plogis(est),
          se_trans = est_trans * (1-est_trans)* se) %>%
   mutate(lower = est - 2 * se, upper = est + 2 * se) %>%
    mutate(lower_trans = est_trans - 2 * se_trans, upper_trans = est_trans + 2 * se_trans) %>%
  mutate_at(vars(lower, upper), plogis) %>%
-  ggplot(aes(x = dist_geo)) +
+  ggplot(aes(x = distance)) +
   geom_ribbon(aes(y = est_trans, ymin = lower, ymax = upper), alpha = .2, color = 'red') +
    geom_ribbon(aes(y = est_trans, ymin = lower_trans, ymax = upper_trans), alpha = .2, color = 'blue') +
   geom_line(aes(y = est_trans))
 
-models$gam[[1]] %>% getViz %>% sm(1) %>%  plot(trans = plogis) +geom_vline(xintercept = c(8, 80), linetype = 2)+ l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) 
+m1$gam %>% getViz %>% sm(1) %>%  plot(trans = plogis) +geom_vline(xintercept = c(12, 100), linetype = 2)+ l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))
 ggsave('figures/distance_function.pdf', width = 6, height = 4)
 ```
 
 ```{r}
-draw(models$gam[[1]], scales = 'fixed')
 draw(models$gam[[2]], scales = 'fixed')
 draw(models$gam[[3]], scales = 'fixed')
-ggsave('figures/smooths.pdf', width = 6, height = 6)
+draw(models$gam[[4]], scales = 'fixed')
+draw(models$gam[[5]], scales = 'fixed')
+draw(models$gam[[6]], scales = 'fixed')
+draw(models$gam[[7]], scales = 'fixed')
 ```
 
+```{r}
+m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6),
+      method = 'REML', 
+      random = list(time_fact = ~1),
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to|time_fact),
+      data = dat)
+saveRDS(m2, 'm2')
+m2 <- readRDS('m2')
+
+m1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+          s(reof1, by = time_fact, bs = 'cs', k = 6) +
+          s(reof2, by = time_fact, bs = 'cs', k = 6) +
+       s(reof3, by = time_fact, bs = 'cs', k = 6) +
+       s(reof4,  by = time_fact, bs = 'cs', k = 6) +
+      s(reof5, by = time_fact, bs = 'cs', k = 6) +
+      s(reof6, by = time_fact, bs = 'cs', k = 6),
+      method = 'REML', 
+      random = list(time_fact = ~1),
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to|time_fact),
+      data = dat)
+saveRDS(m1, 'm1')
+m1 <- readRDS('m1')
+summary(m1$gam)
+concurvity(m1$gam)
+```
+
+```{r}
+test_dat <- bind_rows(expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=seq(0,.5,.01),reof2=0,reof3=0, reof4=0, reof5 = 0, reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=seq(0,.5,.01),reof3=0, reof4=0, reof5 = 0, reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=seq(0,.5,.01), reof4=0, reof5 = 0, reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=seq(0,.5,.01), reof5 = 0, reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=0, reof5 = seq(0,.5,.01), reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=0, reof5 = 0, reof6 = seq(0,.5,.01)), .id = 'reof') %>%
+  mutate(reof = paste0('REOF', reof))
+
+
+m1$gam %>%
+#models$gam[[1]] %>%
+  predict.gam(newdata = test_dat, type = 'response', se.fit = T) %>% 
+  bind_cols %>%
+  mutate(lower = fit - 2 * se.fit, upper = fit + 2 * se.fit) %>%
+ mutate_at(vars(fit,lower, upper), plogis) %>% 
+  bind_cols(test_dat) %>%
+  gather(reofs, value,reof1:reof6) %>%
+  filter(parse_number(reofs) == parse_number(reof)) %>%
+  ggplot(aes(value, fit, group = time_fact)) +  
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = reof), alpha = .3) +
+geom_line(aes(color = reof), size = 1.2) +
+  scale_y_continuous(breaks = c(0, 1)) +
+  scale_x_continuous(breaks = c(0, .5)) +
+  theme_bw() +
+  scale_color_viridis_d(guide = 'none') +
+  scale_fill_viridis_d(guide = 'none') +
+  facet_grid(reof ~ as.ordered(time_fact)) +
+  theme_bw() +
+  labs(title = 'Drought patterns and the intensity of social interaction', subtitle = "Predicted information flow at a 10 days' travel", x = 'Absolute Difference', y = 'Similarity')
+ggsave('figures/smooths.pdf', width = 6, height = 6)
+
+```
+ 
 
 
 ```{r}
 library(patchwork)
-
 plt_dat <- swsn %E>% 
-  filter(time == 1200, 
+  mutate(time_fact = as.factor(time)) %>%
+  filter(time == 1250, 
          JSD > 0.001) %>%
   mutate(JSD = if_else(JSD > .999, .999, JSD),
-         pred_mod = (predict(dist_models$model[[1]], newdata = as_tibble(.), type = 'response')),
-         pred_null = (predict(dist_models$model[[3]], newdata = as_tibble(.), type = 'response')),
-          #pred_null = (predict(m3, newdata = as_tibble(.), type = 'response')),
-         #pred_mod = (predict(m4, newdata = as_tibble(.), type = 'response')),
+         pred_mod = plogis(predict(models$gam[[1]], newdata = as_tibble(.), type = 'response')),
+         pred_null = plogis(predict(models$gam[[8]], newdata = as_tibble(.), type = 'response')),
          res_null = (JSD) - pred_null,
          res_mod = (JSD) - pred_mod)
-  
+```  
 
-
+```{r}
 a <- plt_dat %>%
-arrange(JSD) %>%
-ggraph('manual',x = x, y = y) +
+arrange(JSD) %N>%
+ggraph(layout = 'auto', x = 'x', y = 'y') +
   geom_edge_fan(aes(alpha = JSD, color = JSD)) +
-  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
-  #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1))
+ # scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
    labs(subtitle = 'A') +
-  theme_void()
+  theme_void() +
+  coord_sf(datum = NA)
 
 b <- plt_dat %>%
 arrange(pred_null) %>%
@@ -468,7 +507,8 @@ ggraph('manual',x = x, y = y) +
  # scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
    labs(subtitle = 'B') +
-  theme_void()
+  theme_void() +
+  coord_sf(datum = NA)
 
 c <- plt_dat %>%
 arrange(res_null) %>%
@@ -478,7 +518,8 @@ ggraph('manual',x = x, y = y) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
    labs(subtitle = 'C') +
-  theme_void()
+  theme_void() +
+  coord_sf(datum = NA)
 
 d <- plt_dat %>%
 arrange(-res_null) %>%
@@ -487,9 +528,9 @@ ggraph('manual',x = x, y = y) +
   scale_edge_alpha(guide = 'none', limits = c(0,1)) +
     #scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
-  coord_sf(datum = NA) +
   labs(subtitle = 'D') +
-  theme_void()
+  theme_void() +
+  coord_sf(datum = NA)
 
 e <- plt_dat %>%
 arrange(pred_mod) %>%
@@ -499,7 +540,8 @@ ggraph('manual',x = x, y = y) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
    labs(subtitle = 'E') +
-  theme_void()
+  theme_void() +
+  coord_sf(datum = NA)
 
 f <- plt_dat %>%
 arrange(res_mod) %>%
@@ -509,7 +551,8 @@ ggraph('manual',x = x, y = y) +
   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
    labs(subtitle = 'F') +
-  theme_void()
+  theme_void() +
+  coord_sf(datum = NA)
 
 g <- plt_dat %>%
 arrange(-res_mod) %>%
@@ -519,53 +562,49 @@ ggraph('manual',x = x, y = y) +
    # scale_edge_color_viridis(option = 'magma', guide = 'none', direction = -1) +
     scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
   labs(subtitle = 'G') +
-  theme_void()
+  theme_void() +
+  coord_sf(datum = NA)
+
 
 a+(b+c+d+ e+f+g + plot_layout(nrow = 2))
 ggsave('figures/null_model.png')
 ```
 
+
 ```{r}
+    
 m1 <- dat %>%
-  filter(tie == TRUE) %>%
-     mutate(from_time = interaction(from, time),
-         to_time = interaction(to, time)) %>%
-  bam(JSD ~ s(from_time, bs = 're') + s(to_time, bs = 're') + s(dist_geo, bs ='cr', k = 6) +time, data = ., discrete = TRUE, family = betar)
+  bam(JSD ~ s(distance, bs = 'cr', k = 6) +
+        te(reof1, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof2, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof3, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof4, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof5, time, k = c(6, 4), fx = c(F,T)) +
+         te(reof6, time, k = c(6, 4), fx = c(F,T)) +
+        s(time, from, bs = 'fs', k = 4), data = ., method = 'fREML', discrete = TRUE, family = betar, nthreads = 2)
+
+m1 <- dat %>%
+  bam(JSD ~ s(distance, bs = 'cr', k = 6) +
+         s(reof1, bs = 'cr', k = 6) +
+        s(reof2,  bs = 'cr', k = 6) +
+        s(reof3, bs = 'cr',  k = 6) +
+        s(reof4, bs = 'cr',  k = 6) +
+        s(reof5, bs = 'cr',  k = 6) +
+        s(reof6, bs = 'cr',  k = 6) +
+         s(time, from, bs = 'fs', k = 4),
+      data = ., method = 'fREML', discrete = TRUE, select = TRUE, family = betar, nthreads = 2)
+
 m2 <- dat %>%
   filter(tie == TRUE) %>%
-    mutate(from_time = interaction(from, time),
-         to_time = interaction(to, time)) %>%
-  gam(JSD ~ s(from_time, bs = 're') + s(dist_geo, bs ='cr', k = 6) + time , data = ., discrete = TRUE, family = betar)
+    mutate(from = as.factor(from), to = as.factor(to)) %>%
+  bam(JSD ~  s(time, bs = 'cr', k = 4, m = 2) + s(time, by = from, bs = 'cs', k = 4, m = 1) + s(from, bs = 're') + s(distance, bs = 'cr', k = 5), data = ., method = 'fREML', discrete = TRUE, family = betar, nthreads = 2)
 
-m3 <- dat %>%
-  mutate(from_time = interaction(from, time),
-         to_time = interaction(to, time)) %>%
-  bam(JSD ~ s(from_time, bs = 're') + s(dist_geo, k = 6, bs ='cr') +
-         te(reof1, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof2, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof3, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof4, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof5, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof6, time_num, k = c(6, 4), fx = c(F,T)) + time, data = .,discrete = TRUE, family = betar)
-
-m4 <- dat %>%
-  filter(tie == TRUE) %>%
-  mutate(from_time = interaction(from, time),
-         to_time = interaction(to, time)) %>%
-  bam(JSD ~ s(from_time, bs = 're') + s(to_time, bs = 're') + s(dist_geo, k = 6, bs ='cr') +
-         te(reof1, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof2, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof3, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof4, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof5, time_num, k = c(6, 4), fx = c(F,T)) +
-         te(reof6, time_num, k = c(6, 4), fx = c(F,T)) + time, data = .,discrete = TRUE, family = betar)
-
-AIC(m1,m2,m3,m4)
+AIC(m1,m2)
+plot(m1, trans = plogis, scale = 0)
 summary(m1)
-plot(m4, scheme = 1)
-AIC(m2,m3)
-
+summary(m2)
 ```
+
 ```{r}
 amplitudes
 ```
@@ -1663,7 +1702,7 @@ ggplot(aes(micro_to, resid)) +
 geo_models
 ```
 
-## Average climmate models
+## Average climate models
 Now we can look weather average climate conditions have any predictive power for link strength.
 ```{r clim_mods}
 clim_models <- c(
