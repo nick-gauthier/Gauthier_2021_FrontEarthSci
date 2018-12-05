@@ -298,12 +298,12 @@ Let's map out the spatial and temporal patterns in the REOFs. First we'll look a
 as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
   cbind(obs_reof$REOF) %>%
   select(-3) %>%
-  #mutate(EOF1 = EOF1 * -1, EOF2 = EOF2 * -1, EOF7 = EOF7 * -1) %>%
+  mutate(EOF6 = EOF6 * -1) %>%
   gather(eof, value, 3:(n_modes + 2)) %>%
-  mutate(value = value * -1) %>%
+  mutate(eof = paste0('R',eof)) %>%
   ggplot(aes(x,y)) +
   geom_raster(aes(fill = value)) +
-  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1,1)) +
+  scale_fill_distiller(palette = 'BrBG', name = 'Correlation', direction = -1, limits = c(-1,1)) +
   facet_wrap(~eof, ncol = 2) +
   theme_void() +
   geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
@@ -368,8 +368,9 @@ calc_amplitude <- function(x, n_modes){
 obs_eof_amp <- calc_amplitude(obs_pca, n_modes)
 
 ggplot(obs_eof_amp, aes( year, amplitude, color = PC)) +
-  geom_line() +
-  facet_wrap(~PC) + geom_vline(xintercept = 1956) + geom_smooth()
+  geom_line(alpha = .3) +
+  facet_wrap(~PC) + geom_vline(xintercept = c(1956, 1977), linetype = 2) + geom_smooth(size = 1.2) +
+  scale_color_viridis_d()
 
 recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
 
@@ -406,8 +407,9 @@ recon_reof_amp <- recon_reof$amplitude %>%
 
 ```{r}
 ggplot(obs_reof_amp, aes( year, amplitude, color = PC)) +
-  geom_line() +
-  facet_wrap(~PC) + geom_vline(xintercept = c(1956, 1977), linetype = 2) + geom_smooth()
+  geom_line(alpha = .3) +
+  facet_wrap(~PC) + geom_vline(xintercept = c(1956, 1977), linetype = 2) + geom_smooth(size = 1.2) +
+  scale_color_viridis_d()
 ```
 
 So from this plot, we can tell that PCs 1, 2, 3, and 5 are of the right sign (high pc amplirude == high positive SPEI), and PCs 4 and 6 need to be reversed.
