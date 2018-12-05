@@ -86,7 +86,7 @@ ggplot(sites) +
 
 Next we aggregate the sites into 10x10km patches. First import and crop the raster we'll use as a reference.
 ```{r}
-elev <- raster('~/SRTM_NE_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
+elev <- raster('~/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
   crop(extent(c(-113, -107, 31, 37.5))) %>% # crop to study area
   aggregate(fact = 40) # aggregate to 10km resolution
 ```
@@ -191,7 +191,7 @@ states <- maps::map('state', regions = c('arizona', 'new mexico'),
   st_as_sf
 ```
 
-```{r}
+```{r fig.fullwidth = TRUE, fig.width = 7, fig.height = 4}
 swsn %E>% 
     filter(JSD > .001) %>%
     filter(from < to) %>%
@@ -201,9 +201,9 @@ ggraph('manual', x = x, y = y) +
   geom_edge_fan(aes( color = JSD)) +
   geom_sf(data = states, fill = NA, color = 'black') +
   facet_edges(~time, ncol = 3) +
-  scale_edge_alpha(guide = 'none') +
-  #scale_edge_color_viridis(name = 'JSD', option = 'magma', limits = c(0,1)) +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'JSD',limits = c(0,1)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(name = 'JSD', option = 'magma', limits = c(0,1)) +
+  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'JSD',limits = c(0,1)) +
   coord_sf(datum = NA) +
   theme_void() +
   theme(legend.position = c(1, 0), legend.justification = c(2.5,0))
