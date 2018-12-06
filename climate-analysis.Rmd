@@ -26,10 +26,10 @@ options(htmltools.dir.version = FALSE)
 ```{r, message = FALSE}
 library(raster)
 library(tidyverse)
+library(sf)
 library(broom)
 library(wql)
 library(furrr)
-library(mgcv)
 ```
 
 
@@ -44,21 +44,29 @@ First we define a boundary box covering much of the western United States, rangi
 
 ```{r}
 bbox_wus <- extent(c(-124.5, -102, 30, 42.1))
+states <- maps::map('state', regions = c('arizona', 'new mexico', 
+                                         'colorado', 'california', 
+                                         'utah', 'nevada'), 
+                    fill = TRUE, plot = FALSE) %>%
+  st_as_sf
+bbox <- c(xmin = -124.5, xmax = -102, ymin = 30, ymax = 42.1) %>%
+  st_bbox(crs = st_crs(4326)) %>%
+  st_as_sfc
+bbox_swsn <- c(xmin = -113, xmax = -107, ymin = 31, ymax = 37.5) %>%
+  st_bbox(crs = st_crs(4326)) %>%
+  st_as_sfc
 ```
 
 ```{r bbox_map, fig.margin=TRUE, echo = FALSE, fig.cap = 'Locations of 2 bounding boxes.'}
-bb1 <- as(bbox_wus, 'SpatialPolygons') %>%
-  fortify
-bb2 <- as(bbox <- extent(c(-113, -107, 31, 37.5)), 'SpatialPolygons') %>%
-  fortify
+country <- maps::map('usa',fill = TRUE, plot = FALSE) %>%
+  st_as_sf
 
-map_data("usa") %>%
-  ggplot(aes(x = long, y = lat, group = group)) + 
-  geom_polygon(color = 'darkgrey', fill = NA) + 
-  geom_polygon(data = bb1, color = 'black', fill = NA) +
-  geom_polygon(data = bb2, color = 'black', fill = NA) +
-  coord_fixed(1.3) +
-  theme_void()
+ggplot() + 
+  geom_sf(data = states) +
+  geom_sf(data = country, fill = NA) +
+  geom_sf(data = bbox, fill = NA) +
+  geom_sf(data = bbox_swsn, fill = NA) +
+  theme_bw()
 ```
 
 ## Climate Data
@@ -76,7 +84,7 @@ spei_obs <- ((brick('data/spei12_6_PRISM.nc') +
 
 ```{r, eval = FALSE, include = FALSE}
 # calculate average JJA SPEI
-spei_obs <- brick('data/spei24_8_PRISM.nc') %>%
+spei_obs <- brick('data/spei12_8_PRISM.nc') %>%
   crop(bbox_wus) %>% # crop to the study area bounding box
   `names<-`(1895:2018) %>% # add year names
   .[[-c(1:2)]] # SPEI calculated on 12 month lag, so drop 1st year
@@ -90,10 +98,10 @@ spei_recon <- brick('data/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc',
                     varname = 'spei_mn') %>%
    .[[1100:1999]] %>% # extract years of interest
    rotate %>% # rotate longitudes to -180 to 180
-   crop(bbox_wus, snap = 'out')
+   crop(bbox_wus, snap = 'near')
 ```
 
-Let's compare the reconstructions for the summer of 1985
+Let's compare the reconstructions for the summer of 1985.
 ```{r, echo = FALSE, fig.margin = TRUE, fig.cap = 'Observed and reconstructed SPEI for summer 1985.'}
 brick(c(spei_obs[[90]], resample(spei_recon[[886]], spei_obs, method = 'ngb'))) %>%
   `names<-`(c('Observed', 'Reconstructed')) %>%
@@ -204,7 +212,7 @@ recon_eigs <- recon_pca %>%
 
 ```{r plot_variance_obs, echo = FALSE, fig.cap = 'Variance explained'}
 obs_eigs %>% 
- # filter(eigenvalues > 1) %>%
+  #filter(eigenvalues > 1) %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
                    test = cumsum(separated),
          weights = if_else(PC < 50, 0, 1))%>%
@@ -214,12 +222,10 @@ ggplot(aes(x = PC, y = percent * 100)) +
   geom_point(size = 2, aes(color = as.factor(test))) + 
   geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative * 100, 1)), size = 3, vjust = 0) +
   labs(list(x = "Principal Component", y = "Normalized Eigenvalue")) + 
-  theme_bw() + guides(color = F) + scale_x_continuous(
-    breaks = c(4, 8, 12)
-  )#scale_y_continuous(trans = 'log')# + stat_smooth(aes(weight = weights), method = 'lm') 
-  #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
-
-ggsave('figures/variance_explained.pdf', width = 5, height = 5)
+  theme_bw() + 
+  guides(color = F) + 
+  scale_x_continuous(breaks = c(4, 8, 12)) #+ scale_y_continuous(trans = 'log')# + stat_smooth(aes(weight = weights), method = 'lm') 
+   #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
 ```
 
 
@@ -252,7 +258,7 @@ Now, calculate the eofs for both fields, retaining the 4 leading components in e
 
 ```{r calc_eofs}
 # Decide how many modes to retain
-n_modes <- 6 # choose 2, 4, 6, 9
+n_modes <- 6
 
 obs_reof <- spei_obs %>% 
   area_weight %>%
@@ -287,46 +293,79 @@ eofs_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
 
 We see that the leading 3 eigenvectors from the observations and reconstructions are a good match, including their ordering. 4-6 look good too
 
-```{r}
-states <- maps::map('state', regions = c('arizona', 'new mexico', 'colorado', 'california', 'utah', 'nevada'), 
-                    fill = TRUE, plot = FALSE)
+```{r reof_raster, warning = FALSE}
+reof_raster <- spei_obs[[1]] %>%
+  as.data.frame(xy = TRUE, na.rm = TRUE) %>%
+  select(x:y) %>%
+  cbind(obs_reof$REOF) %>%
+  rasterFromXYZ %>%
+  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
+  `names<-`(paste0('REOF', 1:n_modes)) %>%
+  crop(states) %>%
+  mask(states)
+writeRaster(reof_raster, 'output/reofs.tif', overwrite = TRUE)
 ```
+
+
+```{r eval = FALSE, include = FALSE}
+eof_raster <- eofs_obs %>%
+  select(-std.dev, -column) %>%
+  spread(PC, value)  %>%
+  rasterFromXYZ %>%
+  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0')%>%
+  crop(states) %>%
+  mask(states)
+writeRaster(eof_raster, 'output/eofs.tif', overwrite = TRUE)
+```
+
 
 Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 4 leading modes.
 
-```{r plot_robs_eof, echo = FALSE, fig.width = 12, fig.height = 8, fig.cap = 'Observed drought REOFs'}
-as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>% 
-  cbind(obs_reof$REOF) %>%
-  select(-3) %>%
-  mutate(EOF6 = EOF6 * -1) %>%
+```{r plot_robs_eof, echo = FALSE, fig.width = 6, fig.height = 8, fig.cap = 'Observed drought REOFs'}
+as.data.frame(reof_raster, xy = TRUE, na.rm = TRUE) %>%
+  mutate(REOF3 = REOF3 * 1, REOF6 = REOF6 * -1) %>%
   gather(eof, value, 3:(n_modes + 2)) %>%
-  mutate(eof = paste0('R',eof)) %>%
-  ggplot(aes(x,y)) +
-  geom_raster(aes(fill = value)) +
-  scale_fill_distiller(palette = 'BrBG', name = 'Correlation', direction = -1, limits = c(-1,1)) +
+  #mutate(value = value * -1) %>%
+  ggplot() +
+  geom_raster(aes(x, y, fill = value)) +
+  #scale_fill_distiller(palette = 'BrBG', name = 'Correlation', direction = -1, limits = c(-1,1)) +
+  scale_fill_viridis_c(option = 'magma', name = 'Correlation') +
   facet_wrap(~eof, ncol = 2) +
   theme_void() +
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  coord_quickmap() +
+  geom_sf(data = states, color = 'black', fill = NA) +
+  coord_sf(datum = NA) +
   #ggtitle(paste('Leading', n_modes, 'rotated empirical orthogonal functions')) +
   theme(legend.position = "bottom")
 
-ggsave('figures/reof_observed.pdf', height = 8, width = 7)
+ggsave('figures/reof_observed.png', height = 8, width = 6)
+```
+
+```{r, echo = FALSE, fig.margin = TRUE, fig.caption = 'Climate regionalization.'}
+which.max(abs(reof_raster)) %>%
+  as.data.frame(xy = T, na.rm = T)  %>%
+  ggplot() +
+  geom_raster(aes(x,y, fill = as.ordered(layer))) +
+  theme_void() +
+  geom_sf(data = states, color = 'black', fill = NA) +
+  coord_sf(datum = NA) +
+  theme(legend.position = "bottom")
 ```
 
 ```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Observed and reconstructed Empirical Orthogonal Functions before rotation.'}
-ggplot(eofs_obs, aes(x, y, fill = value)) +
-  facet_wrap(~PC, ncol = 2) +
-  geom_raster() +
-  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.85, .85)) +
+as.data.frame(eof_raster, xy = TRUE, na.rm = TRUE, long= TRUE) %>%
+ggplot() +
+  facet_wrap(~layer, ncol = 2) +
+  geom_raster(aes(x, y, fill = value)) +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.81, .81)) +
   theme_void() + 
-  geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  coord_quickmap()+  theme(legend.position = "bottom")
-ggsave('figures/eof_observed.pdf', height = 8, width = 7)
+    geom_sf(data = states, color = 'black', fill = NA) +
+  coord_sf(datum = NA) +
+  theme(legend.position = "bottom")
+
 ggplot(eofs_recon, aes(x, y, fill = value)) +
   facet_wrap(~PC) +
   geom_raster() +
-  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.73, .73)) +
+  scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.74, .74)) +
   theme_void() + 
   coord_quickmap()
 ```
@@ -335,14 +374,16 @@ The colors here are eigenvectors weighted by the sqare root of the associated ei
 
 ```{r plot_recon_reofs, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
 as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
-  select(-3) %>%
+  select(-3) %>% 
+    mutate(EOF1 = EOF1 * -1, EOF3 = EOF3 * -1,EOF4 = EOF4 * -1,EOF6 = EOF6 * -1) %>%
   gather(eof, value, 3:(n_modes+2)) %>%
-  ggplot(aes(x,y)) +
-  geom_raster(aes(fill = value)) +
-    scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-1, 1)) +
+  ggplot() +
+  geom_raster(aes(x,y,fill = value)) +
+    scale_fill_viridis(option = 'magma') +
   facet_wrap(~eof) +
-  theme_void() + 
-  coord_quickmap()
+  #geom_sf(data = states, fill = NA) +
+  coord_sf(datum = NA) +
+  theme_void()
 ```
 
 To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
@@ -374,9 +415,19 @@ ggplot(obs_eof_amp, aes( year, amplitude, color = PC)) +
 
 recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
 
-amplitude_modern <- recon_eof_amp %>% 
+#do the eofs match?
+recon_eof_amp %>% 
   inner_join(obs_eof_amp, by = c('year', 'PC'), 
-            suffix = c('_recon', '_obs'))
+            suffix = c('_recon', '_obs')) %>%
+  ggplot(aes(amplitude_recon, amplitude_obs)) +
+  geom_point(aes(color = year)) +
+  geom_smooth(method = 'lm') +
+  scale_color_viridis_c() +
+  facet_wrap(~PC, nrow = 1) +
+  ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
+  theme_minimal() +
+  coord_fixed() +
+  theme(legend.position = 'bottom')
 ```
 
 ```{r}
@@ -398,21 +449,40 @@ recon_reof_amp <- recon_reof$amplitude %>%
   gather(PC, amplitude, -year) %>%
   mutate(PC = case_when(PC == 'EOF1' ~ 'REOF2',
                         PC == 'EOF2' ~ 'REOF4',
-                        PC == 'EOF3' ~ 'REOF5',
-                        PC == 'EOF4' ~ 'REOF1',
-                        PC == 'EOF5' ~ 'REOF3',
-                        PC == 'EOF6' ~ 'REOF6')) %>%
+                         PC == 'EOF3' ~ 'REOF5',
+                         PC == 'EOF4' ~ 'REOF6',
+                         PC == 'EOF5' ~ 'REOF1',
+                         PC == 'EOF6' ~ 'REOF3')) %>%
   arrange(PC)
 ```
 
 ```{r}
-ggplot(obs_reof_amp, aes( year, amplitude, color = PC)) +
+obs_reof_amp %>%
+  group_by(PC) %>%
+  mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
+ggplot(aes(year, amplitude, color = PC)) +
+    geom_vline(xintercept = c(2000), linetype = 2, alpha= .5) + 
   geom_line(alpha = .3) +
-  facet_wrap(~PC) + geom_vline(xintercept = c(1956, 1977), linetype = 2) + geom_smooth(size = 1.2) +
-  scale_color_viridis_d()
+  geom_line(aes(y = amp_smooth), size = 1.2) +
+  facet_wrap(~PC) + 
+  scale_color_viridis_d() +
+  theme_bw()
+
+recon_reof_amp %>%
+  group_by(PC) %>%
+  mutate(amplitude = if_else(PC == 'REOF2', amplitude * -1, amplitude)) %>%
+  filter(year >= 1896) %>%
+  mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
+ggplot(aes(year, amplitude, color = PC)) +
+    geom_vline(xintercept = c(2000), linetype = 2, alpha= .5) + 
+  geom_line(alpha = .3) +
+  geom_line(aes(y = amp_smooth), size = 1.2) +
+  facet_wrap(~PC) + 
+  scale_color_viridis_d() +
+  theme_bw()
 ```
 
-So from this plot, we can tell that PCs 1, 2, 3, and 5 are of the right sign (high pc amplirude == high positive SPEI), and PCs 4 and 6 need to be reversed.
+So from this plot, we can tell that all but PC6 is of the right sign (high pc amplirude == high positive SPEI)
 ```{r}
 obs_reof_amp %>%
   group_by(PC) %>%
@@ -446,12 +516,12 @@ sst_jan <- brick('data/sst.mnmean.nc') %>%
 
 reof_cor <- brick(
   calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,1]))),
-  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,2]))),
-  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,3]))),
-  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,4]))),
-  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,5]))),
-  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,6])))) %>%
-  `names<-`(paste0('PC', 1:6))
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,2]) * -1)),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,3]) * -1)),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,4]) * -1)),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,5]) * -1)),
+  calc(sst_jan, fun=function(x) cor(c(x),c(obs_reof$amplitude[,6]) * -1))) %>%
+  `names<-`(paste0('PC', 1:n_modes))
 ```
 
 ```{r include = FALSE}
@@ -528,7 +598,7 @@ ggplot(amplitudes_modern, aes(amplitude_recon, amplitude_obs)) +
   theme(legend.position = "bottom")
 ```
 
-We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes
+We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes.
 ```{r recon_amplitudes}
 recon_amplitudes <- amplitudes_modern %>%
   group_by(PC) %>%
@@ -540,7 +610,7 @@ recon_amplitudes <- amplitudes_modern %>%
                                    ~predict(.x, .y, type = 'response')),
          predictions = purrr::map(predictions, 
                                   ~tibble(recons = .,
-                                          amp_smooth = zoo::rollmean(recons, k = 15,fill = NA)))) %>%
+                                          amp_smooth = zoo::rollmeanr(recons, k = 10, fill = NA)))) %>%
   select(PC, recons, predictions) %>%
   unnest %>%
   select(-amplitude_recon) %>%
@@ -550,9 +620,9 @@ recon_amplitudes <- amplitudes_modern %>%
 How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
 ```{r plot_recon_amplitudes, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
 recon_amplitudes %>%
-  filter(between(year, 1200, 1450)) %>%
-  mutate(recons = if_else(PC %in% c('REOF4', 'REOF6'), recons * -1, recons),
-         amp_smooth = if_else(PC %in% c('REOF4', 'REOF6'), amp_smooth * -1, amp_smooth)) %>%
+  filter(between(year, 1200, 1450)) %>% 
+#  mutate(recons = if_else(PC != 'REOF1', recons * -1, recons),
+#         amp_smooth = if_else(PC !='REOF1', amp_smooth * -1, amp_smooth)) %>%
 ggplot(aes(year, recons, group = PC)) +
   geom_line(aes(color = PC), alpha = .3) +
   geom_line(aes(y = amp_smooth, color = PC), size = 1.2) +
@@ -593,38 +663,6 @@ recon_amplitudes %>%
   ggridges::theme_ridges(grid = FALSE, center_axis_labels = TRUE)
 ```
 
-
-
-```{r reof_raster, warning = FALSE}
-reof_raster <- as.data.frame(spei_obs[[1]], xy = TRUE, na.rm = TRUE) %>%
-  select(x:y) %>%
-  cbind(obs_reof$REOF) %>%
-  rasterFromXYZ %>%
-  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0')
-writeRaster(reof_raster, 'output/reofs.tif', overwrite = TRUE)
-```
-
-
-```{r eval = FALSE, include = FALSE}
-eof_raster <- eofs_obs %>%
-  select(-std.dev, -column) %>%
-  spread(PC, value)  %>%
-  rasterFromXYZ %>%
-  `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0')
-writeRaster(eof_raster, 'output/eofs.tif', overwrite = TRUE)
-```
-
-
-```{r, echo = FALSE, fig.margin = TRUE, fig.caption = 'Climate regionalization.'}
-which.max(abs(reof_raster)) %>%
-  as.data.frame(xy = T, na.rm = T)  %>%
-  ggplot(aes(x,y)) +
-  geom_raster(aes(fill = as.ordered(layer))) +
-  theme_void() +
-    geom_polygon(data = states, aes(x = long, y = lat, group = region), color = 'black', fill = NA) +
-  coord_quickmap() +
-  theme(legend.position = "bottom")
-```
 
 ```{r}
 knitr::knit_exit()
