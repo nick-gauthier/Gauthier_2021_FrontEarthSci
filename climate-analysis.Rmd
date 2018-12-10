@@ -210,22 +210,23 @@ recon_eigs <- recon_pca %>%
          cumvar_line = hi + 0.02 * max(hi))
 ```
 
-```{r plot_variance_obs, echo = FALSE, fig.cap = 'Variance explained'}
+```{r plot_variance_obs, fig.width = 5, fig.height = 4, echo = FALSE, fig.cap = 'Variance explained'}
 obs_eigs %>% 
-  #filter(eigenvalues > 1) %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
-                   test = cumsum(separated),
+                   separated_colors = cumsum(separated),
          weights = if_else(PC < 50, 0, 1))%>%
     filter(PC <= 12) %>%
 ggplot(aes(x = PC, y = percent * 100)) +
   geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
-  geom_point(size = 2, aes(color = as.factor(test))) + 
-  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative * 100, 1)), size = 3, vjust = 0) +
-  labs(list(x = "Principal Component", y = "Normalized Eigenvalue")) + 
+  geom_point(size = 2, aes(color = as.factor(separated_colors))) + 
+  geom_text(aes(x = PC, y = cumvar_line, label = paste0(round(cumulative * 100, 0), '%')), size = 2.5, vjust = 0) +
+  labs(x = "Principal Component", y = "Normalized Eigenvalue") + 
+  geom_vline(xintercept = 6.5, linetype = 2, color = 'red', alpha = .7) +
   theme_bw() + 
   guides(color = F) + 
-  scale_x_continuous(breaks = c(4, 8, 12)) #+ scale_y_continuous(trans = 'log')# + stat_smooth(aes(weight = weights), method = 'lm') 
-   #geom_smooth(method = 'gam', formula = y ~ s(x, k = 10, bs= 'ps', m = 0))
+  scale_x_continuous(breaks = seq(0, 12, 2))
+
+ggsave('figures/scree.pdf', height = 4, width = 5)
 ```
 
 
@@ -233,7 +234,7 @@ the overlaps mean these are effective multiplets. the real eof can be some linea
 using the log linear test, keep 7 of recon and 6 for obs
 Look at the variances for the eofs of each field, to inform truncation. Let's retain the leading four modes from PHYDA
 
-```{r plot_variance_phyda, fig.margin=TRUE, echo = FALSE,fig.cap = 'Variance explained'}
+```{r plot_variance_phyda, fig.width = 5, fig.height = 4, fig.margin=TRUE, echo = FALSE,fig.cap = 'Variance explained'}
 recon_eigs %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
           test = cumsum(separated),
@@ -242,10 +243,11 @@ recon_eigs %>%
 ggplot(aes(x = PC, y = percent * 100)) +
   geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
   geom_point(size = 3, aes(color = as.factor(test))) + 
-  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative * 100, 1)), size = 3, vjust = 0) +
-  labs(list(x = "PC", y = "Normalized Eigenvalue")) + #scale_y_continuous(trans = 'log') +
-  theme_bw() + #stat_smooth(aes(weight = weights), method = 'lm') +
-  guides(color = FALSE)
+  geom_text(aes(x = PC, y = cumvar_line, label = round(cumulative * 100, 0)), size = 2.5, vjust = 0) +
+  labs(x = "PC", y = "Normalized Eigenvalue") +
+  theme_bw() + 
+  guides(color = FALSE) + 
+  scale_x_continuous(breaks = seq(0, 12, 2))
 ```
 
 Repeat for the prism observations. Again, we'll retain the leading four modes.
@@ -264,7 +266,7 @@ obs_reof <- spei_obs %>%
   area_weight %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
-  eof(n_modes, scale. = FALSE) # we don't rescale (ie we use the covariance matrix, because spei is already normalized and rescaled)
+  eof(n_modes, scale. = FALSE) # don't rescale (ie we use the covariance matrix, because spei is already normalized and rescaled)
 
 recon_reof <- spei_recon %>%
   area_weight %>%
@@ -300,7 +302,7 @@ reof_raster <- spei_obs[[1]] %>%
   cbind(obs_reof$REOF) %>%
   rasterFromXYZ %>%
   `crs<-`('+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
-  `names<-`(paste0('REOF', 1:n_modes)) %>%
+  `names<-`(paste0('EOF', 1:n_modes)) %>%
   crop(states) %>%
   mask(states)
 writeRaster(reof_raster, 'output/reofs.tif', overwrite = TRUE)
@@ -321,23 +323,20 @@ writeRaster(eof_raster, 'output/eofs.tif', overwrite = TRUE)
 
 Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 4 leading modes.
 
-```{r plot_robs_eof, echo = FALSE, fig.width = 6, fig.height = 8, fig.cap = 'Observed drought REOFs'}
+```{r plot_robs_eof, echo = FALSE, fig.width = 6, fig.height = 7, fig.cap = 'Observed drought REOFs'}
 as.data.frame(reof_raster, xy = TRUE, na.rm = TRUE) %>%
-  mutate(REOF3 = REOF3 * 1, REOF6 = REOF6 * -1) %>%
+  mutate(EOF6 = EOF6 * -1) %>%
   gather(eof, value, 3:(n_modes + 2)) %>%
-  #mutate(value = value * -1) %>%
   ggplot() +
   geom_raster(aes(x, y, fill = value)) +
-  #scale_fill_distiller(palette = 'BrBG', name = 'Correlation', direction = -1, limits = c(-1,1)) +
   scale_fill_viridis_c(option = 'magma', name = 'Correlation') +
   facet_wrap(~eof, ncol = 2) +
   theme_void() +
   geom_sf(data = states, color = 'black', fill = NA) +
   coord_sf(datum = NA) +
-  #ggtitle(paste('Leading', n_modes, 'rotated empirical orthogonal functions')) +
   theme(legend.position = "bottom")
 
-ggsave('figures/reof_observed.png', height = 8, width = 6)
+ggsave('figures/reof_observed.pdf', height = 7, width = 6)
 ```
 
 ```{r, echo = FALSE, fig.margin = TRUE, fig.caption = 'Climate regionalization.'}
@@ -375,7 +374,7 @@ The colors here are eigenvectors weighted by the sqare root of the associated ei
 ```{r plot_recon_reofs, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
 as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REOF) %>%
   select(-3) %>% 
-    mutate(EOF1 = EOF1 * -1, EOF3 = EOF3 * -1,EOF4 = EOF4 * -1,EOF6 = EOF6 * -1) %>%
+    mutate(EOF1 = EOF1 * -1, EOF3 = EOF3 * -1,EOF4 = EOF4 * 1,EOF6 = EOF6 * -1) %>%
   gather(eof, value, 3:(n_modes+2)) %>%
   ggplot() +
   geom_raster(aes(x,y,fill = value)) +
@@ -436,37 +435,41 @@ obs_reof_amp <- obs_reof$amplitude %>%
   as_tibble(rownames = 'year') %>%
   mutate(year = parse_number(year)) %>%
   gather(PC, amplitude, -year) %>%
-  mutate(PC = case_when(PC == 'EOF1' ~ 'REOF1',
-                        PC == 'EOF2' ~ 'REOF2',
-                        PC == 'EOF3' ~ 'REOF3',
-                        PC == 'EOF4' ~ 'REOF4',
-                        PC == 'EOF5' ~ 'REOF5',
-                        PC == 'EOF6' ~ 'REOF6'))
+  mutate(PC = case_when(PC == 'EOF1' ~ 'PC1',
+                        PC == 'EOF2' ~ 'PC2',
+                        PC == 'EOF3' ~ 'PC3',
+                        PC == 'EOF4' ~ 'PC4',
+                        PC == 'EOF5' ~ 'PC5',
+                        PC == 'EOF6' ~ 'PC6'))
 
 recon_reof_amp <- recon_reof$amplitude %>%
   as_tibble(rownames = 'year') %>%
   mutate(year = parse_number(year)) %>%
   gather(PC, amplitude, -year) %>%
-  mutate(PC = case_when(PC == 'EOF1' ~ 'REOF2',
-                        PC == 'EOF2' ~ 'REOF4',
-                         PC == 'EOF3' ~ 'REOF5',
-                         PC == 'EOF4' ~ 'REOF6',
-                         PC == 'EOF5' ~ 'REOF1',
-                         PC == 'EOF6' ~ 'REOF3')) %>%
+  mutate(PC = case_when(PC == 'EOF1' ~ 'PC2',
+                        PC == 'EOF2' ~ 'PC4',
+                         PC == 'EOF3' ~ 'PC5',
+                         PC == 'EOF4' ~ 'PC6',
+                         PC == 'EOF5' ~ 'PC1',
+                         PC == 'EOF6' ~ 'PC3')) %>%
   arrange(PC)
 ```
 
-```{r}
+```{r, fig.width = 6}
 obs_reof_amp %>%
   group_by(PC) %>%
+    mutate(amplitude = if_else(PC == 'PC6', amplitude * -1, amplitude)) %>%
   mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
 ggplot(aes(year, amplitude, color = PC)) +
-    geom_vline(xintercept = c(2000), linetype = 2, alpha= .5) + 
-  geom_line(alpha = .3) +
+   # geom_vline(xintercept = c(2000), linetype = 2, alpha= .5) + 
+    geom_line(alpha = .4) +
   geom_line(aes(y = amp_smooth), size = 1.2) +
   facet_wrap(~PC) + 
-  scale_color_viridis_d() +
-  theme_bw()
+     geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
+  scale_color_viridis_d(guide = FALSE) +
+  theme_bw() +
+  labs(x = 'Year', y = 'SPEI')
+ggsave('figures/pc_obs.pdf', width = 6, height = 4)
 
 recon_reof_amp %>%
   group_by(PC) %>%
@@ -474,15 +477,15 @@ recon_reof_amp %>%
   filter(year >= 1896) %>%
   mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
 ggplot(aes(year, amplitude, color = PC)) +
-    geom_vline(xintercept = c(2000), linetype = 2, alpha= .5) + 
-  geom_line(alpha = .3) +
+  #  geom_vline(xintercept = c(1977), linetype = 2, alpha= .5) + 
+  geom_line(alpha = .4) +
   geom_line(aes(y = amp_smooth), size = 1.2) +
   facet_wrap(~PC) + 
   scale_color_viridis_d() +
   theme_bw()
 ```
 
-So from this plot, we can tell that all but PC6 is of the right sign (high pc amplirude == high positive SPEI)
+So from this plot, we can tell that all but PC6 is of the right sign (high pc amplitude == high positive SPEI)
 ```{r}
 obs_reof_amp %>%
   group_by(PC) %>%
@@ -533,7 +536,7 @@ reof_cor <- brick(
 #   disaggregate(fact = 2, method = 'bilinear')
 ```
 
-```{r, fig.width = 7.5}
+```{r, fig.width = 6, fig.height = 5.5}
 world <- maps::map('world',wrap=c(0,360),fill = TRUE, plot = FALSE)
 reof_cor %>% 
   as.data.frame(xy = T, na.rm = T) %>%
@@ -548,8 +551,10 @@ reof_cor %>%
   labs(#title = 'Drought teleconnections', 
        #subtitle = 'PC correlation to winter sea surface temperatures',
        x = 'Longitude', y = 'Latitude') +
-  theme_bw()
-ggsave('figures/sst_correlation.png', width = 7.5)
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+ggsave('figures/sst_correlation.png', width = 6, height = 5.5)
 ```
 
 ```{r eval = FALSE, include = FALSE}
@@ -618,7 +623,7 @@ recon_amplitudes <- amplitudes_modern %>%
 ```
 
 How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
-```{r plot_recon_amplitudes, fig.width = 10, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
+```{r plot_recon_amplitudes, fig.width = 6, fig.height = 5, echo = FALSE, fig.fullwidth=TRUE}
 recon_amplitudes %>%
   filter(between(year, 1200, 1450)) %>% 
 #  mutate(recons = if_else(PC != 'REOF1', recons * -1, recons),
@@ -626,11 +631,12 @@ recon_amplitudes %>%
 ggplot(aes(year, recons, group = PC)) +
   geom_line(aes(color = PC), alpha = .3) +
   geom_line(aes(y = amp_smooth, color = PC), size = 1.2) +
-  scale_color_viridis_d() +
-  facet_wrap(~PC, nrow = 2) +
+  scale_color_viridis_d(guide = FALSE) +
+  facet_wrap(~PC, nrow = 3) +
   theme_minimal()+
-  theme(legend.position = "bottom")+  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2)
-ggsave('figures/spei_reconstruction.pdf', width = 10, height = 4)
+  theme(legend.position = "bottom") +  geom_hline(yintercept = 0, color = 'red', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2) +
+  labs(x = 'Year', y = 'SPEI (Reconstructed)')
+ggsave('figures/spei_reconstruction.pdf', width = 6, height = 5)
 ```
 
 These results point to REOFs 2 and 3 as having major shocks at around 1300 AD.

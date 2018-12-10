@@ -191,24 +191,23 @@ states <- maps::map('state', regions = c('arizona', 'new mexico'),
   st_as_sf
 ```
 
-```{r fig.fullwidth = TRUE, fig.width = 7, fig.height = 4}
+```{r fig.fullwidth = TRUE, fig.width = 6, fig.height = 5}
 swsn %E>% 
     filter(JSD > .001) %>%
     filter(from < to) %>%
-    #mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
+    mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
     arrange(JSD) %>%
 ggraph('manual', x = x, y = y) +
   geom_edge_fan(aes( color = JSD)) +
   geom_sf(data = states, fill = NA, color = 'black') +
-  facet_edges(~time, ncol = 3) +
-  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
-  scale_edge_color_viridis(name = 'JSD', option = 'magma', limits = c(0,1)) +
-  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'legend', name = 'JSD',limits = c(0,1)) +
+  facet_edges(~time, ncol = 2) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(name = 'Similarity', option = 'magma') +
   coord_sf(datum = NA) +
   theme_void() +
   theme(legend.position = c(1, 0), legend.justification = c(2.5,0))
 
-ggsave('figures/JSD_network.png', width = 7, height = 4)
+ggsave('figures/JSD_network2.png', width = 6, height = 5)
 ```
 
 ```{r}
