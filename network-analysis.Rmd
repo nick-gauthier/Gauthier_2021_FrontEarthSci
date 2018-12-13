@@ -143,6 +143,7 @@ mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
   select(-from_tmp, -to_tmp) %>%
   convert(to_undirected)
 ```
+
 ```{r}
 library(broom)
 reof_dat <- swsn %N>%
@@ -273,7 +274,6 @@ r6 <- swsn %E>%
   coord_quickmap() +
   theme_void()
 
-library(patchwork)
 r1 +r2+r3+r4 + r5 + r6  +plot_layout(nrow = 1)
 ```
 
@@ -404,7 +404,10 @@ models <- c(
          gam = purrr::map(model, ~.$gam),
          aic = map_dbl(lme, AIC)) %>%
   arrange(aic)
+
 saveRDS(models, 'models')
+readRDS('models')
+
 models
 models %>% pull(aic) %>% plot
 summary(models$gam[[8]])
@@ -447,43 +450,52 @@ draw(models$gam[[7]], scales = 'fixed')
 ```
 
 ```{r}
-m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6),
+m1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6),
       method = 'REML', 
       random = list(time_fact = ~1),
       family = gaussian(),
       correlation = corMLPE(form = ~from + to|time_fact),
       data = dat)
-saveRDS(m2, 'm2')
-m2 <- readRDS('m2')
-plot(m2$gam)
-m1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+m15 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +time_fact,
+      method = 'REML', 
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to|time_fact),
+      data = dat)
+
+saveRDS(m1, 'm1')
+m1 <- readRDS('m1')
+plot(m1$gam)
+plot(m15$gam)
+
+m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
           s(reof1, by = time_fact, bs = 'cs', k = 6) +
           s(reof2, by = time_fact, bs = 'cs', k = 6) +
        s(reof3, by = time_fact, bs = 'cs', k = 6) +
        s(reof4,  by = time_fact, bs = 'cs', k = 6) +
       s(reof5, by = time_fact, bs = 'cs', k = 6) +
-      s(reof6, by = time_fact, bs = 'cs', k = 6),
+      s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact,
       method = 'REML', 
-      random = list(time_fact = ~1),
       family = gaussian(),
       correlation = corMLPE(form = ~from + to|time_fact),
       data = dat)
-saveRDS(m1, 'm1')
-m1 <- readRDS('m1')
+saveRDS(m2, 'm2')
+m2 <- readRDS('m2')
+gam.check(m2$gam)
 summary(m1$gam)
+summary(m15$gam)
 summary(m2$gam)
-concurvity(m1$gam)
+concurvity(m2$gam)
 
-m3 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
-          s(reof1, by = time_fact, bs = 'cs', k = 6) +
-          s(reof2, by = time_fact, bs = 'cs', k = 6) +
-       s(reof3, by = time_fact, bs = 'cs', k = 6) + time_fact,
-      method = 'REML',
-      family = gaussian(),
-      correlation = corMLPE(form = ~from + to|time_fact),
-      data = dat)
-plot(m3$gam, scale = 0)
-summary(m3$gam)
+# m3 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+#           s(reof1, by = time_fact, bs = 'cs', k = 6) +
+#           s(reof2, by = time_fact, bs = 'cs', k = 6) +
+#        s(reof3, by = time_fact, bs = 'cs', k = 6) + time_fact,
+#       method = 'REML',
+#       family = gaussian(),
+#       correlation = corMLPE(form = ~from + to|time_fact),
+#       data = dat)
+# plot(m3$gam, scale = 0)
+# summary(m3$gam)
 ```
 
 ```{r fig.height = 6, fig.width = 6}
@@ -496,7 +508,7 @@ expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','14
   mutate(reof = paste0('REOF', reof))
 
 
-models$gam[[1]] %>%
+m2$gam %>%
   predict.gam(newdata = test_dat, type = 'response', se.fit = T) %>% 
   bind_cols %>%
   mutate(lower = fit - 2 * se.fit, upper = fit + 2 * se.fit) %>%
@@ -504,6 +516,7 @@ models$gam[[1]] %>%
   bind_cols(test_dat) %>%
   gather(reofs, value,reof1:reof6) %>%
   filter(parse_number(reofs) == parse_number(reof)) %>%
+  mutate(reof = str_sub(reof, 2)) %>%
   ggplot(aes(value, fit, group = time_fact)) +  
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = reof), alpha = .3) +
 geom_line(aes(color = reof), size = 1.2) +
@@ -514,37 +527,33 @@ geom_line(aes(color = reof), size = 1.2) +
   scale_fill_viridis_d(guide = 'none') +
   facet_grid(reof ~ as.ordered(time_fact)) +
   theme_bw() +
-  labs(title = 'Drought patterns and the intensity of social interaction', subtitle = "Predicted information flow at a 10 days' travel", x = 'Climat Difference', y = 'Similarity')
+  labs(#title = 'Drought patterns and the intensity of social interaction', subtitle = "Predicted information flow at a 10 days' travel", 
+    x = 'Climatic Difference', y = 'Cultural Similarity')
 ggsave('figures/smooths.pdf', width = 6, height = 6)
 ```
  
 
-
 ```{r}
-library(patchwork)
+test <- match(
+predict(m2$gam, newdata = as_tibble(swsn %E>% 
+  mutate(time_fact = as.factor(time),
+         JSD = if_else(JSD > .999, .999, JSD)) %>%
+  filter(JSD >= 0.001))),predict(m2$gam))
+
 plt_dat <- swsn %E>% 
   mutate(time_fact = as.factor(time),
          JSD = if_else(JSD > .999, .999, JSD)) %>%
   filter(JSD >= 0.001) %>%
   mutate(JSD = if_else(JSD > .999, .999, JSD),
          JSD = qlogis(JSD),
-         pred_mod = (predict(models$gam[[1]])[test]),
-         pred_null = ((predict(models$lme[[8]]))[test]),
+         pred_mod = (predict(m2$lme)[test]),
+         pred_null = ((predict(m1$lme))[test]),
          res_null = JSD - pred_null, #residuals(models$lme[[8]], type = 'normalized')[test],
          res_mod = JSD - pred_null) %>% #residuals(models$lme[[1]], type = 'normalized')[test]) %>%
   filter(time == 1200)
-
-
-
-test <- match(
-predict(models$gam[[1]], newdata = as_tibble(swsn %E>% 
-  mutate(time_fact = as.factor(time),
-         JSD = if_else(JSD > .999, .999, JSD)) %>%
-  filter(JSD >= 0.001))),predict(models$gam[[1]]))
-
 ```  
 
-```{r}
+```{r fig.width = 6, fig.height = 4}
 #think about changing the residual plots back to magma so its easier to compare across them
 a <- plt_dat %>%
 arrange(JSD) %>%
