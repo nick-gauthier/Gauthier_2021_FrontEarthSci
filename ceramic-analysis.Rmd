@@ -124,14 +124,14 @@ patches %>%
 ggplot(aes(time, rooms, group = Macro, color = Macro)) +
   geom_line()
 
-patches %>%
-  gather(time, rooms, X1200:X1400) %>%
-  mutate(time = parse_number(time)) %>%
-  group_by(Macro, time) %>%
-  summarise(rooms = sum(rooms)) %>%
-  mutate(rooms = rooms / max(rooms)) %>%
-ggplot(aes(time, rooms, group = Macro, color = Macro)) +
-  geom_line()
+# patches %>%
+#   gather(time, rooms, X1200:X1400) %>%
+#   mutate(time = parse_number(time)) %>%
+#   group_by(Macro, time) %>%
+#   summarise(rooms = sum(rooms)) %>%
+#   mutate(rooms = rooms / max(rooms)) %>%
+# ggplot(aes(time, rooms, group = Macro, color = Macro)) +
+#   geom_line()
 ```
 
 ```{r}
@@ -146,6 +146,8 @@ ggplot() +
 ```
 
 ```{r}
+theo_max <- -.5 * log(.5) - .5 * log(.5) #maximum theoretical divergence given equal weights
+  
 getJSD <- function(data, time){
   patch_ids <- pull(data, patch_id)
   data %>%
@@ -153,7 +155,7 @@ getJSD <- function(data, time){
     select_if(~!all(. == 0)) %>%
     as.matrix %>%
     philentropy::distance(method = 'jensen-shannon', est.prob = 'empirical') %>%
-    `/`(., max(.)) %>%
+    `/`(., theo_max) %>%
     `-`(1,.) %>%
     `rownames<-`(patch_ids) %>%
     `colnames<-`(patch_ids) %>%
@@ -191,26 +193,26 @@ states <- maps::map('state', regions = c('arizona', 'new mexico'),
   st_as_sf
 ```
 
-```{r fig.width = 6, height = 4}
+```{r fig.width = 5, height = 3.333}
 swsn %N>%
   mutate(Rooms = X1200 + X1250 + X1300 + X1350 + X1400) %>%
   arrange(Rooms) %>%
   ggraph('manual', x = x, y = y) +
+      geom_sf(data = states, fill = NA, color = 'black') +
   geom_node_point(aes(size = Rooms, color = Rooms)) +
   scale_size_area(limits = c(0, 3000), breaks = seq(0, 3000, by = 500)) +
   scale_color_viridis(option = 'magma', limits = c(0, 3000), breaks = seq(0, 3000, by = 500), guide = 'legend') +
-    geom_sf(data = states, fill = NA, color = 'black') +
   coord_sf(datum = NA) +
   theme_void()  +
-  theme(legend.position = c(1, 0), legend.justification = c(2.75,-.5))
-ggsave('figures/site_distribution.pdf', width = 6, height = 4)
+  theme(legend.position = c(1, 0), legend.justification = c(2.6,-.3))
+ggsave('figures/site_distribution.pdf', width = 5, height = 3.3333)
 ```
 
 ```{r fig.fullwidth = TRUE, fig.width = 6, fig.height = 5}
 swsn %E>% 
     filter(JSD > .001) %>%
     filter(from < to) %>%
-    mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
+    mutate(JSD = qlogis((if_else(JSD > .999, .999, JSD)))) %>%
     arrange(JSD) %>%
 ggraph('manual', x = x, y = y) +
   geom_edge_fan(aes( color = JSD)) +
