@@ -84,7 +84,7 @@ ggplot(sites) +
   geom_sf(aes(color = Macro))
 ```
 
-Next we aggregate the sites into 10x10km patches. First import and crop the raster we'll use as a reference.
+Next we aggregate the sites into 10x10km patches. This is because an area of about 10 km radius from a site is the limit of raw material resources for ceramics (TODO cite Arnold1985). So 5km is roughly the limit of day to day social interaction, 10km is raw material procurement for ceramics, and 18 km is for day's journey round trip (TODO cite varien). translated to square units in equivalent areas, that's 3km square cells for regular face-to-face interaction and intensive agriculture. 12km for food and non food resources, and 32km grids for day's trip there and back. So 12 is the most reasonable. First import and crop the raster we'll use as a reference.
 ```{r}
 elev <- raster('~/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
   crop(extent(c(-113, -107, 31, 37.5))) %>% # crop to study area
@@ -156,6 +156,7 @@ getJSD <- function(data, time){
     as.matrix %>%
     philentropy::distance(method = 'jensen-shannon', est.prob = 'empirical') %>%
     `/`(., theo_max) %>%
+    sqrt %>%
     `-`(1,.) %>%
     `rownames<-`(patch_ids) %>%
     `colnames<-`(patch_ids) %>%
@@ -212,8 +213,8 @@ ggsave('figures/site_distribution.pdf', width = 5, height = 3.3333)
 swsn %E>% 
     filter(JSD > .001) %>%
     filter(from < to) %>%
-    mutate(JSD = qlogis((if_else(JSD > .999, .999, JSD)))) %>%
-    arrange(JSD) %>%
+    mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
+    arrange(JSD) %>% 
 ggraph('manual', x = x, y = y) +
   geom_edge_fan(aes( color = JSD)) +
   geom_sf(data = states, fill = NA, color = 'black') +

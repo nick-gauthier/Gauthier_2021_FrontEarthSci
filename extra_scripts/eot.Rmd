@@ -41,10 +41,18 @@ nXplain(test2, .85)
 ```
 ```{r}
 library(SpatPCA)
-xx <-spei_obs %>% rasterToPoints() %>% .[,1:2]
+xx <-spei_obs %>% aggregate(fact=4) %>% rasterToPoints() %>% .[,1:2]
 
-yy <- spei_obs %>% rasterToPoints() %>% .[,-c(1:2)] %>% t
+yy <- spei_obs %>% aggregate(fact=4) %>% rasterToPoints() %>% .[,-c(1:2)] %>% t
 test3 <- spatpca(xx, yy, center = TRUE)
+fields::quilt.plot(xx, test3$eigenfn[,1])
+fields::quilt.plot(xx, test3$eigenfn[,2])
+fields::quilt.plot(xx, test3$eigenfn[,3])
+
+plot(yy%*%test3$eigenfn[,1], type = "l", ylab = "1st Principal Component")
+plot(yy%*%test3$eigenfn[,2], type = "l", ylab = "2nd Principal Component")
+plot(yy%*%test3$eigenfn[,3], type = "l", ylab = "3rd Principal Component")
+
 ```
 
 
@@ -91,3 +99,13 @@ plot(eot_sst_jja, 4)
 12 * 4 + 553
 1332/12
 ```
+
+```{r}
+test <- brick('~/Downloads/sst.mnmean.v4.nc') %>%
+      aggregate(fact = 4) %>%
+  deseason(use.cpp = TRUE, cycle.window = 12) %>%
+  denoise(expl.var = .9) %>%
+  eot(n=3)
+plot(test,3)
+```
+

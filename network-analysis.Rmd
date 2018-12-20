@@ -84,7 +84,12 @@ reofs <- brick('output/reofs.tif')  %>%
   crop(bbox) %>%
   resample(elev)
 
-env_rasters <- brick(c(elev, ws, reofs))
+eofs <- brick('output/eofs.tif')  %>%
+  `names<-`(., paste0('eof', 1:nlayers(.))) %>%
+  crop(bbox) %>%
+  resample(elev)
+
+env_rasters <- brick(c(elev, ws, reofs, eofs))
 ```
 
 ```{r}
@@ -363,7 +368,7 @@ ggplot(dat, aes(dist_geo, distance)) +
   geom_point(alpha = .1) +
   geom_smooth()
 ```
-
+jensen inequality, E(logit(y)) >=logit(E(y)). this means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. Its a necessary evil here, becuase we do not yet have the computational abiliy to fit the corMLPE correlation structure and a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a much alrger source of bias then transforming the response variabble,so that's the tradeoffwe went with. The bias from transforming the respone leads to bias in the estimates of variance.
 
 ```{r}
 fit_gam_JSD <- function(x){
@@ -384,17 +389,17 @@ models <- c(
       s(reof5, by = time_fact, bs = 'cs', k = 6) +
       s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact",
         "s(distance, bs = 'cr', k = 6) +
-          s(reof1, by = time_fact, bs = 'cs', k = 6) + time_fact",
+          s(reof1, by = time_fact, bs = 'cr', k = 6) + time_fact",
         "s(distance, bs = 'cr', k = 6) +
-          s(reof2, by = time_fact, bs = 'cs', k = 6) + time_fact",
+          s(reof2, by = time_fact, bs = 'cr', k = 6) + time_fact",
         "s(distance, bs = 'cr', k = 6) +
-       s(reof3, by = time_fact, bs = 'cs', k = 6) + time_fact",
+       s(reof3, by = time_fact, bs = 'cr', k = 6) + time_fact",
    "s(distance, bs = 'cr', k = 6) +
-       s(reof4, by = time_fact, bs = 'cs', k = 6) + time_fact",
+       s(reof4, by = time_fact, bs = 'cr', k = 6) + time_fact",
    "s(distance, bs = 'cr', k = 6) +
-       s(reof5, by = time_fact, bs = 'cs', k = 6) + time_fact",
+       s(reof5, by = time_fact, bs = 'cr', k = 6) + time_fact",
    "s(distance, bs = 'cr', k = 6) +
-       s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact"
+       s(reof6, by = time_fact, bs = 'cr', k = 6) + time_fact"
    ) %>%
   paste('qlogis(JSD) ~', .) %>%
   tibble(formula_chr = .) %>%
@@ -422,7 +427,11 @@ We have moderate to strong concurvity
 ```{r}
 concurvity(models$gam[[1]])
 ```
-
+%This represents that multiple transmission processes, with different relationships to distance, are acting together to generate the variation in the archaeological record. The two main inflection points in the decay curve are both consistent with previous work in the ecology of human mobility. Their is a plateau effect distance plays no appreciable role in interaction between sites within a day's walk of one another (johnson but cites olsson 1965 and crumley 1979, ariadne). This suggests that distance only becomes a deterring factor dealing in multiday trips. The second inflection point, at roughly 10 days is consistent with estimates of area needed to sustain the minimum viable breeding population for human groups (are they consistent with the figures of 50km-80km from rautman and drennen and others? johnson finds no marriages past 60km, maize to chaco papers also have distance).
+%Plateau of social interaction with communities who have daily face-to-face contact.
+%These findings contradict those of \parencite{Hart2012}, because that work assumes only a linear relationship with distance.
+%uses log transform
+%The Mogollon Rim acts as a severe bottleneck for spatial flows, with paths generally constrained to one of the three river systems, the Verde, Salt, and Gila, act to channel flow across this boundary. 
 ```{r}
 evaluate_smooth(models$gam[[1]], 's(distance)')  %>% draw()
 evaluate_smooth(models$gam[[1]], 's(distance)') %>% 
@@ -450,13 +459,7 @@ draw(models$gam[[7]], scales = 'fixed')
 ```
 
 ```{r}
-m1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6),
-      method = 'REML', 
-      random = list(time_fact = ~1),
-      family = gaussian(),
-      correlation = corMLPE(form = ~from + to|time_fact),
-      data = dat)
-m15 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +time_fact,
+m1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) + time_fact,
       method = 'REML', 
       family = gaussian(),
       correlation = corMLPE(form = ~from + to|time_fact),
@@ -465,9 +468,8 @@ m15 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +time_fact,
 saveRDS(m1, 'm1')
 m1 <- readRDS('m1')
 plot(m1$gam)
-plot(m15$gam)
 
-m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+m25 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
           s(reof1, by = time_fact, bs = 'cs', k = 6) +
           s(reof2, by = time_fact, bs = 'cs', k = 6) +
        s(reof3, by = time_fact, bs = 'cs', k = 6) +
@@ -482,7 +484,6 @@ saveRDS(m2, 'm2')
 m2 <- readRDS('m2')
 gam.check(m2$gam)
 summary(m1$gam)
-summary(m15$gam)
 summary(m2$gam)
 concurvity(m2$gam)
 
@@ -496,6 +497,21 @@ concurvity(m2$gam)
 #       data = dat)
 # plot(m3$gam, scale = 0)
 # summary(m3$gam)
+
+m35 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+          s(reof1, bs = 'cs', k = 6) +
+          s(reof2, bs = 'cs', k = 6) +
+       s(reof3, bs = 'cs', k = 6) +
+       s(reof4, bs = 'cs', k = 6) +
+      s(reof5, bs = 'cs', k = 6) +
+      s(reof6, bs = 'cs', k = 6) + macro_same,
+      method = 'REML', 
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to),
+      data = filter(dat, time == 1200))
+
+summary(m3$gam)
+summary(m35$gam)
 ```
 
 ```{r fig.height = 6, fig.width = 6}
@@ -520,7 +536,7 @@ m2$gam %>%
   ggplot(aes(value, fit, group = time_fact)) +  
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = reof), alpha = .3) +
 geom_line(aes(color = reof), size = 1.2) +
-  scale_y_continuous(breaks = c(0, 1)) +
+  scale_y_continuous(breaks = c(0, 1), limits = c(0,1)) +
   scale_x_continuous(breaks = c(0, .5)) +
   theme_bw() +
   scale_color_viridis_d(guide = 'none') +
@@ -529,7 +545,7 @@ geom_line(aes(color = reof), size = 1.2) +
   theme_bw() +
   labs(#title = 'Drought patterns and the intensity of social interaction', subtitle = "Predicted information flow at a 10 days' travel", 
     x = 'Climatic Difference', y = 'Cultural Similarity')
-ggsave('figures/smooths.pdf', width = 6, height = 6)
+ggsave('figures/smooths2.pdf', width = 6, height = 6)
 ```
  
 
@@ -545,11 +561,11 @@ plt_dat <- swsn %E>%
          JSD = if_else(JSD > .999, .999, JSD)) %>%
   filter(JSD >= 0.001) %>%
   mutate(JSD = if_else(JSD > .999, .999, JSD),
-         JSD = qlogis(JSD),
-         pred_mod = (predict(m2$lme)[test]),
-         pred_null = ((predict(m1$lme))[test]),
+         JSD = (JSD),
+         pred_mod = plogis(predict(m2$lme)[test]),
+         pred_null = plogis((predict(m1$lme))[test]),
          res_null = JSD - pred_null, #residuals(models$lme[[8]], type = 'normalized')[test],
-         res_mod = JSD - pred_null) %>% #residuals(models$lme[[1]], type = 'normalized')[test]) %>%
+         res_mod = JSD - pred_mod) #%>% #residuals(models$lme[[1]], type = 'normalized')[test]) %>%
   filter(time == 1200)
 ```  
 
@@ -560,7 +576,7 @@ arrange(JSD) %>%
 ggraph(x = x, y = y) +
   geom_edge_fan(aes(alpha = JSD, color = JSD)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
    labs(subtitle = 'A') +
   theme_void() +
   coord_sf(datum = NA)
@@ -570,7 +586,7 @@ arrange(pred_null) %>%
 ggraph(x = x, y = y) +
   geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
   scale_edge_alpha(guide = 'none') +
- scale_edge_color_viridis(option = 'magma', guide = 'none') +
+ scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
    labs(subtitle = 'B') +
   theme_void() +
   coord_sf(datum = NA)
@@ -580,7 +596,7 @@ arrange(res_null) %>%
 ggraph(x = x, y = y) +
   geom_edge_fan(aes(alpha = res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD') + 
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
    labs(subtitle = '') +
   theme_void() +
   coord_sf(datum = NA)
@@ -590,7 +606,7 @@ arrange(-res_null) %>%
 ggraph(x = x, y = y) +
   geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD') + 
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
   labs(subtitle = '') +
   theme_void() +
   coord_sf(datum = NA)
@@ -600,7 +616,7 @@ arrange(pred_mod) %>%
 ggraph(x = x, y = y) +
   geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
    labs(subtitle = 'C') +
   theme_void() +
   coord_sf(datum = NA)
@@ -610,7 +626,7 @@ arrange(res_mod) %>%
 ggraph(x = x, y = y) +
   geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD') +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
    labs(subtitle = '') +
   theme_void() +
   coord_sf(datum = NA)
@@ -620,128 +636,101 @@ arrange(-res_mod) %>%
 ggraph(x = x, y = y) +
   geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
   scale_edge_alpha(guide = 'none') +
-   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD') + 
+   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
   labs(subtitle = '') +
   theme_void() +
   coord_sf(datum = NA)
 
 a+(b+c+d+ e+f+g + plot_layout(nrow = 2))
+plt_dat %E>% as_tibble() %>% summary
 ggsave('figures/residuals.png', width = 6, height = 4)
-ranef(m1$lme)
 ```
 
-```{r}
-plt_dat %>%
-  select(JSD,pred_mod:res_mod) %>%
-  mutate(JSD = qlogis(JSD),
-         pred_mod = qlogis(pred_mod),
-         test = JSD - pred_mod)
-  mutate(test = plogis(qlogis(pred_mod) + res_mod)) %>%
-arrange(test) %>%
+```{r fig.width = 6, fig.height = 6}
+plt_dat %E>% as_tibble %>% summary
+a <- plt_dat %>%
+arrange(JSD) %>%
 ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = test, color = test)) +
+  geom_edge_fan(aes(alpha = JSD, color = JSD)) +
   scale_edge_alpha(guide = 'none') +
-   #scale_edge_color_viridis(option = 'magma', guide = 'none') +
-   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD') + #, limits = c(-1,1)) +
-  labs(subtitle = '') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+   labs(subtitle = 'A') +
+  facet_wrap(~time, nrow = 1) +
   theme_void() +
   coord_sf(datum = NA)
-```
 
-```{r}
-m1 <- dat %>%
-  bam(JSD ~ s(distance, bs = 'cr', k = 6) +
-        te(reof1, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof2, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof3, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof4, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof5, time, k = c(6, 4), fx = c(F,T)) +
-         te(reof6, time, k = c(6, 4), fx = c(F,T)) +
-        s(time, from, bs = 'fs', k = 4), data = ., method = 'fREML', discrete = TRUE, family = betar, nthreads = 2)
-
-m1 <- dat %>%
-  bam(JSD ~ s(distance, bs = 'cr', k = 6) +
-         s(reof1, bs = 'cr', k = 6) +
-        s(reof2,  bs = 'cr', k = 6) +
-        s(reof3, bs = 'cr',  k = 6) +
-        s(reof4, bs = 'cr',  k = 6) +
-        s(reof5, bs = 'cr',  k = 6) +
-        s(reof6, bs = 'cr',  k = 6) +
-         s(time, from, bs = 'fs', k = 4),
-      data = ., method = 'fREML', discrete = TRUE, select = TRUE, family = betar, nthreads = 2)
-
-m2 <- dat %>%
-  filter(tie == TRUE) %>%
-    mutate(from = as.factor(from), to = as.factor(to)) %>%
-  bam(JSD ~  s(time, bs = 'cr', k = 4, m = 2) + s(time, by = from, bs = 'cs', k = 4, m = 1) + s(from, bs = 're') + s(distance, bs = 'cr', k = 5), data = ., method = 'fREML', discrete = TRUE, family = betar, nthreads = 2)
-
-AIC(m1,m2)
-plot(m1, trans = plogis, scale = 0)
-summary(m1)
-summary(m2)
-```
-
-```{r}
-amplitudes
-```
-
-```{r}
-m2 <- dat %>%
-  filter(tie == TRUE) %>%
-  bam(JSD ~ s(distance) + 
-        s(size) + s(log(rooms)) + 
-        s(reof1, time, bs = 'fs') + s(reof2, time, bs = 'fs') + 
-        s(reof3, time, bs = 'fs') + s(reof4, time, bs = 'fs'), 
-      data = ., select = TRUE, discrete = TRUE, nthreads = 2, family = betar)
-plot(m2)
-gam.check(m2)
-summary(m2)
-
-swsn_reof %E>% 
-  mutate(from_time = interaction(from, time),
-         to_time = interaction(to, time)) %>%
-  filter(JSD > 0) %>%
-  mutate(pred = predict(m1, newdata = as_tibble(.), type = 'response')) %>%
-  arrange(pred) %>%
-ggraph('manual', node.positions = as.data.frame(pts_jsd)) +
-  geom_edge_fan(aes(alpha = pred, color = pred)) +
-  geom_sf(data = states, fill = NA, color = 'black') +
-  facet_edges(~time) +
+b <- plt_dat %>%
+arrange(pred_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
-  coord_sf(datum = NA) +
-  theme_void()
-swsn_reof %E>% 
-  mutate(time_num = as.numeric(time)) %>%
-  mutate(from_time = interaction(from, time),
-         to_time = interaction(to, time)) %>%
-  filter(JSD > 0) %>%
-  mutate(pred = predict(m4, newdata = as_tibble(.), type = 'response')) %>%
-  arrange(pred) %>%
-ggraph('manual', node.positions = as.data.frame(pts_jsd)) +
-  geom_edge_fan(aes(alpha = pred, color = pred)) +
-  geom_sf(data = states, fill = NA, color = 'black') +
-  facet_edges(~time) +
+ scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+    facet_wrap(~time, nrow = 1) +
+   labs(subtitle = 'B') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+c <- plt_dat %>%
+arrange(res_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
-  coord_sf(datum = NA) +
-  theme_void()
-swsn_reof %E>% 
-  mutate(time_num = as.numeric(time)) %>%
-  mutate(from_time = interaction(from, time),
-         to_time = interaction(to, time)) %>%
-  filter(JSD > 0) %>%
-  mutate(pred = JSD - predict(m3, newdata = as_tibble(.), type = 'response')) %>%
-  arrange(pred) %>%
-ggraph('manual', node.positions = as.data.frame(pts_jsd)) +
-  geom_edge_fan(aes(alpha = pred, color = pred)) +
-  geom_sf(data = states, fill = NA, color = 'black') +
-  facet_edges(~time) +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+   labs(subtitle = '') +
+        facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+d <- plt_dat %>%
+arrange(-res_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
   scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'Spectral', guide = 'none') +
-  coord_sf(datum = NA) +
-  theme_void()
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+  labs(subtitle = '') +
+        facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+e <- plt_dat %>%
+arrange(pred_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+   labs(subtitle = 'C') +
+    facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+f <- plt_dat %>%
+arrange(res_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
+   labs(subtitle = '') +
+      facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+g <- plt_dat %>%
+arrange(-res_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
+  scale_edge_alpha(guide = 'none') +
+   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+  labs(subtitle = '') +
+      facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+a+(b+c+d+ e+f+g + plot_layout(nrow = 2))
+a+ b + e + f + g + plot_layout(nrow = 5)
+ggsave('figures/residuals.png', width = 6, height = 4)
 ```
+
+
 
 ```{r}
 test1 <- swsn_reof %>%
