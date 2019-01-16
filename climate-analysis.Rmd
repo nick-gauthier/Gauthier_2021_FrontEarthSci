@@ -91,7 +91,7 @@ spei_obs <- brick('data/spei12_8_PRISM.nc') %>%
 ```
 
 
-Import the reconstructed SPEI fields from PHYDA. PHYDA uses a novel off-line data assimilation approach, using simulated SPEI from the CESM LME experiments as physically-consistent model priors and a network of tree rings, ice cores, and corals as assimilated observations.
+Import the reconstructed SPEI fields from PHYDA. PHYDA uses a novel off-line data assimilation approach, using simulated SPEI from the CESM LME experiments as physically-consistent model priors and a network of tree rings, ice cores, and corals as assimilated observations. The ensemble Kalman filter uses this information, as well as the spatial covariances from the climate-model prior (e.g. teleconnections), to ``spread out'' information from the point-based proxies to generate physically optimal extrapolations beyond the proxy locations.
 
 ```{r import_reconstructions}
 spei_recon <- brick('data/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc',
@@ -135,6 +135,8 @@ spei_recon %>%
 ## Empirical Orthogonal Functions
 
 We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term (~2ka) reconstruction based on data assimilation and CESM LME. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 85% of the variance in a full 1,000 year sequence of reconstructed drought dynamics.
+
+Although the particular choices of variables, resolution, domain size, truncation level, were informed by theory and tested to as to minimize sensitivity to particular choices, different researchers could still generate equally reasonable results given  different input parameters.
 
 This is a function to reweight our observations based on the latitude, to acount for the areal distortion of each cell as latitude changes.
 

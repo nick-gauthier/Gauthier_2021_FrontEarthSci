@@ -370,6 +370,10 @@ ggplot(dat, aes(dist_geo, distance)) +
 ```
 jensen inequality, E(logit(y)) >=logit(E(y)). this means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. Its a necessary evil here, becuase we do not yet have the computational abiliy to fit the corMLPE correlation structure and a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a much alrger source of bias then transforming the response variabble,so that's the tradeoffwe went with. The bias from transforming the respone leads to bias in the estimates of variance.
 
+ allows the model to be estimated additively.
+ 
+ Pairwise data are high powered, which is makes goodness of fit estimates are preferable over statistical significance testing, and we must be careful to properly estimate confidence intervals,
+
 ```{r}
 fit_gam_JSD <- function(x){
   gamm(x, method = 'ML', 
@@ -418,7 +422,7 @@ models %>% pull(aic) %>% plot
 summary(models$gam[[8]])
 summary(models$gam[[1]])
 ```
-
+This may suggest areas of increased conflict, where the kind of social interaction through which pottery would have been exchanged would be rare, or other unmodeled costs of travel such as river crossings cultural taboos. 
 ```{r}
 gam.check(models$gam[[1]])
 ```
