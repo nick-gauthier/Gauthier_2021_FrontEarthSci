@@ -3,6 +3,12 @@
 \usepackage[T1]{fontenc}
 \usepackage{gensymb}
 
+\usepackage[left]{lineno}
+\linenumbers
+
+\usepackage{setspace}
+\doublespacing
+
 \usepackage[
 maxbibnames=99,
 maxcitenames=2,
@@ -54,6 +60,7 @@ doi=false,isbn=false,url=false
 %\ioptwocol
 
 \section*{Introduction}
+
 Exchange networks are part of the broad toolkit of social and physical infrastructure human populations use to manage environmental risk in social-ecological systems \parencite{Anderies2015}. The biophysical environment structures the potential costs and benefits of social interaction, as it does with physical infrastructure. Recent theoretical and empirical work highlights how spatial, social, and environmental factors influence networks of exchange and interaction \parencite{Fafchamps2007,Bloch2008,Nolin2010,Verdery2012,Freeman2014,Koster2014,Hao2015a,Schnegg2015}. Distance often emerges as an important factor in such systems. For agricultural societies in water-limited environments, hydroclimate variability -- specifically the balance of precipitation and evapotranspiration -- directly impact food supplies. As a consequence, we might expect a greater ``investment of social energy in the maintenance of social ties'' between populations experiencing poorly or negatively correlated climate variability \parencite{Rautman1993a}. The benefits of interacting with others in distinct drought regimes will often outweigh the costs of traveling longer distances. Norms and institutions that maintain ties between drought regimes are likely to evolve \parencite{Durante2009}. This process is difficult to measure in the present day due to the mismatch between the generational time scales on which cultural evolution occurs and the . We can turn to the archaeological record for answers to this question. 
 
 Archaeology focuses on the material correlates of human behavior and is unique in addressing how social and physical infrastructure modulates human interactions with the environment over long time spans. Not only do archaeologists catalogue the remains of field systems, road networks, canals, and other components of hard infrastructure directly, but also the ceramics, raw materials, and luxury goods that are the material correlates of past networks of exchange and interaction. A powerful idea in archaeology is that the spatial and temporal patterns of environmental variability can be used to predict ideal cultural responses that can be compared to archaeological observations \parencite{Halstead1989}. Yet in practice it is often difficult to find archaeological data fit for purpose, due to the incomplete nature of the archaeological record and the paucity of detailed paleoclimate data at the scales most relevant to human populations. 
@@ -76,6 +83,7 @@ Here, I use an empirical archaeological case study from the late pre-Hispanic pe
 \section*{Data and Methods}
 
 \subsection*{Hydroclimate Variability}
+
 Climate varies across scales because of many reasons, both dynamic and stochastic. To understand how droughts impact society we must first separate signal from the climatic noise. Principal Components Analysis (PCA) of spatiotemporal data is a common tool for extracting modes of variability in the climate sciences \parencite{Lorenz1956,Hannachi2007}, but its use for this purpose is rare in archaeologically \parencite{Weiss1982, Cordell2007}. I used PCA to decompose a 100-year observational record of summer moisture availability into orthogonal modes of variability to extract the leading patterns that collectively explained the most variability. I analyzed the 100 year dataset of 12 month Standardized Precipitation-Evapotranspiration Index (SPEI) calculated from PRISM data over a domain covering the states of Arizona, New Mexico, Colorado, Utah, and California \parencite{Daly1997}. SPEI is the normalized deviation from the average climate water balance for a given month on varying time scales. I focused on the 12-month SPEI calculated in the August of each year, as agricultural droughts during the summer growing season are most relevant to societies at the time.
 %phyda intro?
 
@@ -83,7 +91,9 @@ Climate varies across scales because of many reasons, both dynamic and stochasti
 %the spatial patterns are the eofs, the time series the PCs
 
 \subsection*{Archaeological Interaction Networks}
+
 The Southwest Social Networks (SWSN) database (Figure \ref{fig:network-plot}) is a compendium of material-culture data from nearly 1,000 well-dated sites in Arizona and western New Mexico from between 1200 and 1500 CE \parencite{Mills2012,Mills2013a,Peeples2013,Borck2015,Hill2015,Mills2015a}. The SWSN project analyzed nearly 4.7 million ceramic artifacts and nearly 5,000 obsidian artifacts \parencite{Mills2015a}. Using an index of the similarity of ceramic assemblages as a proxy for the intensity of social interaction between settlements, the SWSN database provides quantitative estimates of the topology of the region-wide social network during six 50 year time steps \parencite{Mills2013a}. I aggregated the point-based SWSN data into 10km grid cells, so that the results are less sensitive to local settlement dispersal or aggregation \parencite{Paliou2016}, smoothing over the approximate area of each site's resource and raw material catchment \parencite{Varien1999}. Then I calculated a modified Jensen-Shannon divergence between the empirical frequency distributions of 15 decorated ceramic wares at all of the patches
+
 \begin{equation}
     D_{ij} = H\left(\pi_1P + \pi_2Q\right) - \pi_1H(P) - \pi_2H(Q)
 \end{equation}
