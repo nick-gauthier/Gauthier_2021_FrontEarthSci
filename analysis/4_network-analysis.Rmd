@@ -149,7 +149,7 @@ mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
   convert(to_undirected)
 ```
 
-```{r}
+```{r, include = F, eval = F}
 library(broom)
 reof_dat <- swsn %N>%
   as_tibble %>%
@@ -391,19 +391,19 @@ models <- c(
        s(reof3, by = time_fact, bs = 'cs', k = 6) +
        s(reof4,  by = time_fact, bs = 'cs', k = 6) +
       s(reof5, by = time_fact, bs = 'cs', k = 6) +
-      s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact",
-        "s(distance, bs = 'cr', k = 6) +
-          s(reof1, by = time_fact, bs = 'cr', k = 6) + time_fact",
-        "s(distance, bs = 'cr', k = 6) +
-          s(reof2, by = time_fact, bs = 'cr', k = 6) + time_fact",
-        "s(distance, bs = 'cr', k = 6) +
-       s(reof3, by = time_fact, bs = 'cr', k = 6) + time_fact",
-   "s(distance, bs = 'cr', k = 6) +
-       s(reof4, by = time_fact, bs = 'cr', k = 6) + time_fact",
-   "s(distance, bs = 'cr', k = 6) +
-       s(reof5, by = time_fact, bs = 'cr', k = 6) + time_fact",
-   "s(distance, bs = 'cr', k = 6) +
-       s(reof6, by = time_fact, bs = 'cr', k = 6) + time_fact"
+       s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact" #,
+   #      "s(distance, bs = 'cr', k = 6) +
+   #        s(reof1, by = time_fact, bs = 'cr', k = 6) + time_fact",
+   #      "s(distance, bs = 'cr', k = 6) +
+   #        s(reof2, by = time_fact, bs = 'cr', k = 6) + time_fact",
+   #      "s(distance, bs = 'cr', k = 6) +
+   #     s(reof3, by = time_fact, bs = 'cr', k = 6) + time_fact",
+   # "s(distance, bs = 'cr', k = 6) +
+   #     s(reof4, by = time_fact, bs = 'cr', k = 6) + time_fact",
+   # "s(distance, bs = 'cr', k = 6) +
+   #     s(reof5, by = time_fact, bs = 'cr', k = 6) + time_fact",
+   # "s(distance, bs = 'cr', k = 6) +
+   #     s(reof6, by = time_fact, bs = 'cr', k = 6) + time_fact"
    ) %>%
   paste('qlogis(JSD) ~', .) %>%
   tibble(formula_chr = .) %>%
@@ -431,11 +431,13 @@ We have moderate to strong concurvity
 ```{r}
 concurvity(models$gam[[1]])
 ```
+
 %This represents that multiple transmission processes, with different relationships to distance, are acting together to generate the variation in the archaeological record. The two main inflection points in the decay curve are both consistent with previous work in the ecology of human mobility. Their is a plateau effect distance plays no appreciable role in interaction between sites within a day's walk of one another (johnson but cites olsson 1965 and crumley 1979, ariadne). This suggests that distance only becomes a deterring factor dealing in multiday trips. The second inflection point, at roughly 10 days is consistent with estimates of area needed to sustain the minimum viable breeding population for human groups (are they consistent with the figures of 50km-80km from rautman and drennen and others? johnson finds no marriages past 60km, maize to chaco papers also have distance).
 %Plateau of social interaction with communities who have daily face-to-face contact.
 %These findings contradict those of \parencite{Hart2012}, because that work assumes only a linear relationship with distance.
 %uses log transform
 %The Mogollon Rim acts as a severe bottleneck for spatial flows, with paths generally constrained to one of the three river systems, the Verde, Salt, and Gila, act to channel flow across this boundary. 
+
 ```{r}
 evaluate_smooth(models$gam[[1]], 's(distance)')  %>% draw()
 evaluate_smooth(models$gam[[1]], 's(distance)') %>% 
@@ -449,7 +451,7 @@ evaluate_smooth(models$gam[[1]], 's(distance)') %>%
    geom_ribbon(aes(y = est_trans, ymin = lower_trans, ymax = upper_trans), alpha = .2, color = 'blue') +
   geom_line(aes(y = est_trans))
 
-m1$gam %>% getViz %>% sm(1) %>%  plot(trans = plogis) +geom_vline(xintercept = c(12, 100), linetype = 2)+ l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1))
+m1$gam %>% getViz %>% sm(1) %>%  plot(trans = plogis) +geom_vline(xintercept = c(12, 100), linetype = 2)+ l_fitLine(colour = "red") + l_ciLine(mul = 5, colour = "blue", linetype = 2) + scale_y_continuous(limits = c(0,1)) + labs(x = 'Distance (hours)', y = 'Cultural similarity')
 ggsave('figures/distance_function.pdf', width = 6, height = 4)
 ```
 
@@ -549,7 +551,7 @@ geom_line(aes(color = reof), size = 1.2) +
   theme_bw() +
   labs(#title = 'Drought patterns and the intensity of social interaction', subtitle = "Predicted information flow at a 10 days' travel", 
     x = 'Climatic Difference', y = 'Cultural Similarity')
-ggsave('figures/smooths2.pdf', width = 6, height = 6)
+ggsave('figures/smooths.pdf', width = 6, height = 6)
 ```
  
 

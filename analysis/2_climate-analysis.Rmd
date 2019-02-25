@@ -311,7 +311,7 @@ writeRaster(reof_raster, 'output/reofs.tif', overwrite = TRUE)
 ```
 
 
-```{r eval = FALSE, include = FALSE}
+```{r include = FALSE}
 eof_raster <- eofs_obs %>%
   select(-std.dev, -column) %>%
   spread(PC, value)  %>%
@@ -380,7 +380,7 @@ as.data.frame(spei_recon[[1]], xy = TRUE, na.rm = TRUE) %>% cbind(recon_reof$REO
   gather(eof, value, 3:(n_modes+2)) %>%
   ggplot() +
   geom_raster(aes(x,y,fill = value)) +
-    scale_fill_viridis(option = 'magma') +
+    scale_fill_viridis_c(option = 'magma') +
   facet_wrap(~eof) +
   #geom_sf(data = states, fill = NA) +
   coord_sf(datum = NA) +
