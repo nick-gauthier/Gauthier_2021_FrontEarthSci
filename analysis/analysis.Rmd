@@ -249,7 +249,7 @@ Repeat for the prism observations. Again, we'll retain the leading four modes.
 It looks like there is some autocorrelation in phyda but not in the observations, will have to adjust in the future.
 
 ```{r}
-get_EOFs <- function(pc_object, eigs, rast_template, n_modes, rotate = TRUE){
+get_EOFs <- function(pc_object, eigs, rast_template, n_modes){
   eofs <- pc_object %>%
     tidy(matrix = 'variables') %>%
     filter(PC <= n_modes) %>%
@@ -258,26 +258,37 @@ get_EOFs <- function(pc_object, eigs, rast_template, n_modes, rotate = TRUE){
            PC = as.character(PC)) %>%
     select(-std.dev, -value) 
   
-  if(rotate == TRUE){
-      varim <- eofs %>% 
-        pivot_wider(names_from = PC, values_from = eof) %>%
-        column_to_rownames(var = 'column') %>%
-        as.matrix %>%
-        varimax # varimax rotation
-      
-      eofs <- unclass(varim$loadings) %>%
-        as_tibble(rownames = 'column') %>%
-        pivot_longer(-column, names_to = 'PC', values_to = 'reof') %>%
-        right_join(eofs, by = c('column', 'PC'))
-  }
+  varim <- eofs %>% 
+    pivot_wider(names_from = PC, values_from = eof) %>%
+    column_to_rownames(var = 'column') %>%
+    as.matrix %>%
+    varimax # varimax rotation
   
-  rast_template[[1]] %>%
+  rot_mat <- varim$rotmat
+  
+  reofs <- unclass(varim$loadings) %>%
+    as_tibble(rownames = 'column') %>%
+    pivot_longer(-column, names_to = 'PC', values_to = 'reof') %>%
+    right_join(eofs, by = c('column', 'PC'))
+  
+  amps <- pc_object$x %>%
+    .[,1:n_modes] %>%
+    scale %>%
+    `%*%`(rot_mat) %>%
+    as_tibble(rownames = 'year', .name_repair = ~1:n_modes) %>%
+    gather(PC, amplitude, -year) %>%
+    mutate(year = as.numeric(str_sub(year, 2)),
+           PC = as.factor(paste0('PC', PC)))
+  
+  reofs <- rast_template[[1]] %>%
     as.data.frame(xy = TRUE, na.rm = TRUE) %>% 
     .[1:2] %>%
     slice(rep(1:n(), times = n_modes)) %>%
-    bind_cols(eofs, .) %>%
+    bind_cols(reofs, .) %>%
     select(-column) %>%
     mutate(PC = paste0('EOF', PC))
+  
+  list(EOFs = reofs, amps = amps)
 }
 ```
 
@@ -288,8 +299,8 @@ Now, calculate the eofs for both fields, retaining the 6 leading components in e
 n_modes <- 6
 
 # rotated EOFS
-reof_obs <- get_EOFs(obs_pca, obs_eigs, spei_obs, n_modes, rotate = TRUE)
-reof_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes, rotate = TRUE)
+reof_obs <- get_EOFs(obs_pca, obs_eigs, spei_obs, n_modes)
+reof_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
 ```
 
 
@@ -297,7 +308,7 @@ We see that the leading 3 eigenvectors from the observations and reconstructions
 
 Save the reof data as a raster, so we can crop it to the state boundaries
 ```{r reof_raster, warning = FALSE}
-reof_raster <- reof_obs %>%
+reof_raster <- reof_obs$EOFs %>%
   select(-eof) %>%
   spread(PC, reof)  %>%
   rasterFromXYZ %>%
@@ -314,7 +325,7 @@ writeRaster(reof_raster, '../output/reofs.tif', overwrite = TRUE)
 ```
 
 ```{r, include = FALSE, warning = FALSE}
-eof_raster <- reof_obs %>%
+eof_raster <- reof_obs$EOFs %>%
   select(-reof) %>%
   spread(PC, eof)  %>%
   rasterFromXYZ %>%
@@ -364,7 +375,7 @@ ggplot() +
   coord_sf(datum = NA) +
   theme(legend.position = "bottom")
 
-ggplot(reofs_recon, aes(x, y, fill = eof)) +
+ggplot(reof_recon$EOFs, aes(x, y, fill = eof)) +
   facet_wrap(~PC) +
   geom_raster() +
   scale_fill_distiller(palette = 'BrBG', direction = 1, limits = c(-.72, .72)) +
@@ -375,7 +386,7 @@ ggplot(reofs_recon, aes(x, y, fill = eof)) +
 The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, so these loadings represent the covariance between each grid cell and each amplitude (principal component). A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
 
 ```{r plot_recon_reofs, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
-reof_recon %>%
+reof_recon$EOFs %>%
   mutate(reof = if_else(PC %in% c('EOF1', 'EOF3', 'EOF6'), reof * -1, reof)) %>%
   ggplot() +
   geom_raster(aes(x,y,fill = reof)) +
@@ -389,33 +400,6 @@ To confirm this, let's plot the time series (PCs) of each observed and reconstru
 
 ## Drought Amplitudes
 
-These are the amplitudes of the EOFs, not the REOFs
-
-```{r amplitudes}
-calc_amplitude <- function(pc_object, n_modes){
-  pc_object %>%
-    tidy(matrix = 'samples') %>%
-    filter(PC <= n_modes) %>%
-    rename(year = row, amplitude = value) %>%
-    mutate(year = as.numeric(str_sub(year, 2)),
-           PC = as.factor(PC)) %>%
-    group_by(PC) %>%
-    mutate(amplitude = scale(amplitude)) %>% # so here we'd want to multply by the rotation matrix?
-    ungroup
-}
-
-# this is the way to do it with the eofs, no reofs until i implement it
-obs_eof_amp <- calc_amplitude(obs_pca, n_modes)
-
-ggplot(obs_eof_amp, aes( year, amplitude, color = PC)) +
-  geom_line(alpha = .3) +
-  facet_wrap(~PC) + geom_vline(xintercept = c(1956, 1977), linetype = 2) + geom_smooth(size = 1.2) +
-  scale_color_viridis_d()
-
-recon_eof_amp <- calc_amplitude(recon_pca, n_modes)
-
-### start here. so first the question is how to make the above work for the new reofs. it seems that i can do stuff with the eof loadings above than apply the rotation matrix after the fact. so that'd be nice. check the wql code again to see how it makes the rotated amplitdues. so if amp is the scaled amplitudes, just do amp %*% rotater, which is the rotation matrix you get from doing pr2[["rotmat"]]
-```
 
 ```{r, echo = FALSE}
 #do the eofs match?
@@ -434,38 +418,24 @@ recon_eof_amp %>%
 ```
 
 ```{r}
-#this is the temporary workaround while I still use wql
-obs_reof_amp <- obs_reof$amplitude %>%
-  as_tibble(rownames = 'year') %>%
-  mutate(year = parse_number(year)) %>%
-  gather(PC, amplitude, -year) %>%
-  mutate(PC = case_when(PC == 'EOF1' ~ 'PC1',
-                        PC == 'EOF2' ~ 'PC2',
-                        PC == 'EOF3' ~ 'PC3',
-                        PC == 'EOF4' ~ 'PC4',
-                        PC == 'EOF5' ~ 'PC5',
-                        PC == 'EOF6' ~ 'PC6'))
-
-recon_reof_amp <- recon_reof$amplitude %>%
-  as_tibble(rownames = 'year') %>%
-  mutate(year = parse_number(year)) %>%
-  gather(PC, amplitude, -year) %>%
-  mutate(PC = case_when(PC == 'EOF1' ~ 'PC2',
-                        PC == 'EOF2' ~ 'PC4',
-                         PC == 'EOF3' ~ 'PC5',
-                         PC == 'EOF4' ~ 'PC6',
-                         PC == 'EOF5' ~ 'PC1',
-                         PC == 'EOF6' ~ 'PC3')) %>%
+## so now the reofs for the recons don't match, do something like this:
+reof_recon$amps <- reof_recon$amps %>%
+  mutate(PC = case_when(PC == 'PC1' ~ 'PC2',
+                        PC == 'PC2' ~ 'PC4',
+                         PC == 'PC3' ~ 'PC5',
+                         PC == 'PC4' ~ 'PC6',
+                         PC == 'PC5' ~ 'PC1',
+                         PC == 'PC6' ~ 'PC3')) %>%
   arrange(PC)
 ```
 
+
 ```{r echo = FALSE}
-obs_reof_amp %>%
+reof_obs$amps %>%
   group_by(PC) %>%
     mutate(amplitude = if_else(PC == 'PC6', amplitude * -1, amplitude)) %>%
   mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
 ggplot(aes(year, amplitude, color = PC)) +
-   # geom_vline(xintercept = c(2000), linetype = 2, alpha= .5) + 
     geom_line(alpha = .4) +
   geom_line(aes(y = amp_smooth), size = 1.2) +
   facet_wrap(~PC) + 
@@ -473,25 +443,12 @@ ggplot(aes(year, amplitude, color = PC)) +
   scale_color_viridis_d(guide = FALSE) +
   theme_bw() +
   labs(x = 'Year', y = 'SPEI')
+
 ggsave('../figures/pc_obs.pdf', width = 6, height = 4)
-
-recon_reof_amp %>%
-  group_by(PC) %>%
-  mutate(amplitude = if_else(PC == 'REOF2', amplitude * -1, amplitude)) %>%
-  filter(year >= 1896) %>%
-  mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
-ggplot(aes(year, amplitude, color = PC)) +
-  #  geom_vline(xintercept = c(1977), linetype = 2, alpha= .5) + 
-  geom_line(alpha = .4) +
-  geom_line(aes(y = amp_smooth), size = 1.2) +
-  facet_wrap(~PC) + 
-  scale_color_viridis_d() +
-  theme_bw()
 ```
-
 So from this plot, we can tell that all but PC6 is of the right sign (high pc amplitude == high positive SPEI)
 ```{r, echo = FALSE}
-obs_reof_amp %>%
+reof_obs$amps %>%
   group_by(PC) %>%
   filter(amplitude == max(amplitude) | amplitude == min(amplitude)) %>%
   pull(year) %>%
@@ -504,18 +461,36 @@ obs_reof_amp %>%
   geom_raster() +
   facet_wrap(~year) +
   coord_quickmap() +
-  scale_fill_distiller(palette = 'Spectral', limits = c(NA, 4), direction = 1)
+  scale_fill_distiller(palette = 'Spectral', limits = c(NA, 4), direction = 1) +
+  theme_void()
 ```
+
+```{r, echo = FALSE}
+reof_recon$amps %>%
+  group_by(PC) %>%
+  mutate(amplitude = if_else(PC == 'PC2', amplitude * -1, amplitude)) %>%
+  filter(year >= 1896) %>%
+  mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
+ggplot(aes(year, amplitude, color = PC)) +
+  #  geom_vline(xintercept = c(1977), linetype = 2, alpha= .5) + 
+  geom_line(alpha = .4) +
+  geom_line(aes(y = amp_smooth), size = 1.2) +
+  facet_wrap(~PC) + 
+  scale_color_viridis_d() +
+  theme_bw()
+```
+
+
 
 Now let's fit these models in practice. First create a data frame of past amplitudes.
 ```{r past_amplitudes}
-amplitudes_modern <- obs_reof_amp %>%
-  inner_join(recon_reof_amp, by = c('year', 'PC'),
+amplitudes_modern <- reof_obs$amps %>%
+  inner_join(reof_recon$amps, by = c('year', 'PC'),
             suffix = c('_obs', '_recon'))
-amplitudes_past <- recon_reof_amp %>%
+amplitudes_past <- reof_recon$amps %>%
   rename(amplitude_recon = amplitude) %>%
   group_by(PC) %>%
-  nest(.key = 'recons')
+  nest(recons = c(year, amplitude_recon))
 ```
 
 ```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
@@ -528,6 +503,8 @@ ggplot(amplitudes_modern, aes(amplitude_recon, amplitude_obs)) +
   theme_minimal() +
   coord_fixed() +
   theme(legend.position = "bottom")
+
+### so here's where we leave off -- why don't these match well anymore? # perhaps use the rotation matrix from the observations to rotate the recons?
 ```
 
 We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes.
