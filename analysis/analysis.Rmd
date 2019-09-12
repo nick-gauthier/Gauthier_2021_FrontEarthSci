@@ -271,12 +271,20 @@ get_EOFs <- function(pc_object, eigs, rast_template, n_modes){
     pivot_longer(-column, names_to = 'PC', values_to = 'reof') %>%
     right_join(eofs, by = c('column', 'PC'))
   
-  amps <- pc_object$x %>%
+  eof_amps <- pc_object$x %>%
+    .[,1:n_modes] %>%
+    scale %>%
+    as_tibble(rownames = 'year', .name_repair = ~1:n_modes) %>%
+    gather(PC, eof_amp, -year) %>%
+    mutate(year = as.numeric(str_sub(year, 2)),
+           PC = as.factor(paste0('PC', PC)))
+  
+  reof_amps <- pc_object$x %>%
     .[,1:n_modes] %>%
     scale %>%
     `%*%`(rot_mat) %>%
     as_tibble(rownames = 'year', .name_repair = ~1:n_modes) %>%
-    gather(PC, amplitude, -year) %>%
+    gather(PC, reof_amp, -year) %>%
     mutate(year = as.numeric(str_sub(year, 2)),
            PC = as.factor(paste0('PC', PC)))
   
@@ -288,7 +296,7 @@ get_EOFs <- function(pc_object, eigs, rast_template, n_modes){
     select(-column) %>%
     mutate(PC = paste0('EOF', PC))
   
-  list(EOFs = reofs, amps = amps)
+  list(EOFs = reofs, amps = left_join(eof_amps, reof_amps), rotater = rot_mat)
 }
 ```
 
@@ -403,15 +411,16 @@ To confirm this, let's plot the time series (PCs) of each observed and reconstru
 
 ```{r, echo = FALSE}
 #do the eofs match?
-recon_eof_amp %>% 
-  inner_join(obs_eof_amp, by = c('year', 'PC'), 
+reof_recon$amps %>% 
+  inner_join(reof_obs$amps, by = c('year', 'PC'), 
             suffix = c('_recon', '_obs')) %>%
-  ggplot(aes(amplitude_recon, amplitude_obs)) +
+  ggplot(aes(eof_amp_recon, eof_amp_obs)) +
   geom_point(aes(color = year)) +
   geom_smooth(method = 'lm') +
   scale_color_viridis_c() +
   facet_wrap(~PC, nrow = 1) +
-  ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
+  labs(title = 'Linear fits between observed and reconstructed amplitudes', subtitle = '1896-1999',
+       x = 'Reconstructed', y = 'Observed') +
   theme_minimal() +
   coord_fixed() +
   theme(legend.position = 'bottom')
