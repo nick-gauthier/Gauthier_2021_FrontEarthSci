@@ -23,17 +23,35 @@ knitr::opts_chunk$set(tidy = FALSE)
 ```
 
 ```{r, message = FALSE}
-library(raster)
-#devtools::install_github('tidyverse/tidyr')
-library(tidyverse)
+library(raster) # raster data manipulation
+library(tidyverse) # data analysis and visualization
 library(sf)
 library(philentropy)
-library(tidygraph)
-library(ggraph)
+library(tidygraph) # network analysis
+library(ggraph) # network visualization
 library(broom)
+library(gdistance)
+library(mgcv) # GAM fitting
+library(mgcViz) # GAM plotting
+library(gratia)
+
+#devtools::install_github('nspope/corMLPE')
+library(corMLPE)
+library(furrr)
+
+#devtools::install_github('thomasp85/patchwork') 
+library(patchwork)
 ```
 
+# Introduction
+\begin{fullwidth}
+This RMarkdown document contains all analysis code used to produce the results and figures in the main text.
 
+In this two-part analysis we first 
+\end{fullwidth}
+
+## Data sources
+This R Markdown script requires raster data of [observed present-day temperature and precipitation](http://www.prism.oregonstate.edu/normals/)^[http://www.prism.oregonstate.edu/normals/] 30-year averages and 100-year time series of the [Standardized Precipitation-Evapotranspiration Index](https://wrcc.dri.edu/wwdt/time/)^[https://wrcc.dri.edu/wwdt/time/]. We'll also need reconstructed SPEI rasters^[https://zenodo.org/record/1198817]. Finally, get the CGIAR version of the SRMTM [digital elevation model](http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/)^[http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/], resampled to 250m. With permission, also acquire the [Southwest Social Networks Database](http://www.southwestsocialnetworks.net/data.html)^[http://www.southwestsocialnetworks.net/data.html].
 
 # Climate Analysis: Drought Patterns
 
@@ -147,25 +165,6 @@ area_weight <- function(x){
 }
 ```
 
-This function calculates the effective observations in an autocorrelated time series of rasters.
-
-```{R}
-n_effective <- function(x){
-  n <- nlayers(x)
-  x %>%
-    area_weight %>%
-    as.data.frame(na.rm = TRUE) %>%
-    t %>%
-    as_tibble %>%
-    gather(cell, value) %>%
-    nest(value) %>%
-    mutate(rho = map_dbl(data, ~cor(.$value, lag(.$value), use = 'comp')),
-           effective_n = n * (1 - rho^2) / (1 + rho^2)) %>% # from Bretherton et al 1999
-    summarise(mean(effective_n)) %>%
-    pull
-}
-```
-
 Principal components analysis of observation and recon data
 
 ```{r}
@@ -184,6 +183,25 @@ recon_pca <- spei_recon %>%
 ```
 
 Now we calculate the rotated empirical orthogonal functions for both the observed and reconstructed drought maps. For the observations, we see that the leading 5 eofs explain 85% of the variance in the series, so we'll retain those for rotation.
+
+This function calculates the effective observations in an autocorrelated time series of rasters.
+
+```{R}
+n_effective <- function(x){
+  n <- nlayers(x)
+  x %>%
+    area_weight %>%
+    as.data.frame(na.rm = TRUE) %>%
+    t %>%
+    as_tibble %>%
+    gather(cell, value) %>%
+    nest(data = c(value)) %>%
+    mutate(rho = map_dbl(data, ~cor(.$value, lag(.$value), use = 'comp')),
+           effective_n = n * (1 - rho^2) / (1 + rho^2)) %>% # from Bretherton et al 1999
+    summarise(mean(effective_n)) %>%
+    pull
+}
+```
 
 we want to look for separation in the error bars. eofs that are not well separated can be considered effective multiplets, and hsould not be split in truncation.
 
@@ -296,7 +314,9 @@ get_EOFs <- function(pc_object, eigs, rast_template, n_modes){
     select(-column) %>%
     mutate(PC = paste0('EOF', PC))
   
-  list(EOFs = reofs, amps = left_join(eof_amps, reof_amps), rotater = rot_mat)
+  list(EOFs = reofs, 
+       amps = left_join(eof_amps, reof_amps, by = c('year', 'PC')), 
+       rotater = rot_mat)
 }
 ```
 
