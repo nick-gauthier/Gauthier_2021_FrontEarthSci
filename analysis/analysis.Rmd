@@ -813,7 +813,729 @@ ggraph('manual', x = x, y = y) +
   theme(legend.position = c(1, 0), legend.justification = c(1.25, -1), legend.direction = 'horizontal')
 
 c <- a + b + plot_layout(heights = c(1, 1)) + plot_annotation(tag_levels = 'A')
-ggsave(c, 'swsn2.png', height = 5, width = 10)
+ggsave('swsn2.png', plot = c, height = 5, width = 10)
 ```
 
 Comparing the two approaches show that the using the coarse grained patches approach reduces the number of long distance strong connections. This is likely do to the fact htat we're removing the impact of small sites with only one or two ware types, which can introduce spurious high correlations.
+
+# Terrain Analysis: Least Cost Distances
+
+Next we calculate the impact of rugged terrain on the potential flow of people and information between the sites in the SWSN database. For this we need to use the SRTM digital elevation model. From the height data in the DEM, we calculate slope, accounting for cognitive biases people have when assessing the steepness of high slopes (people tend to exaggerate slopes above a certain threshold). From this map of perceived slope, we calculate "perceived walking speeds", using Tobler's hiking function. We uses these perceived walking speeds as a measure of the perceived, symmetric costs of traveling between two locations on the landscape, and from these estimate the least cost paths from every site to every site. From there, we extract the 15 nearest neighbors of each site in each time period, and use this nearest neighbor network as a spatial network, from which to estimate new travel costs (limited to paths along this nearest neighbor network).
+
+We focus on the perceived time costs of travel. People will consistently overestimate slopes, so the perceived cognitive costs of moving across the landscape will be greater. In rugged, mountainous terrain, slope is the key factor in influencing ease of travel. We focus specifically on paths, or the physical routes that people traveled. A good path connecting two places has to optimize for ease of travel in both directions. The resulting least-cost network will be used as a proxy measure for the constraints on moving both people and bulk goods across the landscape, and thus the topographic affordances for social exchange.
+
+## Digital Elevation Model
+
+First import the elevation dataset, crop to the study area, and resample.
+
+```{r elevation}
+elev_lcp <- raster('~/gdrive/Data/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
+  crop(bbox_swsn) %>% # crop to study area
+  aggregate(fact = 2) # aggregate to ~500m resolution
+```
+
+## Hiking Speeds
+
+Now we use the package *gdistance* to calculate the time it would take for a hiker to traverse this landscape on foot. Tobler's hiking function allows us to convert terrain slope to expected walking speed. We modify this function to account for cognitive bias in the perception of slope, which causes people to overestimate the steepness of steeper slopes. 
+
+The maximum walking speed of 5 assumes on path movement.
+```{r}
+tobler_adjusted <- function(x){
+  4 * exp(-3.5 * 2.15 * x) / 3.6 # 3.6 turns km/h into m/s
+}
+```
+
+```{r, fig.margin = TRUE, echo = FALSE, fig.cap = "Tobler's hiking function"}
+slope <- seq(-1, 1, .01)
+qplot(slope, tobler_adjusted(abs(slope)) * 3.6, geom = 'line' ) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(x = 'Slope (rise over run)', y = 'Walking speed (km/h)') +
+  theme_classic()
+```
+
+This package uses a transition matrix approach, whereby we work with matrices that contain the costs or transmissiveness of travel from each cell to its immediate 16 neighbor cells. This allows for a sparse matrix representation, because there is no possible connection to non neighboring cells, which considerably reduces the computational burden.
+
+We're representing paths, not necessarily routes, and so focus on symmetric costs. This is an additional modification to tobler.
+
+Calculate the absolute difference in elevation between each cell and its 16 neighbors.
+```{r}
+altDiff <- function(x){abs(x[2] - x[1])}
+hd <- transition(elev_lcp, altDiff, 16, symm = TRUE)
+```
+Divide the height differences by the horizontal distances between cells, resulting in slopes.
+```{r}
+slope_c <- geoCorrection(hd, type = 'c')
+```
+Figure out which cells are adjacent to one another, queen's case.
+```{r}
+adj <- adjacent(elev_lcp, cells = 1:ncell(elev_lcp), directions = 16)
+```
+Use Tobler's hiking function to calculate walking speed from *cognitive* slope.
+```{r}
+speed_c <- slope_c
+speed_c[adj] <- tobler_adjusted(slope_c[adj])
+```
+Divide by intercell distance again, resulting in the conductance matrix.
+```{r}
+conductance_c <- geoCorrection(speed_c, type = 'c')
+```
+
+```{r, echo = FALSE, fig.cap = 'Conductance map.'}
+speed_c %>%
+  raster %>%
+  as.data.frame(xy = TRUE, na.rm = TRUE) %>%
+ggplot(aes(x, y, fill = layer * 3.6)) + # convert back to km/h
+  geom_raster() +
+  scale_fill_viridis_c(guide = 'legend', name = 'Walking\nspeed (km/h)', limits = c(NA,4)) +
+  coord_quickmap() +
+  labs(x = 'Longitude', y = 'Latitude') +
+  theme_minimal()
+```
+```{r, echo = FALSE, message=FALSE}
+rm(altDiff, hd, slope_c, speed_c, adj);gc()
+```
+
+## Least-cost Distances
+
+Using the conductance matrix, calculate the full pairwise least cost distance matrix.
+The points of sites are originally in utm zone 12, so reproject to latlong
+
+```{r least-cost-distances, cache = TRUE}
+distances <- swsn %>%
+  as_tibble %>%
+  st_as_sf %>%
+  st_coordinates%>%
+  costDistance(conductance_c, .) %>% # least cost distances
+  as.matrix %>% 
+  `colnames<-`(as_tibble(swsn)$name) %>%
+  as_tibble %>%
+  mutate(from_patch = as_tibble(swsn)$name) %>%
+  gather(to_patch, distance, -from_patch) %>%
+  mutate(distance = distance / 3600)
+```
+
+# Network analysis
+
+
+Import the data produced in the other analyses to add to the sites data.
+```{r}
+reof_resamp <- reof_raster %>%
+  crop(bbox_swsn) %>%
+  resample(elev)
+```
+
+```{r}
+plot(reof_resamp)
+pairs(reof_resamp)
+```
+
+
+## Data Preparation
+
+Now that we have all the data imported and preprocessed, let's put it all together into a data frame.
+
+Define a function to calculate the relative difference between two numbers. We use this becuase it is a measure of multiplicative distance, rather than additive such as euclidean distance, which makes the values more robust to deviations.
+
+```{r data_preparation}
+swsn2 <- swsn %N>%
+  mutate(reof1 = raster::extract(reof_resamp, st_coordinates(geometry))[,1],
+         reof2 = raster::extract(reof_resamp, st_coordinates(geometry))[,2],
+         reof3 = raster::extract(reof_resamp, st_coordinates(geometry))[,3],
+         reof4 = raster::extract(reof_resamp, st_coordinates(geometry))[,4],
+         reof5 = raster::extract(reof_resamp, st_coordinates(geometry))[,5],
+         reof6 = raster::extract(reof_resamp, st_coordinates(geometry))[,6]) %E>%
+  mutate(from_patch = .N()$name[from],
+         to_patch = .N()$name[to]) %>%
+  left_join(distances, by = c('from_patch', 'to_patch')) %>%
+  mutate(reof1 = abs(.N()$reof1[from] - .N()$reof1[to]),
+         reof2 = abs(.N()$reof2[from] - .N()$reof2[to]),
+         reof3 = abs(.N()$reof3[from] - .N()$reof3[to]),
+         reof4 = abs(.N()$reof4[from] - .N()$reof4[to]),
+         reof5 = abs(.N()$reof5[from] - .N()$reof5[to]),
+         reof6 = abs(.N()$reof6[from] - .N()$reof6[to])) %>%
+  mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
+  group_by(from_tmp, to_tmp, time) %>%
+  sample_n(1) %>%
+  ungroup %>%
+  select(-from_tmp, -to_tmp) %>%
+  convert(to_undirected)
+```
+
+```{r, include = F, eval = F}
+library(broom)
+reof_dat <- swsn2 %N>%
+  as_tibble %>%
+  select(reof1:reof6)
+xy_dat <- swsn2 %N>%
+  as_tibble %>%
+  select(x:y) %>%
+  rename(test1 = x,test2 = y)
+
+kclusts <- tibble(k = 1:9) %>%
+  mutate(
+    kclust = map(k, ~kmeans(reof_dat, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, reof_dat)
+  )
+
+kclusts_dist <- tibble(k = 1:9) %>%
+  mutate(
+    kclust = map(k, ~kmeans(xy_dat, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, xy_dat)
+  )
+
+clusters <- kclusts %>%
+  unnest(tidied)
+
+assignments <- kclusts %>% 
+  unnest(augmented) %>%
+  bind_cols(map_df(seq_len(9), ~as_tibble(activate(swsn, 'nodes')),.))
+ggplot(assignments, aes(x, y)) +
+  geom_point(aes(color = .cluster)) + 
+  facet_wrap(~ k) +
+  coord_quickmap()
+
+assignments_dist <- kclusts_dist %>% 
+  unnest(augmented) %>%
+  bind_cols(map_df(seq_len(9), ~as_tibble(activate(swsn, 'nodes')),.))
+ggplot(assignments_dist, aes(x, y)) +
+  geom_point(aes(color = .cluster)) + 
+  facet_wrap(~ k) +
+  coord_quickmap()
+
+clusterings <- kclusts_dist %>%
+  unnest(glanced, .drop = TRUE)
+ggplot(clusterings, aes(k, tot.withinss)) +
+  geom_line()
+
+swsn2 %N>%
+  as_tibble %>%
+  ggplot(aes(reof1, reof6)) +
+  geom_point()
+  
+```
+
+```{r,eval = FALSE}
+r1 <- swsn2 %E>%
+  arrange(reof1) %>%
+  filter(reof1 > .1) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof1, color = reof1)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r2 <- swsn2 %E>%
+  arrange(reof2) %>%
+    arrange(reof2) %>%
+  filter(reof2 > .1) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof2, color = reof2)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r3 <- swsn2 %E>%
+  arrange(reof3) %>%
+    arrange(reof3) %>%
+  filter(reof3 > .1) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof3, color = reof3)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r4 <- swsn2 %E>%
+  arrange(reof4) %>%
+    arrange(reof4) %>%
+  filter(reof4 > .1) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof4, color = reof4)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r5 <- swsn2 %E>%
+  arrange(reof5) %>%
+    arrange(reof5) %>%
+  filter(reof5 > .1) %>%
+ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof5, color = reof5)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+r6 <- swsn2 %E>%
+  arrange(reof6) %>%
+  arrange(reof6) %>%
+  filter(reof6 > .1) %>%
+  ggraph('manual', x = x, y = y ) +
+  geom_edge_fan(aes(alpha = reof6, color = reof6)) +
+  scale_edge_alpha(guide = 'none', limits = c(0,1)) +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+  #scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(0,1)) +
+    facet_edges(~time, ncol = 1) +
+  coord_quickmap() +
+  theme_void()
+
+r1 +r2+r3+r4 + r5 + r6  +plot_layout(nrow = 1)
+```
+
+```{r}
+dat <- swsn2 %E>%
+  as_tibble %>%
+  mutate(JSD = if_else(JSD > .999, .999, JSD)) %>%
+  mutate(from = as.factor(from), 
+         to = as.factor(to), 
+         time_fact = as.factor(time)) %>%
+  filter(JSD >= .001)
+```
+
+```{r, echo= FALSE}
+#this room plot shows a process of aggregation over time (mean room size increases)
+ggplot(dat, aes(log(rooms))) +
+  geom_histogram() + facet_wrap(~time)
+
+ggplot(dat, aes(log(distance))) +
+  geom_histogram() + facet_wrap(~time)
+
+ggplot(dat, aes(qlogis(JSD))) +
+  geom_histogram() + facet_wrap(~time)
+# look at the plot of ws_mul, basically its all the links with low productivity that die out and the ones with high that survive!
+```
+
+jensen inequality, E(logit(y)) >=logit(E(y)). this means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. Its a necessary evil here, becuase we do not yet have the computational abiliy to fit the corMLPE correlation structure and a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a much alrger source of bias then transforming the response variabble,so that's the tradeoffwe went with. The bias from transforming the respone leads to bias in the estimates of variance.
+
+ allows the model to be estimated additively.
+ 
+ Pairwise data are high powered, which is makes goodness of fit estimates are preferable over statistical significance testing, and we must be careful to properly estimate confidence intervals,
+
+```{r}
+fit_gam_JSD <- function(x){
+  gamm(x, 
+       method = 'ML', 
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to|time_fact),
+      data = dat)
+}
+
+plan(multisession, workers = 4)
+
+models <- c(
+ "s(distance, bs = 'cr', k = 6) + time_fact",
+       "s(distance, bs = 'cr', k = 6) +
+          s(reof1, by = time_fact, bs = 'cs', k = 6) +
+          s(reof2, by = time_fact, bs = 'cs', k = 6) +
+       s(reof3, by = time_fact, bs = 'cs', k = 6) +
+       s(reof4,  by = time_fact, bs = 'cs', k = 6) +
+      s(reof5, by = time_fact, bs = 'cs', k = 6) +
+       s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact",
+        "s(distance, bs = 'cr', k = 6) +
+           s(reof1, by = time_fact, bs = 'cr', k = 6) + time_fact",
+         "s(distance, bs = 'cr', k = 6) +
+           s(reof2, by = time_fact, bs = 'cr', k = 6) + time_fact",
+         "s(distance, bs = 'cr', k = 6) +
+        s(reof3, by = time_fact, bs = 'cr', k = 6) + time_fact",
+    "s(distance, bs = 'cr', k = 6) +
+        s(reof4, by = time_fact, bs = 'cr', k = 6) + time_fact",
+    "s(distance, bs = 'cr', k = 6) +
+        s(reof5, by = time_fact, bs = 'cr', k = 6) + time_fact",
+    "s(distance, bs = 'cr', k = 6) +
+        s(reof6, by = time_fact, bs = 'cr', k = 6) + time_fact"
+   ) %>%
+  paste('qlogis(JSD) ~', .) %>%
+  tibble(formula_chr = .) %>%
+  mutate(formula = purrr::map(formula_chr, as.formula), 
+         model = future_map(formula, fit_gam_JSD)) %>%
+  mutate(lme = purrr::map(model, ~.$lme),
+         gam = purrr::map(model, ~.$gam),
+         aic = map_dbl(lme, AIC)) %>%
+  arrange(aic)
+
+saveRDS(models, 'models')
+models <- readRDS('models')
+
+models
+models %>% pull(aic) %>% plot
+summary(models$gam[[8]])
+summary(models$gam[[1]])
+```
+This may suggest areas of increased conflict, where the kind of social interaction through which pottery would have been exchanged would be rare, or other unmodeled costs of travel such as river crossings cultural taboos. 
+```{r}
+gam.check(models$gam[[1]])
+```
+
+We have moderate to strong concurvity
+```{r}
+concurvity(models$gam[[1]])
+```
+
+%This represents that multiple transmission processes, with different relationships to distance, are acting together to generate the variation in the archaeological record. The two main inflection points in the decay curve are both consistent with previous work in the ecology of human mobility. Their is a plateau effect distance plays no appreciable role in interaction between sites within a day's walk of one another (johnson but cites olsson 1965 and crumley 1979, ariadne). This suggests that distance only becomes a deterring factor dealing in multiday trips. The second inflection point, at roughly 10 days is consistent with estimates of area needed to sustain the minimum viable breeding population for human groups (are they consistent with the figures of 50km-80km from rautman and drennen and others? johnson finds no marriages past 60km, maize to chaco papers also have distance).
+%Plateau of social interaction with communities who have daily face-to-face contact.
+%These findings contradict those of \parencite{Hart2012}, because that work assumes only a linear relationship with distance.
+%uses log transform
+%The Mogollon Rim acts as a severe bottleneck for spatial flows, with paths generally constrained to one of the three river systems, the Verde, Salt, and Gila, act to channel flow across this boundary. 
+
+```{r}
+evaluate_smooth(models$gam[[1]], 's(distance)')  %>% draw()
+evaluate_smooth(models$gam[[1]], 's(distance)') %>% 
+  mutate(est_trans = plogis(est),
+         se_trans = est_trans * (1-est_trans)* se) %>%
+  mutate(lower = est - 2 * se, upper = est + 2 * se) %>%
+   mutate(lower_trans = est_trans - 2 * se_trans, upper_trans = est_trans + 2 * se_trans) %>%
+ mutate_at(vars(lower, upper), plogis) %>%
+  ggplot(aes(x = distance)) +
+  geom_ribbon(aes(y = est_trans, ymin = lower, ymax = upper), alpha = .2, color = 'red') +
+   geom_ribbon(aes(y = est_trans, ymin = lower_trans, ymax = upper_trans), alpha = .2, color = 'blue') +
+  geom_line(aes(y = est_trans))
+```
+
+```{r}
+draw(models$gam[[2]], scales = 'fixed')
+draw(models$gam[[3]], scales = 'fixed')
+draw(models$gam[[4]], scales = 'fixed')
+draw(models$gam[[5]], scales = 'fixed')
+draw(models$gam[[6]], scales = 'fixed')
+draw(models$gam[[7]], scales = 'fixed')
+```
+
+```{r}
+m1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) + time_fact,
+      method = 'REML', 
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to|time_fact),
+      data = dat)
+
+saveRDS(m1, 'm1')
+m1 <- readRDS('../output/m1')
+plot(m1$gam)
+  
+  m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+            s(reof1, by = time_fact, bs = 'cs', k = 6) +
+            s(reof2, by = time_fact, bs = 'cs', k = 6) +
+         s(reof3, by = time_fact, bs = 'cs', k = 6) +
+         s(reof4,  by = time_fact, bs = 'cs', k = 6) +
+        s(reof5, by = time_fact, bs = 'cs', k = 6) +
+        s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact,
+        method = 'REML', 
+        family = gaussian(),
+        correlation = corMLPE(form = ~from + to|time_fact),
+        data = dat)
+  saveRDS(m2, 'm2')
+  m2 <- readRDS('m2')
+gam.check(m2$gam)
+summary(m1$gam)
+summary(m2$gam)
+concurvity(m2$gam)
+
+# m3 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+#           s(reof1, by = time_fact, bs = 'cs', k = 6) +
+#           s(reof2, by = time_fact, bs = 'cs', k = 6) +
+#        s(reof3, by = time_fact, bs = 'cs', k = 6) + time_fact,
+#       method = 'REML',
+#       family = gaussian(),
+#       correlation = corMLPE(form = ~from + to|time_fact),
+#       data = dat)
+# plot(m3$gam, scale = 0)
+# summary(m3$gam)
+
+m35 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+          s(reof1, bs = 'cs', k = 6) +
+          s(reof2, bs = 'cs', k = 6) +
+       s(reof3, bs = 'cs', k = 6) +
+       s(reof4, bs = 'cs', k = 6) +
+      s(reof5, bs = 'cs', k = 6) +
+      s(reof6, bs = 'cs', k = 6) + macro_same,
+      method = 'REML', 
+      family = gaussian(),
+      correlation = corMLPE(form = ~from + to),
+      data = filter(dat, time == 1200))
+
+summary(m3$gam)
+summary(m35$gam)
+```
+
+```{r}
+m1$gam %>% getViz %>% sm(1) %>%  plot(trans = plogis) +geom_vline(xintercept = c(12, 100), linetype = 2)+  l_ciPoly(mul = 5) + l_fitLine() + scale_y_continuous(limits = c(0,1)) + labs(x = 'Distance (hours)', y = 'Information flow')
+
+ggsave('../figures/distance_function.pdf', width = 6, height = 4)
+```
+
+
+```{r fig.height = 6, fig.width = 6}
+test_dat <- bind_rows(expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=seq(0,.5,.01),reof2=0,reof3=0, reof4=0, reof5 = 0, reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=seq(0,.5,.01),reof3=0, reof4=0, reof5 = 0, reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=seq(0,.5,.01), reof4=0, reof5 = 0, reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=seq(0,.5,.01), reof5 = 0, reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=0, reof5 = seq(0,.5,.01), reof6 = 0),
+expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=0, reof5 = 0, reof6 = seq(0,.5,.01)), .id = 'reof') %>%
+  mutate(reof = paste0('REOF', reof))
+
+
+m2$gam %>%
+  predict.gam(newdata = test_dat, type = 'response', se.fit = T) %>% 
+  bind_cols %>%
+  mutate(lower = fit - 2 * se.fit, upper = fit + 2 * se.fit) %>%
+ mutate_at(vars(fit,lower, upper), plogis) %>% 
+  bind_cols(test_dat) %>%
+  gather(reofs, value,reof1:reof6) %>%
+  filter(parse_number(reofs) == parse_number(reof)) %>%
+  mutate(reof = str_sub(reof, 2)) %>%
+  ggplot(aes(value, fit, group = time_fact)) +  
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = reof), alpha = .3) +
+geom_line(aes(color = reof), size = 1.2) +
+  scale_y_continuous(breaks = c(0, 1), limits = c(0,1)) +
+  scale_x_continuous(breaks = c(0, .5)) +
+  theme_bw() +
+  scale_color_viridis_d(guide = 'none') +
+  scale_fill_viridis_d(guide = 'none') +
+  facet_grid(reof ~ as.ordered(time_fact)) +
+  theme_bw() +
+  labs(#title = 'Drought patterns and the intensity of social interaction', subtitle = "Predicted information flow at a 10 days' travel", 
+    x = 'Climatic Difference', y = 'Cultural Similarity')
+ggsave('figures/smooths.pdf', width = 6, height = 6)
+```
+ 
+how do the fits change over time?
+```{r}
+fit_gam_JSD <- function(x){
+  gamm(x, method = 'ML', 
+            family = gaussian(),
+      correlation = corMLPE(form = ~from + to|time_fact),
+      data = dat)
+}
+plan(multicore, workers = 2)
+
+models <- c(
+ "s(distance, bs = 'cr', k = 6) + time_fact",
+       "s(distance, bs = 'cr', k = 6) +
+          s(reof1, by = time_fact, bs = 'cs', k = 6) +
+          s(reof2, by = time_fact, bs = 'cs', k = 6) +
+       s(reof3, by = time_fact, bs = 'cs', k = 6) +
+       s(reof4,  by = time_fact, bs = 'cs', k = 6) +
+      s(reof5, by = time_fact, bs = 'cs', k = 6) +
+       s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact"
+   ) %>%
+  paste('qlogis(JSD) ~', .) %>%
+  tibble(formula_chr = .) %>%
+  mutate(formula = purrr::map(formula_chr, as.formula), 
+         model = future_map(formula, fit_gam_JSD)) %>%
+  mutate(lme = purrr::map(model, ~.$lme),
+         gam = purrr::map(model, ~.$gam),
+         aic = map_dbl(lme, AIC)) %>%
+  arrange(aic)
+
+
+t1 <- dat %>% group_by(time) %>% nest %>%
+  mutate(dist_mod = map(data, ~gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6), method = 'ML', 
+            family = gaussian(),
+      correlation = corMLPE(form = ~from + to),
+      data = .))) %>%
+  mutate(reof_mod = map(data, ~gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+          s(reof1, bs = 'cs', k = 6) +
+          s(reof2,bs = 'cs', k = 6) +
+       s(reof3, bs = 'cs', k = 6) +
+       s(reof4, bs = 'cs', k = 6) +
+      s(reof5,  bs = 'cs', k = 6) +
+       s(reof6,  bs = 'cs', k = 6), method = 'ML', 
+            family = gaussian(),
+      correlation = corMLPE(form = ~from + to),
+      data = .)))
+
+t1 %>% 
+  mutate(r2_dist = map_dbl(dist_mod, ~summary(.$gam)$r.sq),
+         r2_reof = map_dbl(reof_mod, ~summary(.$gam)$r.sq)) %>%
+  select(time, r2_dist, r2_reof) %>%
+  gather(Model, value, 2:3) %>%
+  ggplot(aes(time, value, color = Model)) +
+  geom_line(size = 1.2) + 
+  geom_point(size = 3) +
+  scale_color_viridis_d(labels = c('Distance','Distance + EOF')) +
+  scale_y_continuous(limits = c(.2, .5)) +
+  labs(x = 'Time', y = 'Adjusted R-Squared') +
+  theme_classic()
+
+ggsave('../figures/r2_time.png', width = 6, height = 4)
+```
+
+
+
+```{r fig.width = 6, fig.height = 4}
+#think about changing the residual plots back to magma so its easier to compare across them
+a <- plt_dat %>%
+arrange(JSD) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = JSD, color = JSD)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+   labs(subtitle = 'A') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+b <- plt_dat %>%
+arrange(pred_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
+  scale_edge_alpha(guide = 'none') +
+ scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+   labs(subtitle = 'B') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+c <- plt_dat %>%
+arrange(res_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = res_null, color = res_null)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+   labs(subtitle = '') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+d <- plt_dat %>%
+arrange(-res_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+  labs(subtitle = '') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+e <- plt_dat %>%
+arrange(pred_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+   labs(subtitle = 'C') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+f <- plt_dat %>%
+arrange(res_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
+   labs(subtitle = '') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+g <- plt_dat %>%
+arrange(-res_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
+  scale_edge_alpha(guide = 'none') +
+   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+  labs(subtitle = '') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+a+(b+c+d+ e+f+g + plot_layout(nrow = 2))
+plt_dat %E>% as_tibble() %>% summary
+ggsave('figures/residuals.png', width = 6, height = 4)
+```
+
+```{r fig.width = 6, fig.height = 6}
+plt_dat %E>% as_tibble %>% summary
+a <- plt_dat %>%
+arrange(JSD) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = JSD, color = JSD)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+   labs(subtitle = 'A') +
+  facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+b <- plt_dat %>%
+arrange(pred_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
+  scale_edge_alpha(guide = 'none') +
+ scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+    facet_wrap(~time, nrow = 1) +
+   labs(subtitle = 'B') +
+  theme_void() +
+  coord_sf(datum = NA)
+
+c <- plt_dat %>%
+arrange(res_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = res_null, color = res_null)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+   labs(subtitle = '') +
+        facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+d <- plt_dat %>%
+arrange(-res_null) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+  labs(subtitle = '') +
+        facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+e <- plt_dat %>%
+arrange(pred_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
+   labs(subtitle = 'C') +
+    facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+f <- plt_dat %>%
+arrange(res_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
+   labs(subtitle = '') +
+      facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+g <- plt_dat %>%
+arrange(-res_mod) %>%
+ggraph(x = x, y = y) +
+  geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
+  scale_edge_alpha(guide = 'none') +
+   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
+  labs(subtitle = '') +
+      facet_wrap(~time, nrow = 1) +
+  theme_void() +
+  coord_sf(datum = NA)
+
+a+(b+c+d+ e+f+g + plot_layout(nrow = 2))
+a+ b + e + f + g + plot_layout(nrow = 5)
+ggsave('figures/residuals.png', width = 6, height = 4)
+```
+
+
+
+We fit 3 models to predict the prsence of an interaction tie between two sites. The best performing model including distance, size, and reofs as predictors, with an aic of `r logistic_models[[1,4]]`. In second is the model with distance, size, and reofs as predictors, with an aic of `r logistic_models[[2,4]]`. Third is the base geographic model with distance and size, with an AIC of `r logistic_models[[3,4]]`. That said, even the best fitting model only captures 30% of the variance in tie presence. This means we are still missing key variables that drive the presence or absence of social relations.
+
+# References {#references .unnumbered}
