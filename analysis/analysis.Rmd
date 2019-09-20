@@ -628,7 +628,7 @@ wares <- list(AD1200cer,
               AD1300cer, 
               AD1350cer, 
               AD1400cer) %>%
-  purrr::map(rownames_to_column) %>%
+  map(rownames_to_column) %>%
   bind_rows(.id = 'time') %>%
   mutate(time = as.numeric(time) * 50 + 1150) %>%
   rename(site = rowname)
@@ -638,21 +638,24 @@ wares <- list(AD1200cer,
 wares %>%
   gather(ware, count, 3:38) %>%
   group_by(ware, time) %>%
-  summarise(count = sum(count)) %>%
-ggplot(aes(time, count, fill = ware, group = ware)) +
-  geom_bar(position='fill', stat = 'identity', color = 'black')
+  summarise(Proportion = sum(count)) %>%
+ggplot(aes(time, Proportion, fill = ware, group = ware)) +
+  geom_bar(position='fill', stat = 'identity', color = 'black') +
+  theme_bw()
 ```
 
 
 ```{r}
 ggplot(sites) +
-  geom_sf(aes(color = Macro))
+  geom_sf(aes(color = Macro)) +
+  theme_bw()
 ```
 
 Next we aggregate the sites into 10x10km patches. This is because an area of about 10 km radius from a site is the limit of raw material resources for ceramics (TODO cite Arnold1985). So 5km is roughly the limit of day to day social interaction, 10km is raw material procurement for ceramics, and 18 km is for day's journey round trip (TODO cite varien). translated to square units in equivalent areas, that's 3km square cells for regular face-to-face interaction and intensive agriculture. 12km for food and non food resources, and 32km grids for day's trip there and back. So 12 is the most reasonable. First import and crop the raster we'll use as a reference.
 ```{r}
-elev <- raster('data/elevation_10KMmd_SRTM.tif') %>% # import the SRTM DEM
-  crop(bbox_swsn)
+elev <- raster('~/gdrive/Data/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
+  crop(bbox_swsn) %>% # crop to study area
+  aggregate(fact = 40) # aggregate to 10km resolution
 ```
 
 ```{r}
@@ -686,7 +689,8 @@ patches %>%
   group_by(Macro, time) %>%
   summarise(rooms = sum(rooms)) %>%
 ggplot(aes(time, rooms, group = Macro, color = Macro)) +
-  geom_line()
+  geom_line(size = 1.1, alpha = .8) +
+  theme_bw()
 ```
 
 ```{r}
@@ -697,7 +701,8 @@ patches %>%
 ggplot() +
   geom_sf(aes(color = Macro, size = rooms, fill = Macro)) +
   scale_size_area() +
-  facet_wrap(~time)
+  facet_wrap(~time) +
+  theme_bw()
 ```
 
 ```{r}
@@ -732,7 +737,7 @@ swsn <- patches %>%
   as.data.frame %>%
   select(patch_id, site, time) %>%
   unnest(cols = c(site)) %>%
-  right_join(wares) %>%
+  right_join(wares, by = c('site', 'time')) %>%
   as.data.frame %>%
   select(-site) %>%
   group_by(time, patch_id) %>%
@@ -750,7 +755,6 @@ swsn <- patches %>%
 swsn %E>% 
     filter(JSD > .001) %>%
     filter(from < to) %>%
-    #mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
     arrange(JSD) %>% 
 ggraph('manual', x = x, y = y) +
   geom_edge_fan(aes( color = JSD)) +
@@ -763,10 +767,26 @@ ggraph('manual', x = x, y = y) +
   theme(legend.position = c(1, 0), legend.justification = c(2.5,0))
 ```
 
-```{r, fig.width= 10, fig.height = 5, fig.fullwidth = TRUE, echo = FALSE}
-library(patchwork)
+```{r}
+swsn %E>% 
+    filter(JSD > .001) %>%
+    filter(from < to) %>%
+    mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
+    arrange(JSD) %>% 
+ggraph('manual', x = x, y = y) +
+  geom_edge_fan(aes( color = JSD)) +
+  geom_sf(data = states_swsn, fill = NA, color = 'black') +
+  facet_edges(~time, ncol = 3) +
+  scale_edge_alpha(guide = 'none') +
+  scale_edge_color_viridis(name = 'Similarity', option = 'magma') +
+  coord_sf(datum = NA) +
+  theme_void() +
+  theme(legend.position = c(1, 0), legend.justification = c(2.5,0))
+```
 
-a<-swsn %N>%
+
+```{r, fig.width= 10, fig.height = 5, fig.fullwidth = TRUE, echo = FALSE}
+a <- swsn %N>%
   mutate(Rooms = X1200 + X1250 + X1300 + X1350 + X1400) %>%
   arrange(Rooms) %>%
   ggraph('manual', x = x, y = y) +
