@@ -332,6 +332,7 @@ reof_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
 ```
 
 
+
 We see that the leading 3 eigenvectors from the observations and reconstructions are a good match, including their ordering. 4-6 look good too
 
 Save the reof data as a raster, so we can crop it to the state boundaries
@@ -413,9 +414,32 @@ ggplot(reof_recon$EOFs, aes(x, y, fill = eof)) +
 
 The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, so these loadings represent the covariance between each grid cell and each amplitude (principal component). A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
 
+```{r}
+## todo, clean up all the inversions and put them here
+# now the reofs for the recons don't match, fix:
+reof_recon$amps <- reof_recon$amps %>%
+  mutate(PC = case_when(PC == 'PC1' ~ 'PC2',
+                        PC == 'PC2' ~ 'PC4',
+                         PC == 'PC3' ~ 'PC5',
+                         PC == 'PC4' ~ 'PC3',
+                         PC == 'PC5' ~ 'PC1',
+                         PC == 'PC6' ~ 'PC6')) %>%
+  arrange(PC) %>%
+  mutate(reof_amp = if_else(PC %in% c('PC2', 'PC5', 'PC6'), reof_amp * -1, reof_amp))
+
+reof_recon$EOFs <- reof_recon$EOFs %>%
+  mutate(PC = case_when(PC == 'EOF1' ~ 'EOF2',
+                        PC == 'EOF2' ~ 'EOF4',
+                         PC == 'EOF3' ~ 'EOF5',
+                         PC == 'EOF4' ~ 'EOF3',
+                         PC == 'EOF5' ~ 'EOF1',
+                         PC == 'EOF6' ~ 'EOF6')) %>%
+  arrange(PC)
+```
+
 ```{r plot_recon_reofs, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
 reof_recon$EOFs %>%
-  mutate(reof = if_else(PC %in% c('EOF1', 'EOF3', 'EOF6'), reof * -1, reof)) %>%
+  mutate(reof = if_else(PC %in% c('EOF2', 'EOF5', 'EOF6'), reof * -1, reof)) %>%
   ggplot() +
   geom_raster(aes(x,y,fill = reof)) +
     scale_fill_viridis_c(option = 'magma') +
@@ -424,62 +448,20 @@ reof_recon$EOFs %>%
   theme_void()
 ```
 
+
+
+
 To confirm this, let's plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
 
 ## Drought Amplitudes
 
 
-```{r, echo = FALSE}
-#do the eofs match?
-reof_recon$amps %>% 
-  inner_join(reof_obs$amps, by = c('year', 'PC'), 
-            suffix = c('_recon', '_obs')) %>%
-  ggplot(aes(eof_amp_recon, eof_amp_obs)) +
-  geom_point(aes(color = year)) +
-  geom_smooth(method = 'lm') +
-  scale_color_viridis_c() +
-  facet_wrap(~PC, nrow = 1) +
-  labs(title = 'Linear fits between observed and reconstructed amplitudes', subtitle = '1896-1999',
-       x = 'Reconstructed', y = 'Observed') +
-  theme_minimal() +
-  coord_fixed() +
-  theme(legend.position = 'bottom')
-```
 
-```{r}
-## so now the reofs for the recons don't match, do something like this:
-reof_recon$amps <- reof_recon$amps %>%
-  mutate(PC = case_when(PC == 'PC1' ~ 'PC2',
-                        PC == 'PC2' ~ 'PC4',
-                         PC == 'PC3' ~ 'PC5',
-                         PC == 'PC4' ~ 'PC6',
-                         PC == 'PC5' ~ 'PC1',
-                         PC == 'PC6' ~ 'PC3')) %>%
-  arrange(PC)
-```
-
-
-```{r echo = FALSE}
-reof_obs$amps %>%
-  group_by(PC) %>%
-    mutate(amplitude = if_else(PC == 'PC6', amplitude * -1, amplitude)) %>%
-  mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
-ggplot(aes(year, amplitude, color = PC)) +
-    geom_line(alpha = .4) +
-  geom_line(aes(y = amp_smooth), size = 1.2) +
-  facet_wrap(~PC) + 
-     geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
-  scale_color_viridis_d(guide = FALSE) +
-  theme_bw() +
-  labs(x = 'Year', y = 'SPEI')
-
-ggsave('../figures/pc_obs.pdf', width = 6, height = 4)
-```
-So from this plot, we can tell that all but PC6 is of the right sign (high pc amplitude == high positive SPEI)
+So from this plot, we can tell that all but PC6 is of the right sign (high pc amplitude == high positive SPEI). so in the next plot, we multiply pc6 by -1 
 ```{r, echo = FALSE}
 reof_obs$amps %>%
   group_by(PC) %>%
-  filter(amplitude == max(amplitude) | amplitude == min(amplitude)) %>%
+  filter(reof_amp == max(reof_amp) | reof_amp == min(reof_amp)) %>%
   pull(year) %>%
   `-`(1895) %>%
   spei_obs[[.]] %>%
@@ -494,21 +476,55 @@ reof_obs$amps %>%
   theme_void()
 ```
 
-```{r, echo = FALSE}
-reof_recon$amps %>%
-  group_by(PC) %>%
-  mutate(amplitude = if_else(PC == 'PC2', amplitude * -1, amplitude)) %>%
-  filter(year >= 1896) %>%
-  mutate(amp_smooth = zoo::rollmeanr(amplitude, k = 10, fill = NA)) %>%
-ggplot(aes(year, amplitude, color = PC)) +
-  #  geom_vline(xintercept = c(1977), linetype = 2, alpha= .5) + 
-  geom_line(alpha = .4) +
-  geom_line(aes(y = amp_smooth), size = 1.2) +
-  facet_wrap(~PC) + 
-  scale_color_viridis_d() +
-  theme_bw()
+```{r}
+reof_obs$amps <- reof_obs$amps %>%
+  mutate(reof_amp = if_else(PC == 'PC6', reof_amp * -1, reof_amp))
 ```
 
+
+```{r echo = FALSE}
+reof_obs$amps %>%
+  group_by(PC) %>%
+  mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
+ggplot(aes(year, reof_amp, color = PC)) +
+    geom_line(alpha = .4) +
+  geom_line(aes(y = amp_smooth), size = 1.2) +
+  facet_wrap(~PC) + 
+     geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
+  scale_color_viridis_d(guide = FALSE) +
+  theme_bw() +
+  labs(x = 'Year', y = 'SPEI')
+
+ggsave('../figures/pc_obs.pdf', width = 6, height = 4)
+```
+
+```{r}
+reof_recon$amps %>%
+  filter(year >= 1896) %>%
+  group_by(PC) %>%
+  mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
+ggplot(aes(year, reof_amp, color = PC)) +
+    geom_line(alpha = .4) +
+  geom_line(aes(y = amp_smooth), size = 1.2) +
+  facet_wrap(~PC) + 
+     geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
+  scale_color_viridis_d(guide = FALSE) +
+  theme_bw() +
+  labs(x = 'Year', y = 'SPEI')
+
+reof_obs$amps %>%
+  group_by(PC) %>%
+  filter(year < 1999) %>%
+  mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
+ggplot(aes(year, reof_amp, color = PC)) +
+    geom_line(alpha = .4) +
+  geom_line(aes(y = amp_smooth), size = 1.2) +
+  facet_wrap(~PC) + 
+     geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
+  scale_color_viridis_d(guide = FALSE) +
+  theme_bw() +
+  labs(x = 'Year', y = 'SPEI')
+```
 
 
 Now let's fit these models in practice. First create a data frame of past amplitudes.
@@ -517,51 +533,33 @@ amplitudes_modern <- reof_obs$amps %>%
   inner_join(reof_recon$amps, by = c('year', 'PC'),
             suffix = c('_obs', '_recon'))
 amplitudes_past <- reof_recon$amps %>%
-  rename(amplitude_recon = amplitude) %>%
+  select(-reof_amp) %>%
+  rename(amplitude_recon = eof_amp) %>%
   group_by(PC) %>%
   nest(recons = c(year, amplitude_recon))
 ```
 
-```{r plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
-ggplot(amplitudes_modern, aes(amplitude_recon, amplitude_obs)) +
+```{r, plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
+#do the eofs match?
+ggplot(amplitudes_modern, aes(reof_amp_recon, reof_amp_obs)) +
   geom_point(aes(color = year)) +
   geom_smooth(method = 'lm') +
   scale_color_viridis_c() +
   facet_wrap(~PC, nrow = 1) +
-  ggtitle('Linear fits between observed and reconstructed amplitudes', '1896-1999') +
+  labs(title = 'Linear fits between observed and reconstructed amplitudes', subtitle = '1896-1999',
+       x = 'Reconstructed', y = 'Observed') +
   theme_minimal() +
   coord_fixed() +
-  theme(legend.position = "bottom")
-
-### so here's where we leave off -- why don't these match well anymore? # perhaps use the rotation matrix from the observations to rotate the recons?
+  theme(legend.position = 'bottom')
 ```
 
-We can fit gams between the observed and reconstructed PC time series, and then use these to predict the eof amplitudes back in time. Adding in this regression step essentalially bias-corrects the reconstructed amplitudes.
-```{r recon_amplitudes}
-recon_amplitudes <- amplitudes_modern %>%
-  group_by(PC) %>%
-  nest %>%
-  mutate(mod = purrr::map(data, ~lm(amplitude_obs ~ amplitude_recon, 
-                                     data = .))) %>%
-  left_join(amplitudes_past) %>%
-  mutate(predictions = purrr::map2(mod, recons, 
-                                   ~predict(.x, .y, type = 'response')),
-         predictions = purrr::map(predictions, 
-                                  ~tibble(recons = .,
-                                          amp_smooth = zoo::rollmeanr(recons, k = 10, fill = NA)))) %>%
-  select(PC, recons, predictions) %>%
-  unnest %>%
-  select(-amplitude_recon) %>%
-  mutate(period = floor((year/50)) * 50) 
-```
 
 How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
-```{r plot_recon_amplitudes, fig.width = 6, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
-recon_amplitudes %>%
+```{r plot_recon_amplitudes, fig.width = 9, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
+reof_recon$amps %>%
+    mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
   filter(between(year, 1200, 1450)) %>% 
-#  mutate(recons = if_else(PC != 'REOF1', recons * -1, recons),
-#         amp_smooth = if_else(PC !='REOF1', amp_smooth * -1, amp_smooth)) %>%
-ggplot(aes(year, recons, group = PC)) +
+ggplot(aes(year, reof_amp, group = PC)) +
   geom_line(aes(color = PC), alpha = .3) +
   geom_line(aes(y = amp_smooth, color = PC), size = 1.2) +
   scale_color_viridis_d(guide = FALSE) +
@@ -573,27 +571,30 @@ ggplot(aes(year, recons, group = PC)) +
 
 These results point to REOFs 2 and 3 as having major shocks at around 1300 AD.
 ```{r, eval = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
-recon_amplitudes %>%
+reof_recon$amps %>%
+  mutate(period = floor((year / 50)) * 50) %>%
   filter(between(period, 1200, 1400)) %>%
-  ggplot(aes(factor(period), abs(recons))) +
+  ggplot(aes(factor(period), abs(reof_amp))) +
   geom_boxplot() +
   geom_hline(yintercept = 0, color = 'red', linetype = 2) +
   scale_color_brewer(palette = 'Spectral') +
   facet_wrap(~PC) +
   theme_minimal()
 
-recon_amplitudes %>%
-  mutate(PC = paste0('reof',parse_number(PC))) %>%
+reof_recon$amps %>%
+  mutate(period = floor((year / 50)) * 50) %>%
+ # mutate(PC = paste0('reof',parse_number(PC))) %>%
   rename(time = period) %>%
   filter(between(time, 1200, 1400)) %>%
   group_by(PC, time) %>% 
-  summarise(amplitude = mean(abs(recons))) %>%
+  summarise(amplitude = mean(abs(reof_amp))) %>%
   mutate(time = as.factor(time)) %>%
   write_csv('../output/amplitudes.csv')
 
-recon_amplitudes %>%
+reof_recon$amps %>%
+  mutate(period = floor((year / 50)) * 50) %>%
   filter(between(period, 1200, 1400)) %>%
-  ggplot(aes((recons), as.factor(period),fill = ..x.., height = ..density..)) +
+  ggplot(aes((reof_amp), as.factor(period),fill = ..x.., height = ..density..)) +
     ggridges::geom_density_ridges_gradient(stat = 'density', scale = 1.5)+
   facet_wrap(~PC) +
   scale_fill_viridis_c(guide = F) +
