@@ -84,8 +84,8 @@ country <- maps::map('usa',fill = TRUE, plot = FALSE) %>% st_as_sf
 ggplot() + 
   geom_sf(data = states_wus) +
   geom_sf(data = country, fill = NA) +
-  geom_sf(data = st_as_sfc(st_bbox(bbox_wus, crs = st_crs(4326))), fill = NA) +
-  geom_sf(data = st_as_sfc(st_bbox(bbox_swsn, crs = st_crs(4326))), fill = NA) +
+  geom_sf(data = st_as_sfc(st_bbox(bbox_wus, crs = st_crs(4326))), fill = NA, color = 'red') +
+  geom_sf(data = st_as_sfc(st_bbox(bbox_swsn, crs = st_crs(4326))), fill = NA, color = 'red') +
   theme_bw()
 ```
 
@@ -114,7 +114,7 @@ spei_recon <- brick('data/da_hydro_JunAug_r.1-2000_d.05-Jan-2018.nc',
 ```
 
 Let's compare the reconstructions for the summer of 1985.
-```{r, echo = FALSE, fig.margin = TRUE, fig.cap = 'Observed and reconstructed SPEI for summer 1985.'}
+```{r, echo = FALSE, fig.cap = 'Observed and reconstructed SPEI for summer 1985.'}
 brick(c(spei_obs[[90]], resample(spei_recon[[886]], spei_obs, method = 'ngb'))) %>%
   `names<-`(c('Observed', 'Reconstructed')) %>%
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
@@ -129,7 +129,7 @@ brick(c(spei_obs[[90]], resample(spei_recon[[886]], spei_obs, method = 'ngb'))) 
   theme_void()
 ```
 
-```{r plot_variance_trend, echo = FALSE, fig.margin=TRUE, fig.cap = 'Plotting out the time series of the reconstruction reveals no clear trend in the mean. It does, however, show a pattern of increasing variance over time, which is entirely a function of the changing number of proxies used in the data assimilation approach.'}
+```{r plot_variance_trend, echo = FALSE, message = FALSE, fig.margin=TRUE, fig.cap = 'Plotting out the time series of the reconstruction reveals no clear trend in the mean. It does, however, show a pattern of increasing variance over time, which is entirely a function of the changing number of proxies used in the data assimilation approach.'}
 spei_recon %>% 
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
   gather(year, value, 3:902) %>%
@@ -174,12 +174,6 @@ obs_pca <- spei_obs %>%
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
   prcomp(scale. = FALSE) # use (scale. = FALSE) because spei is already normalized and rescaled
-
-recon_pca <- spei_recon %>%
-  area_weight %>%
-  as.data.frame(na.rm = TRUE) %>%
-  t %>%
-  prcomp(scale. = FALSE)
 ```
 
 Now we calculate the rotated empirical orthogonal functions for both the observed and reconstructed drought maps. For the observations, we see that the leading 5 eofs explain 85% of the variance in the series, so we'll retain those for rotation.
@@ -213,6 +207,15 @@ obs_eigs <- obs_pca %>%
          low =  eigenvalues * (1 - error) * 100 / sum(eigenvalues),
          hi = eigenvalues * (1 + error) * 100 / sum(eigenvalues),
          cumvar_line = hi + 0.02 * max(hi))
+```
+
+Repeat all of the above for the reconstructions too.
+```{r}
+recon_pca <- spei_recon %>%
+  area_weight %>%
+  as.data.frame(na.rm = TRUE) %>%
+  t %>%
+  prcomp(scale. = FALSE)
 
 recon_eigs <- recon_pca %>% 
   tidy(matrix = 'pcs') %>%
@@ -335,8 +338,8 @@ reof_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
 
 We see that the leading 3 eigenvectors from the observations and reconstructions are a good match, including their ordering. 4-6 look good too
 
-Save the reof data as a raster, so we can crop it to the state boundaries
 ```{r reof_raster, warning = FALSE}
+#Save the reof data as a raster, so we can crop it to the state boundaries
 reof_raster <- reof_obs$EOFs %>%
   select(-eof) %>%
   spread(PC, reof)  %>%
@@ -382,7 +385,7 @@ ggplot() +
 ggsave('../figures/reof_observed.pdf', height = 7, width = 6)
 ```
 
-```{r, echo = FALSE, fig.margin = TRUE, fig.caption = 'Climate regionalization.'}
+```{r, echo = FALSE, fig.margin = FALSE, fig.caption = 'Climate regionalization.'}
 which.max(abs(reof_raster)) %>%
   as.data.frame(xy = T, na.rm = T)  %>%
   ggplot() +
@@ -393,7 +396,7 @@ which.max(abs(reof_raster)) %>%
   coord_sf(datum = NA)
 ```
 
-```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Observed and reconstructed Empirical Orthogonal Functions before rotation.'}
+```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Observed Empirical Orthogonal Functions before rotation.'}
 as.data.frame(eof_raster, xy = TRUE, na.rm = TRUE, long= TRUE) %>%
 ggplot() +
   facet_wrap(~layer, ncol = 2) +
@@ -403,7 +406,9 @@ ggplot() +
     geom_sf(data = states_wus, color = 'black', fill = NA) +
   coord_sf(datum = NA) +
   theme(legend.position = "bottom")
+```
 
+```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Reconstructed Empirical Orthogonal Functions before rotation.'}
 ggplot(reof_recon$EOFs, aes(x, y, fill = eof)) +
   facet_wrap(~PC) +
   geom_raster() +
@@ -414,7 +419,7 @@ ggplot(reof_recon$EOFs, aes(x, y, fill = eof)) +
 
 The colors here are eigenvectors weighted by the sqare root of the associated eigenvalue, so these loadings represent the covariance between each grid cell and each amplitude (principal component). A key assumption here is that the REOFs calculated from both the observations and reconstructions correspond to the same physical phenomena. That way we can just use the observed patterns as the high resolution patterns, and infer their temporal evolution from the reconstructions. This means we don't have to downscale the reconstructed reofs to use them, as otherwise we'd have to deal with issues of spatial represntativeness and non-overlap. Now we can be ensured that these are the same signals.
 
-```{r}
+```{r, echo = FALSE}
 ## todo, clean up all the inversions and put them here
 # now the reofs for the recons don't match, fix:
 reof_recon$amps <- reof_recon$amps %>%
@@ -437,7 +442,7 @@ reof_recon$EOFs <- reof_recon$EOFs %>%
   arrange(PC)
 ```
 
-```{r plot_recon_reofs, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
+```{r plot_recon_reofs, fig.fullwidth = TRUE, echo = FALSE, fig.cap = 'Reconstructed drought REOFs'}
 reof_recon$EOFs %>%
   mutate(reof = if_else(PC %in% c('EOF2', 'EOF5', 'EOF6'), reof * -1, reof)) %>%
   ggplot() +
@@ -457,8 +462,12 @@ To confirm this, let's plot the time series (PCs) of each observed and reconstru
 
 
 
-So from this plot, we can tell that all but PC6 is of the right sign (high pc amplitude == high positive SPEI). so in the next plot, we multiply pc6 by -1 
-```{r, echo = FALSE}
+
+```{r, echo = FALSE, include=FALSE}
+# Not shown.
+# For each PC amplitude time series, plot out the wettest and driest years from the observations.
+# From this we can tell that all but PC6 is of the right sign (high pc amplitude == high positive SPEI). 
+# So next we multiply PC6 by -1 
 reof_obs$amps %>%
   group_by(PC) %>%
   filter(reof_amp == max(reof_amp) | reof_amp == min(reof_amp)) %>%
@@ -476,13 +485,13 @@ reof_obs$amps %>%
   theme_void()
 ```
 
-```{r}
+```{r, echo = FALSE}
 reof_obs$amps <- reof_obs$amps %>%
   mutate(reof_amp = if_else(PC == 'PC6', reof_amp * -1, reof_amp))
 ```
 
 
-```{r echo = FALSE}
+```{r echo = FALSE, fig.width=6, fig.height=4, warning = FALSE, fig.fullwidth = TRUE}
 reof_obs$amps %>%
   group_by(PC) %>%
   mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
@@ -490,7 +499,7 @@ ggplot(aes(year, reof_amp, color = PC)) +
     geom_line(alpha = .4) +
   geom_line(aes(y = amp_smooth), size = 1.2) +
   facet_wrap(~PC) + 
-     geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
+  geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
   scale_color_viridis_d(guide = FALSE) +
   theme_bw() +
   labs(x = 'Year', y = 'SPEI')
@@ -498,29 +507,16 @@ ggplot(aes(year, reof_amp, color = PC)) +
 ggsave('../figures/pc_obs.pdf', width = 6, height = 4)
 ```
 
-```{r}
+```{r, echo = FALSE, fig.margin = TRUE}
 reof_recon$amps %>%
   filter(year >= 1896) %>%
   group_by(PC) %>%
   mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
 ggplot(aes(year, reof_amp, color = PC)) +
-    geom_line(alpha = .4) +
+  geom_line(alpha = .4) +
   geom_line(aes(y = amp_smooth), size = 1.2) +
   facet_wrap(~PC) + 
-     geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
-  scale_color_viridis_d(guide = FALSE) +
-  theme_bw() +
-  labs(x = 'Year', y = 'SPEI')
-
-reof_obs$amps %>%
-  group_by(PC) %>%
-  filter(year < 1999) %>%
-  mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
-ggplot(aes(year, reof_amp, color = PC)) +
-    geom_line(alpha = .4) +
-  geom_line(aes(y = amp_smooth), size = 1.2) +
-  facet_wrap(~PC) + 
-     geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
+  geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
   scale_color_viridis_d(guide = FALSE) +
   theme_bw() +
   labs(x = 'Year', y = 'SPEI')
@@ -539,6 +535,7 @@ amplitudes_past <- reof_recon$amps %>%
   nest(recons = c(year, amplitude_recon))
 ```
 
+Look for the correlation between the amplitude time series to make sure we have a good match between the two sets of patterns.
 ```{r, plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
 #do the eofs match?
 ggplot(amplitudes_modern, aes(reof_amp_recon, reof_amp_obs)) +
@@ -574,26 +571,6 @@ These results point to REOFs 2 and 3 as having major shocks at around 1300 AD.
 reof_recon$amps %>%
   mutate(period = floor((year / 50)) * 50) %>%
   filter(between(period, 1200, 1400)) %>%
-  ggplot(aes(factor(period), abs(reof_amp))) +
-  geom_boxplot() +
-  geom_hline(yintercept = 0, color = 'red', linetype = 2) +
-  scale_color_brewer(palette = 'Spectral') +
-  facet_wrap(~PC) +
-  theme_minimal()
-
-reof_recon$amps %>%
-  mutate(period = floor((year / 50)) * 50) %>%
- # mutate(PC = paste0('reof',parse_number(PC))) %>%
-  rename(time = period) %>%
-  filter(between(time, 1200, 1400)) %>%
-  group_by(PC, time) %>% 
-  summarise(amplitude = mean(abs(reof_amp))) %>%
-  mutate(time = as.factor(time)) %>%
-  write_csv('../output/amplitudes.csv')
-
-reof_recon$amps %>%
-  mutate(period = floor((year / 50)) * 50) %>%
-  filter(between(period, 1200, 1400)) %>%
   ggplot(aes((reof_amp), as.factor(period),fill = ..x.., height = ..density..)) +
     ggridges::geom_density_ridges_gradient(stat = 'density', scale = 1.5)+
   facet_wrap(~PC) +
@@ -622,19 +599,15 @@ sites <- read_csv('data/attributes_orig.csv') %>%
 Next we get the apportioned ceramic ware counts per site.
 ```{r}
 load('ware_matrices')
-
-wares <- list(AD1200cer, 
-              AD1250cer, 
-              AD1300cer, 
-              AD1350cer, 
-              AD1400cer) %>%
+wares <- list(AD1200cer, AD1250cer, AD1300cer, 
+              AD1350cer, AD1400cer) %>%
   map(rownames_to_column) %>%
   bind_rows(.id = 'time') %>%
   mutate(time = as.numeric(time) * 50 + 1150) %>%
   rename(site = rowname)
 ```
 
-```{r}
+```{r, fig.fullwidth = TRUE, echo = FALSE}
 wares %>%
   gather(ware, count, 3:38) %>%
   group_by(ware, time) %>%
@@ -643,14 +616,6 @@ ggplot(aes(time, Proportion, fill = ware, group = ware)) +
   geom_bar(position='fill', stat = 'identity', color = 'black') +
   theme_bw()
 ```
-
-
-```{r}
-ggplot(sites) +
-  geom_sf(aes(color = Macro)) +
-  theme_bw()
-```
-
 Next we aggregate the sites into 10x10km patches. This is because an area of about 10 km radius from a site is the limit of raw material resources for ceramics (TODO cite Arnold1985). So 5km is roughly the limit of day to day social interaction, 10km is raw material procurement for ceramics, and 18 km is for day's journey round trip (TODO cite varien). translated to square units in equivalent areas, that's 3km square cells for regular face-to-face interaction and intensive agriculture. 12km for food and non food resources, and 32km grids for day's trip there and back. So 12 is the most reasonable. First import and crop the raster we'll use as a reference.
 ```{r}
 elev <- raster('~/gdrive/Data/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
@@ -658,7 +623,7 @@ elev <- raster('~/gdrive/Data/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the
   aggregate(fact = 40) # aggregate to 10km resolution
 ```
 
-```{r}
+```{r, echo = FALSE}
 #from https://stackoverflow.com/a/46846474
 calculate_mode <- function(x) {
   uniqx <- unique(x)
@@ -683,31 +648,10 @@ patches <- sites %>%
 ```
 
 ```{r}
-patches %>%
-  gather(time, rooms, X1200:X1400) %>%
-  mutate(time = parse_number(time)) %>%
-  group_by(Macro, time) %>%
-  summarise(rooms = sum(rooms)) %>%
-ggplot(aes(time, rooms, group = Macro, color = Macro)) +
-  geom_line(size = 1.1, alpha = .8) +
-  theme_bw()
+theo_max <- -.5 * log(.5) - .5 * log(.5) # maximum theoretical divergence given equal weights
 ```
 
 ```{r}
-patches %>%
-  gather(time, rooms, X1200:X1400) %>%
-  mutate(time = parse_number(time)) %>%
-  filter(rooms > 0) %>%
-ggplot() +
-  geom_sf(aes(color = Macro, size = rooms, fill = Macro)) +
-  scale_size_area() +
-  facet_wrap(~time) +
-  theme_bw()
-```
-
-```{r}
-theo_max <- -.5 * log(.5) - .5 * log(.5) #maximum theoretical divergence given equal weights
-  
 getJSD <- function(data, time){
   patch_ids <- pull(data, patch_id)
   data %>%
@@ -749,6 +693,19 @@ swsn <- patches %>%
   left_join(patches, by = c('name' = 'patch_id'))
 ```
 
+```{r, echo = FALSE}
+swsn %N>%
+  mutate(Rooms = X1200 + X1250 + X1300 + X1350 + X1400) %>%
+  arrange(Rooms) %>%
+  ggraph('manual', x = x, y = y) +
+      geom_sf(data = states_swsn, fill = NA, color = 'black') +
+  geom_node_point(aes(size = Rooms, color = Rooms)) +
+  scale_size_area(limits = c(0, 3000), breaks = seq(0, 3000, by = 500)) +
+  scale_color_viridis(option = 'magma', limits = c(0, 3000), breaks = seq(0, 3000, by = 500), guide = 'legend') +
+  coord_sf(datum = NA) +
+  theme_void()  +
+  theme(legend.position = c(1, 0), legend.justification = c(2.6,-.3))
+```
 
 
 ```{r fig.fullwidth = TRUE, fig.width = 9, fig.height = 6, echo = FALSE}
@@ -767,7 +724,7 @@ ggraph('manual', x = x, y = y) +
   theme(legend.position = c(1, 0), legend.justification = c(2.5,0))
 ```
 
-```{r}
+```{r,echo=TRUE, fig.margin = TRUE, fig.width=4, fig.height = 8}
 swsn %E>% 
     filter(JSD > .001) %>%
     filter(from < to) %>%
@@ -776,7 +733,7 @@ swsn %E>%
 ggraph('manual', x = x, y = y) +
   geom_edge_fan(aes( color = JSD)) +
   geom_sf(data = states_swsn, fill = NA, color = 'black') +
-  facet_edges(~time, ncol = 3) +
+  facet_edges(~time, ncol = 2) +
   scale_edge_alpha(guide = 'none') +
   scale_edge_color_viridis(name = 'Similarity', option = 'magma') +
   coord_sf(datum = NA) +
@@ -858,29 +815,29 @@ This package uses a transition matrix approach, whereby we work with matrices th
 We're representing paths, not necessarily routes, and so focus on symmetric costs. This is an additional modification to tobler.
 
 Calculate the absolute difference in elevation between each cell and its 16 neighbors.
-```{r}
+```{r, cache = TRUE}
 altDiff <- function(x){abs(x[2] - x[1])}
 hd <- transition(elev_lcp, altDiff, 16, symm = TRUE)
 ```
 Divide the height differences by the horizontal distances between cells, resulting in slopes.
-```{r}
+```{r, cache = TRUE}
 slope_c <- geoCorrection(hd, type = 'c')
 ```
 Figure out which cells are adjacent to one another, queen's case.
-```{r}
+```{r, cache = TRUE}
 adj <- adjacent(elev_lcp, cells = 1:ncell(elev_lcp), directions = 16)
 ```
 Use Tobler's hiking function to calculate walking speed from *cognitive* slope.
-```{r}
+```{r, cache = TRUE}
 speed_c <- slope_c
 speed_c[adj] <- tobler_adjusted(slope_c[adj])
 ```
 Divide by intercell distance again, resulting in the conductance matrix.
-```{r}
+```{r, cache = TRUE}
 conductance_c <- geoCorrection(speed_c, type = 'c')
 ```
 
-```{r, echo = FALSE, fig.cap = 'Conductance map.'}
+```{r, echo = FALSE, fig.fullwidth = TRUE, fig.cap = 'Conductance map.'}
 speed_c %>%
   raster %>%
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
@@ -891,7 +848,8 @@ ggplot(aes(x, y, fill = layer * 3.6)) + # convert back to km/h
   labs(x = 'Longitude', y = 'Latitude') +
   theme_minimal()
 ```
-```{r, echo = FALSE, message=FALSE}
+
+```{r, echo = FALSE, message=FALSE, warning = FALSE}
 rm(altDiff, hd, slope_c, speed_c, adj);gc()
 ```
 
@@ -912,6 +870,10 @@ distances <- swsn %>%
   mutate(from_patch = as_tibble(swsn)$name) %>%
   gather(to_patch, distance, -from_patch) %>%
   mutate(distance = distance / 3600)
+```
+
+```{r}
+knitr::knit_exit()
 ```
 
 # Network analysis
