@@ -22,6 +22,17 @@ monofont: courier
 knitr::opts_chunk$set(tidy = FALSE)
 ```
 
+# Introduction
+\begin{fullwidth}
+This RMarkdown document contains all analysis code used to produce the results and figures in the main text.
+
+In this two-part analysis we first 
+\end{fullwidth}
+
+## Data sources
+This R Markdown script requires raster data of [observed present-day temperature and precipitation](http://www.prism.oregonstate.edu/normals/)^[http://www.prism.oregonstate.edu/normals/] 30-year averages and 100-year time series of the [Standardized Precipitation-Evapotranspiration Index](https://wrcc.dri.edu/wwdt/time/)^[https://wrcc.dri.edu/wwdt/time/]. We'll also need reconstructed SPEI rasters^[https://zenodo.org/record/1198817]. Finally, get the CGIAR version of the SRMTM [digital elevation model](http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/)^[http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/], resampled to 250m. With permission, also acquire the [Southwest Social Networks Database](http://www.southwestsocialnetworks.net/data.html)^[http://www.southwestsocialnetworks.net/data.html].
+
+## Packages
 ```{r, message = FALSE}
 library(raster) # raster data manipulation
 library(tidyverse) # data analysis and visualization
@@ -42,16 +53,6 @@ library(furrr)
 #devtools::install_github('thomasp85/patchwork') 
 library(patchwork)
 ```
-
-# Introduction
-\begin{fullwidth}
-This RMarkdown document contains all analysis code used to produce the results and figures in the main text.
-
-In this two-part analysis we first 
-\end{fullwidth}
-
-## Data sources
-This R Markdown script requires raster data of [observed present-day temperature and precipitation](http://www.prism.oregonstate.edu/normals/)^[http://www.prism.oregonstate.edu/normals/] 30-year averages and 100-year time series of the [Standardized Precipitation-Evapotranspiration Index](https://wrcc.dri.edu/wwdt/time/)^[https://wrcc.dri.edu/wwdt/time/]. We'll also need reconstructed SPEI rasters^[https://zenodo.org/record/1198817]. Finally, get the CGIAR version of the SRMTM [digital elevation model](http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/)^[http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/], resampled to 250m. With permission, also acquire the [Southwest Social Networks Database](http://www.southwestsocialnetworks.net/data.html)^[http://www.southwestsocialnetworks.net/data.html].
 
 # Climate Analysis: Drought Patterns
 
@@ -326,10 +327,10 @@ get_EOFs <- function(pc_object, eigs, rast_template, n_modes){
 Now, calculate the eofs for both fields, retaining the 6 leading components in each case for rotation
 
 ```{r calc_eofs}
-# Decide how many modes to retain
 n_modes <- 6
+```
 
-# rotated EOFS
+```{r}
 reof_obs <- get_EOFs(obs_pca, obs_eigs, spei_obs, n_modes)
 reof_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
 ```
@@ -370,7 +371,7 @@ eof_raster <- reof_obs$EOFs %>%
 
 Let's map out the spatial and temporal patterns in the REOFs. First we'll look at the spatial patterns. It looks like the observed and reconstructed datasets reveal very similar spatial patterns for the 4 leading modes.
 
-```{r plot_obs_reof, echo = FALSE, fig.width = 6, fig.height = 7, fig.cap = 'Observed drought REOFs'}
+```{r plot_obs_reof, echo = FALSE, fig.fullwidth = TRUE, fig.width = 6, fig.height = 7, fig.cap = 'Observed drought REOFs'}
 reof_raster %>%
   as.data.frame(xy = TRUE, na.rm = TRUE, long = TRUE) %>%
 ggplot() +
@@ -491,7 +492,7 @@ reof_obs$amps <- reof_obs$amps %>%
 ```
 
 
-```{r echo = FALSE, fig.width=6, fig.height=4, warning = FALSE, fig.fullwidth = TRUE}
+```{r echo = FALSE, fig.width=6, fig.height=4, warning = FALSE}
 reof_obs$amps %>%
   group_by(PC) %>%
   mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
@@ -580,7 +581,9 @@ reof_recon$amps %>%
 ```
 
 
-
+```{r, echo = FALSE, message=FALSE, warning = FALSE}
+rm(spei_obs, spei_recon, obs_pca);gc()
+```
 
 # Network Analysis: Spatial Interaction Modeling
 
@@ -872,9 +875,6 @@ distances <- swsn %>%
   mutate(distance = distance / 3600)
 ```
 
-```{r}
-knitr::knit_exit()
-```
 
 # Network analysis
 
@@ -886,8 +886,11 @@ reof_resamp <- reof_raster %>%
   resample(elev)
 ```
 
-```{r}
+```{r, fig.margin = TRUE, echo = FALSE}
 plot(reof_resamp)
+```
+
+```{r, fig.margin = TRUE, echo = FALSE}
 pairs(reof_resamp)
 ```
 
@@ -923,64 +926,9 @@ swsn2 <- swsn %N>%
   convert(to_undirected)
 ```
 
-```{r, include = F, eval = F}
-library(broom)
-reof_dat <- swsn2 %N>%
-  as_tibble %>%
-  select(reof1:reof6)
-xy_dat <- swsn2 %N>%
-  as_tibble %>%
-  select(x:y) %>%
-  rename(test1 = x,test2 = y)
 
-kclusts <- tibble(k = 1:9) %>%
-  mutate(
-    kclust = map(k, ~kmeans(reof_dat, .x)),
-    tidied = map(kclust, tidy),
-    glanced = map(kclust, glance),
-    augmented = map(kclust, augment, reof_dat)
-  )
 
-kclusts_dist <- tibble(k = 1:9) %>%
-  mutate(
-    kclust = map(k, ~kmeans(xy_dat, .x)),
-    tidied = map(kclust, tidy),
-    glanced = map(kclust, glance),
-    augmented = map(kclust, augment, xy_dat)
-  )
-
-clusters <- kclusts %>%
-  unnest(tidied)
-
-assignments <- kclusts %>% 
-  unnest(augmented) %>%
-  bind_cols(map_df(seq_len(9), ~as_tibble(activate(swsn, 'nodes')),.))
-ggplot(assignments, aes(x, y)) +
-  geom_point(aes(color = .cluster)) + 
-  facet_wrap(~ k) +
-  coord_quickmap()
-
-assignments_dist <- kclusts_dist %>% 
-  unnest(augmented) %>%
-  bind_cols(map_df(seq_len(9), ~as_tibble(activate(swsn, 'nodes')),.))
-ggplot(assignments_dist, aes(x, y)) +
-  geom_point(aes(color = .cluster)) + 
-  facet_wrap(~ k) +
-  coord_quickmap()
-
-clusterings <- kclusts_dist %>%
-  unnest(glanced, .drop = TRUE)
-ggplot(clusterings, aes(k, tot.withinss)) +
-  geom_line()
-
-swsn2 %N>%
-  as_tibble %>%
-  ggplot(aes(reof1, reof6)) +
-  geom_point()
-  
-```
-
-```{r,eval = FALSE}
+```{r,echo = FALSE, fig.fullwidth = TRUE}
 r1 <- swsn2 %E>%
   arrange(reof1) %>%
   filter(reof1 > .1) %>%
@@ -1053,7 +1001,7 @@ r6 <- swsn2 %E>%
   coord_quickmap() +
   theme_void()
 
-r1 +r2+r3+r4 + r5 + r6  +plot_layout(nrow = 1)
+r1 + r2 + r3 + r4 + r5 + r6 + plot_layout(nrow = 1)
 ```
 
 ```{r}
@@ -1066,35 +1014,39 @@ dat <- swsn2 %E>%
   filter(JSD >= .001)
 ```
 
-```{r, echo= FALSE}
-#this room plot shows a process of aggregation over time (mean room size increases)
-ggplot(dat, aes(log(rooms))) +
-  geom_histogram() + facet_wrap(~time)
-
-ggplot(dat, aes(log(distance))) +
-  geom_histogram() + facet_wrap(~time)
-
-ggplot(dat, aes(qlogis(JSD))) +
-  geom_histogram() + facet_wrap(~time)
-# look at the plot of ws_mul, basically its all the links with low productivity that die out and the ones with high that survive!
-```
 
 jensen inequality, E(logit(y)) >=logit(E(y)). this means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. Its a necessary evil here, becuase we do not yet have the computational abiliy to fit the corMLPE correlation structure and a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a much alrger source of bias then transforming the response variabble,so that's the tradeoffwe went with. The bias from transforming the respone leads to bias in the estimates of variance.
 
  allows the model to be estimated additively.
+ 
+```{r, echo= FALSE}
+#this room plot shows a process of aggregation over time (mean room size increases)
+ggplot(dat, aes(JSD)) +
+  geom_histogram() + facet_wrap(~time)
+# look at the plot of ws_mul, basically its all the links with low productivity that die out and the ones with high that survive!
+```
+```{r, echo = FALSE, fig.margin = TRUE}
+ggplot(dat, aes(qlogis(JSD))) +
+  geom_histogram() + facet_wrap(~time)
+```
+
+
  
  Pairwise data are high powered, which is makes goodness of fit estimates are preferable over statistical significance testing, and we must be careful to properly estimate confidence intervals,
 
 ```{r}
 fit_gam_JSD <- function(x){
   gamm(x, 
-       method = 'ML', 
+      method = 'ML', 
       family = gaussian(),
       correlation = corMLPE(form = ~from + to|time_fact),
       data = dat)
 }
+```
 
-plan(multisession, workers = 4)
+
+```{r, cache = TRUE}
+plan(multisession, workers = 2)
 
 models <- c(
  "s(distance, bs = 'cr', k = 6) + time_fact",
@@ -1104,19 +1056,7 @@ models <- c(
        s(reof3, by = time_fact, bs = 'cs', k = 6) +
        s(reof4,  by = time_fact, bs = 'cs', k = 6) +
       s(reof5, by = time_fact, bs = 'cs', k = 6) +
-       s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact",
-        "s(distance, bs = 'cr', k = 6) +
-           s(reof1, by = time_fact, bs = 'cr', k = 6) + time_fact",
-         "s(distance, bs = 'cr', k = 6) +
-           s(reof2, by = time_fact, bs = 'cr', k = 6) + time_fact",
-         "s(distance, bs = 'cr', k = 6) +
-        s(reof3, by = time_fact, bs = 'cr', k = 6) + time_fact",
-    "s(distance, bs = 'cr', k = 6) +
-        s(reof4, by = time_fact, bs = 'cr', k = 6) + time_fact",
-    "s(distance, bs = 'cr', k = 6) +
-        s(reof5, by = time_fact, bs = 'cr', k = 6) + time_fact",
-    "s(distance, bs = 'cr', k = 6) +
-        s(reof6, by = time_fact, bs = 'cr', k = 6) + time_fact"
+       s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact"
    ) %>%
   paste('qlogis(JSD) ~', .) %>%
   tibble(formula_chr = .) %>%
@@ -1126,14 +1066,10 @@ models <- c(
          gam = purrr::map(model, ~.$gam),
          aic = map_dbl(lme, AIC)) %>%
   arrange(aic)
+```
 
-saveRDS(models, 'models')
-models <- readRDS('models')
-
+```{r}
 models
-models %>% pull(aic) %>% plot
-summary(models$gam[[8]])
-summary(models$gam[[1]])
 ```
 This may suggest areas of increased conflict, where the kind of social interaction through which pottery would have been exchanged would be rare, or other unmodeled costs of travel such as river crossings cultural taboos. 
 ```{r}
@@ -1151,99 +1087,66 @@ concurvity(models$gam[[1]])
 %uses log transform
 %The Mogollon Rim acts as a severe bottleneck for spatial flows, with paths generally constrained to one of the three river systems, the Verde, Salt, and Gila, act to channel flow across this boundary. 
 
-```{r}
-evaluate_smooth(models$gam[[1]], 's(distance)')  %>% draw()
-evaluate_smooth(models$gam[[1]], 's(distance)') %>% 
-  mutate(est_trans = plogis(est),
-         se_trans = est_trans * (1-est_trans)* se) %>%
-  mutate(lower = est - 2 * se, upper = est + 2 * se) %>%
-   mutate(lower_trans = est_trans - 2 * se_trans, upper_trans = est_trans + 2 * se_trans) %>%
- mutate_at(vars(lower, upper), plogis) %>%
-  ggplot(aes(x = distance)) +
-  geom_ribbon(aes(y = est_trans, ymin = lower, ymax = upper), alpha = .2, color = 'red') +
-   geom_ribbon(aes(y = est_trans, ymin = lower_trans, ymax = upper_trans), alpha = .2, color = 'blue') +
-  geom_line(aes(y = est_trans))
-```
 
-```{r}
-draw(models$gam[[2]], scales = 'fixed')
-draw(models$gam[[3]], scales = 'fixed')
-draw(models$gam[[4]], scales = 'fixed')
-draw(models$gam[[5]], scales = 'fixed')
-draw(models$gam[[6]], scales = 'fixed')
-draw(models$gam[[7]], scales = 'fixed')
-```
-
-```{r}
+```{r, cache = TRUE}
 m1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) + time_fact,
-      method = 'REML', 
-      family = gaussian(),
-      correlation = corMLPE(form = ~from + to|time_fact),
-      data = dat)
+           method = 'REML', 
+           family = gaussian(),
+           correlation = corMLPE(form = ~from + to|time_fact),
+           data = dat)
+```
 
-saveRDS(m1, 'm1')
-m1 <- readRDS('../output/m1')
-plot(m1$gam)
-  
-  m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
-            s(reof1, by = time_fact, bs = 'cs', k = 6) +
-            s(reof2, by = time_fact, bs = 'cs', k = 6) +
-         s(reof3, by = time_fact, bs = 'cs', k = 6) +
-         s(reof4,  by = time_fact, bs = 'cs', k = 6) +
-        s(reof5, by = time_fact, bs = 'cs', k = 6) +
-        s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact,
-        method = 'REML', 
-        family = gaussian(),
-        correlation = corMLPE(form = ~from + to|time_fact),
-        data = dat)
-  saveRDS(m2, 'm2')
-  m2 <- readRDS('m2')
-gam.check(m2$gam)
+```{r, cache = TRUE}
+m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+             s(reof1, by = time_fact, bs = 'cs', k = 6) +
+             s(reof2, by = time_fact, bs = 'cs', k = 6) +
+             s(reof3, by = time_fact, bs = 'cs', k = 6) +
+             s(reof4,  by = time_fact, bs = 'cs', k = 6) +
+             s(reof5, by = time_fact, bs = 'cs', k = 6) +
+             s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact,
+           method = 'REML', 
+           family = gaussian(),
+           correlation = corMLPE(form = ~from + to|time_fact),
+           data = dat)
+```
+```{r}
 summary(m1$gam)
 summary(m2$gam)
-concurvity(m2$gam)
-
-# m3 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
-#           s(reof1, by = time_fact, bs = 'cs', k = 6) +
-#           s(reof2, by = time_fact, bs = 'cs', k = 6) +
-#        s(reof3, by = time_fact, bs = 'cs', k = 6) + time_fact,
-#       method = 'REML',
-#       family = gaussian(),
-#       correlation = corMLPE(form = ~from + to|time_fact),
-#       data = dat)
-# plot(m3$gam, scale = 0)
-# summary(m3$gam)
-
-m35 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
-          s(reof1, bs = 'cs', k = 6) +
-          s(reof2, bs = 'cs', k = 6) +
-       s(reof3, bs = 'cs', k = 6) +
-       s(reof4, bs = 'cs', k = 6) +
-      s(reof5, bs = 'cs', k = 6) +
-      s(reof6, bs = 'cs', k = 6) + macro_same,
-      method = 'REML', 
-      family = gaussian(),
-      correlation = corMLPE(form = ~from + to),
-      data = filter(dat, time == 1200))
-
-summary(m3$gam)
-summary(m35$gam)
 ```
 
 ```{r}
-m1$gam %>% getViz %>% sm(1) %>%  plot(trans = plogis) +geom_vline(xintercept = c(12, 100), linetype = 2)+  l_ciPoly(mul = 5) + l_fitLine() + scale_y_continuous(limits = c(0,1)) + labs(x = 'Distance (hours)', y = 'Information flow')
+gam.check(m2$gam)
+concurvity(m2$gam)
+```
+
+```{r, echo = FALSE}
+m1$gam %>% 
+  getViz %>% 
+  sm(1) %>%  
+  plot(trans = plogis) + 
+  geom_vline(xintercept = c(12, 100), linetype = 2) +
+  l_ciPoly(mul = 5) + l_fitLine() + 
+  scale_y_continuous(limits = c(0,1)) + 
+  labs(x = 'Distance (hours)', y = 'Information flow')
 
 ggsave('../figures/distance_function.pdf', width = 6, height = 4)
 ```
 
 
-```{r fig.height = 6, fig.width = 6}
-test_dat <- bind_rows(expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=seq(0,.5,.01),reof2=0,reof3=0, reof4=0, reof5 = 0, reof6 = 0),
-expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=seq(0,.5,.01),reof3=0, reof4=0, reof5 = 0, reof6 = 0),
-expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=seq(0,.5,.01), reof4=0, reof5 = 0, reof6 = 0),
-expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=seq(0,.5,.01), reof5 = 0, reof6 = 0),
-expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=0, reof5 = seq(0,.5,.01), reof6 = 0),
-expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), reof1=0,reof2=0,reof3=0, reof4=0, reof5 = 0, reof6 = seq(0,.5,.01)), .id = 'reof') %>%
+```{r fig.height = 6, fig.width = 6, echo = FALSE}
+fun_dat <- bind_rows(
+  expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), 
+              reof1 = seq(0, .5, .01), reof2 = 0, reof3 = 0, reof4 =0, reof5 = 0, reof6 = 0),
+  expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), 
+              reof1 = 0, reof2 = seq(0, .5, .01), reof3 = 0, reof4 = 0, reof5 = 0, reof6 = 0),
+  expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), 
+              reof1=0,reof2=0,reof3=seq(0,.5,.01), reof4=0, reof5 = 0, reof6 = 0),
+  expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), 
+              reof1=0,reof2=0,reof3=0, reof4=seq(0,.5,.01), reof5 = 0, reof6 = 0),
+  expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), 
+              reof1=0,reof2=0,reof3=0, reof4=0, reof5 = seq(0,.5,.01), reof6 = 0),
+  expand.grid(distance = 100, time_fact = factor(c('1200','1250','1300','1350','1400')), 
+              reof1=0,reof2=0,reof3=0, reof4=0, reof5 = 0, reof6 = seq(0,.5,.01)), .id = 'reof') %>%
   mutate(reof = paste0('REOF', reof))
 
 
@@ -1251,14 +1154,14 @@ m2$gam %>%
   predict.gam(newdata = test_dat, type = 'response', se.fit = T) %>% 
   bind_cols %>%
   mutate(lower = fit - 2 * se.fit, upper = fit + 2 * se.fit) %>%
- mutate_at(vars(fit,lower, upper), plogis) %>% 
+  mutate_at(vars(fit,lower, upper), plogis) %>% 
   bind_cols(test_dat) %>%
   gather(reofs, value,reof1:reof6) %>%
   filter(parse_number(reofs) == parse_number(reof)) %>%
   mutate(reof = str_sub(reof, 2)) %>%
   ggplot(aes(value, fit, group = time_fact)) +  
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = reof), alpha = .3) +
-geom_line(aes(color = reof), size = 1.2) +
+  geom_line(aes(color = reof), size = 1.2) +
   scale_y_continuous(breaks = c(0, 1), limits = c(0,1)) +
   scale_x_continuous(breaks = c(0, .5)) +
   theme_bw() +
@@ -1266,11 +1169,16 @@ geom_line(aes(color = reof), size = 1.2) +
   scale_fill_viridis_d(guide = 'none') +
   facet_grid(reof ~ as.ordered(time_fact)) +
   theme_bw() +
-  labs(#title = 'Drought patterns and the intensity of social interaction', subtitle = "Predicted information flow at a 10 days' travel", 
-    x = 'Climatic Difference', y = 'Cultural Similarity')
+  labs(x = 'Climatic Difference', y = 'Cultural Similarity')
+
 ggsave('figures/smooths.pdf', width = 6, height = 6)
 ```
  
+ 
+```{r}
+knitr::knit_exit()
+```
+
 how do the fits change over time?
 ```{r}
 fit_gam_JSD <- function(x){
