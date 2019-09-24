@@ -1072,7 +1072,7 @@ models <- c(
 models
 ```
 This may suggest areas of increased conflict, where the kind of social interaction through which pottery would have been exchanged would be rare, or other unmodeled costs of travel such as river crossings cultural taboos. 
-```{r}
+```{r, eval = FALSE}
 gam.check(models$gam[[1]])
 ```
 
@@ -1083,7 +1083,7 @@ concurvity(models$gam[[1]])
 
 %This represents that multiple transmission processes, with different relationships to distance, are acting together to generate the variation in the archaeological record. The two main inflection points in the decay curve are both consistent with previous work in the ecology of human mobility. Their is a plateau effect distance plays no appreciable role in interaction between sites within a day's walk of one another (johnson but cites olsson 1965 and crumley 1979, ariadne). This suggests that distance only becomes a deterring factor dealing in multiday trips. The second inflection point, at roughly 10 days is consistent with estimates of area needed to sustain the minimum viable breeding population for human groups (are they consistent with the figures of 50km-80km from rautman and drennen and others? johnson finds no marriages past 60km, maize to chaco papers also have distance).
 %Plateau of social interaction with communities who have daily face-to-face contact.
-%These findings contradict those of \parencite{Hart2012}, because that work assumes only a linear relationship with distance.
+
 %uses log transform
 %The Mogollon Rim acts as a severe bottleneck for spatial flows, with paths generally constrained to one of the three river systems, the Verde, Salt, and Gila, act to channel flow across this boundary. 
 
@@ -1114,7 +1114,7 @@ summary(m1$gam)
 summary(m2$gam)
 ```
 
-```{r}
+```{r, eval = FALSE}
 gam.check(m2$gam)
 concurvity(m2$gam)
 ```
@@ -1151,11 +1151,11 @@ fun_dat <- bind_rows(
 
 
 m2$gam %>%
-  predict.gam(newdata = test_dat, type = 'response', se.fit = T) %>% 
+  predict.gam(newdata = fun_dat, type = 'response', se.fit = T) %>% 
   bind_cols %>%
   mutate(lower = fit - 2 * se.fit, upper = fit + 2 * se.fit) %>%
   mutate_at(vars(fit,lower, upper), plogis) %>% 
-  bind_cols(test_dat) %>%
+  bind_cols(fun_dat) %>%
   gather(reofs, value,reof1:reof6) %>%
   filter(parse_number(reofs) == parse_number(reof)) %>%
   mutate(reof = str_sub(reof, 2)) %>%
@@ -1171,7 +1171,7 @@ m2$gam %>%
   theme_bw() +
   labs(x = 'Climatic Difference', y = 'Cultural Similarity')
 
-ggsave('figures/smooths.pdf', width = 6, height = 6)
+ggsave('../figures/smooths.pdf', width = 6, height = 6)
 ```
  
  
