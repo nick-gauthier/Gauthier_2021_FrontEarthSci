@@ -54,10 +54,6 @@ library(mgcViz) # GAM plotting
 library(patchwork)
 ```
 
-# Climate Analysis: Drought and Flood Spatial Patterns
-
-First we estimate robust spatial modes of hydroclimate variability in the Southwest US using present-day observations and reconstructions from the past millennium. We calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. We compare these patterns to those derived from a long term reconstruction based that fuses several climate proxies with outputs from the CESM Last Millennium Ensemble. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 83% of the variance in a full 1,000 year sequence of reconstructed drought dynamics.
-
 ## Study Area
 
 First we define a bounding box covering much of the western United States to constrain the climate analyses, ranging between W124.5$^\circ$ and W-107$^\circ$ and N31$^\circ$ and N37.5$^\circ$. ^[Using a larger study area for the climate analysis allows us to sample a much wider range of climatic variability while still remaining within the broader western US climate zone. This ensures that both A) our statistical analyses will be more robust to sampling error and B) the results will be less sensitive to the exact location and dimensions of our study area.] Also define a smaller area in AZ and NM that will be the focus of the archaeological analysis.
@@ -80,8 +76,7 @@ states_swsn <- maps::map('state', regions = c('arizona', 'new mexico'),
 country <- maps::map('usa',fill = TRUE, plot = FALSE) %>% st_as_sf
 ```
 
-
-```{r bbox_map, fig.margin=TRUE, echo = FALSE, fig.cap = 'Locations of 2 bounding boxes.'}
+```{r bbox_map, fig.margin=TRUE, echo = FALSE, fig.cap = 'Locations of the two study areas.'}
 ggplot() + 
   geom_sf(data = states_wus) +
   geom_sf(data = country, fill = NA) +
@@ -89,6 +84,10 @@ ggplot() +
   geom_sf(data = st_as_sfc(st_bbox(bbox_swsn, crs = st_crs(4326))), fill = NA, color = 'red') +
   theme_bw()
 ```
+
+# Climate Analysis
+
+First estimate robust spatial modes of hydroclimate variability in the Southwest US using present-day observations and reconstructions from the past millennium. Calculate the leading Empirical Orthogonal Functions of a ~100 year series of the summertime average Standardized Precipitation-Evapotranspiration Index. These patterns then undergo a varimax rotation to highlight more physically meaningful spatial patterns. Compare these patterns to those derived from a long-term reconstruction based that fuses several climate proxies with outputs from the CESM Last Millennium Ensemble. We confirm that the spatial patterns detected for the past 100 years have been robust over time and explain up to 83% of the variance in a full 1,000 year sequence of reconstructed drought dynamics.
 
 ## Climate Data
 Import high resolution SPEI maps generated from PRISM data. Calculate the average summertime (JJA) SPEI value for each year.
@@ -142,7 +141,7 @@ spei_recon %>%
   theme_bw()
 ```
 
-## Principal Components Analysis and Empirical Orthogonal Functions
+## Drought and Flood Patterns
 
 Calculate the (rotated) empirical orthogonal functions of the observed and reoconstructed SPEI data using PCA and varimax rotation. These represent coherent, recurring spatial patterns of drought and flood variability over our study area. First, define a function to reweight the SPEI data based on the latitude to acount for the areal distortion of each cell as latitude changes.
 
@@ -413,7 +412,7 @@ reof_recon$EOFs %>%
 
 
 
-```{r, echo = FALSE, fig.margin = TRUE, fig.cap = 'Climate regionalization showing the dominant REOF for each point in space.'}
+```{r, echo = FALSE, fig.margin = TRUE, fig.cap = 'Climate regionalization showing the dominant REOF for each location.'}
 which.max(abs(reof_raster)) %>%
   as.data.frame(xy = T, na.rm = T)  %>%
   ggplot() +
@@ -424,8 +423,7 @@ which.max(abs(reof_raster)) %>%
   coord_sf(datum = NA)
 ```
 
-## Drought Amplitudes
-
+## Drought and Flood Amplitudes
 
 ```{r, echo = FALSE, include=FALSE}
 # Not shown.
@@ -447,21 +445,20 @@ reof_obs$amps %>%
   coord_quickmap() +
   scale_fill_distiller(palette = 'Spectral', limits = c(NA, 4), direction = 1) +
   theme_void()
-```
 
-```{r, echo = FALSE}
 reof_obs$amps <- reof_obs$amps %>%
   mutate(reof_amp = if_else(PC == 'PC6', reof_amp * -1, reof_amp))
 ```
 
+Now plot the leading 6 PC amplitude time series.
 
-```{r echo = FALSE, fig.width=6, fig.height=4, warning = FALSE}
+```{r echo = FALSE, fig.width=6, fig.height=4, fig.cap = 'Observed SPEI amplitudes of the leading 6 rotated principal components.', warning = FALSE}
 reof_obs$amps %>%
   group_by(PC) %>%
   mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
 ggplot(aes(year, reof_amp, color = PC)) +
     geom_line(alpha = .4) +
-  geom_line(aes(y = amp_smooth), size = 1.2) +
+  geom_line(aes(y = amp_smooth), size = 1.2, na.rm = TRUE) +
   facet_wrap(~PC) + 
   geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
   scale_color_viridis_d(guide = FALSE) +
@@ -471,14 +468,14 @@ ggplot(aes(year, reof_amp, color = PC)) +
 ggsave('../figures/pc_obs.pdf', width = 6, height = 4)
 ```
 
-```{r, echo = FALSE, fig.margin = TRUE}
+```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Reconstructed SPEI amplitudes.'}
 reof_recon$amps %>%
   filter(year >= 1896) %>%
   group_by(PC) %>%
   mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
 ggplot(aes(year, reof_amp, color = PC)) +
   geom_line(alpha = .4) +
-  geom_line(aes(y = amp_smooth), size = 1.2) +
+  geom_line(aes(y = amp_smooth), size = 1.2, na.rm = TRUE) +
   facet_wrap(~PC) + 
   geom_hline(yintercept = 0, linetype = 2, alpha= 1, color = 'black') + 
   scale_color_viridis_d(guide = FALSE) +
@@ -487,37 +484,31 @@ ggplot(aes(year, reof_amp, color = PC)) +
 ```
 
 
-Now let's fit these models in practice. First create a data frame of past amplitudes.
-```{r past_amplitudes}
+Plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. In general we find strong linear fits, save for PC6 which seems to be more loosely related in the observations and reconstructions. Since this pattern represents variability related to the Colorado Plateau, perhaps we are seeing some topographically-induced variability that isn't well represented in the CESM LME prior used by PHYDA.
+
+```{r, plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs', warning=FALSE}
 amplitudes_modern <- reof_obs$amps %>%
   inner_join(reof_recon$amps, by = c('year', 'PC'),
             suffix = c('_obs', '_recon'))
-amplitudes_past <- reof_recon$amps %>%
-  select(-reof_amp) %>%
-  rename(amplitude_recon = eof_amp) %>%
-  group_by(PC) %>%
-  nest(recons = c(year, amplitude_recon))
-```
 
-Plot the time series (PCs) of each observed and reconstructed REOF against each other, to confirm that they correspond to the same patterns. Look at the correlations between the modes.
-```{r, plot_amplitudes, fig.fullwidth=TRUE, fig.height=4, fig.width=10, echo = FALSE, fig.cap = 'Strong linear correlation between the observed and reconstructed EOFs'}
-#do the eofs match?
 ggplot(amplitudes_modern, aes(reof_amp_recon, reof_amp_obs)) +
   geom_point(aes(color = year)) +
   geom_smooth(method = 'lm') +
   scale_color_viridis_c() +
   facet_wrap(~PC, nrow = 1) +
-  labs(title = 'Linear fits between observed and reconstructed amplitudes', subtitle = '1896-1999',
+  labs(title = 'Linear fits between observed and reconstructed amplitudes', 
+       subtitle = '1896-1999',
        x = 'Reconstructed', y = 'Observed') +
   theme_minimal() +
   coord_fixed() +
   theme(legend.position = 'bottom')
 ```
 
-How have the amplitudes of these patterns changed over time? Let's plot the reconstructed time series for each, along with an estimated trend line.
-```{r plot_recon_amplitudes, fig.width = 9, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE}
+How have the amplitudes of these patterns changed over time? Plot the reconstructed time series for each, along with an estimated trend line. Mark the timing of the "Great Drought" at ~1275.
+
+```{r plot_recon_amplitudes, fig.width = 9, fig.height = 4, echo = FALSE, fig.fullwidth=TRUE, fig.cap='Reconstructed SPEI amplitudes during the period 1200CE-1450CE.'}
 reof_recon$amps %>%
-    mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
+  mutate(amp_smooth = zoo::rollmeanr(reof_amp, k = 10, fill = NA)) %>%
   filter(between(year, 1200, 1450)) %>% 
 ggplot(aes(year, reof_amp, group = PC)) +
   geom_line(aes(color = PC), alpha = .3) +
@@ -525,43 +516,102 @@ ggplot(aes(year, reof_amp, group = PC)) +
   scale_color_viridis_d(guide = FALSE) +
   facet_wrap(~PC) +
   theme_bw()+
-  theme(legend.position = "bottom") +  geom_hline(yintercept = 0, color = 'black', linetype = 2)+  geom_vline(xintercept = 1275, color = 'red', linetype = 2) +
+  theme(legend.position = "bottom") + 
+  geom_hline(yintercept = 0, color = 'black', linetype = 2) +
+  geom_vline(xintercept = 1275, color = 'red', linetype = 2) +
   labs(x = 'Year', y = 'SPEI (Reconstructed)')
 ```
-
-These results point to REOFs 2 and 3 as having major shocks at around 1300 AD.
-```{r, echo = FALSE, fig.margin=TRUE, fig.cap='Are there any time periods with marked signals?'}
-reof_recon$amps %>%
-  mutate(period = floor((year / 50)) * 50) %>%
-  filter(between(period, 1200, 1400)) %>%
-  ggplot(aes((reof_amp), as.factor(period),fill = ..x.., height = ..density..)) +
-  ggridges::geom_density_ridges_gradient(stat = 'density', scale = 1.5)+
-  facet_wrap(~PC) +
-  scale_fill_viridis_c(guide = F) +
-  geom_vline(xintercept= 0, linetype = 2) +
-  ggridges::theme_ridges(grid = FALSE, center_axis_labels = TRUE)
-```
-
 
 ```{r, echo = FALSE, message=FALSE, warning = FALSE}
 rm(spei_obs, spei_recon, obs_pca);invisible(gc())
 ```
 
-# Network Analysis: Spatial Interaction Modeling
+# Archaeological Analysis
 
-First generate an estimate of the prehistoric social network using archaeological proxies from the Southest Social Networks project.^[Go to http://www.southwestsocialnetworks.net for more information on this project and dataset] First we read in a csv file containing information for all of the archaeological sites in the database, including spatial location and number of rooms present from each time period. These will become the node-level data for the network.
+Estimate prehistoric social networks using archaeological proxies from the Southest Social Networks project.^[Go to http://www.southwestsocialnetworks.net for more information on this project and dataset.] First we import our archaeological site location data, and aggregate them to 10km grid cells for analysis. Then we estimate the flow of information between each pair of 10km grid cells using the frequency of different ceramic ware types and an information theoretic measure. Then we estimate the potential hiking speeds over the terrain of the study region, and use those speeds to estimate the likely travel times between each pair of sites.
 
-```{r}
-crs_utm <- '+proj=utm +zone=12 +datum=NAD27'
-```
+## Mapping Archaeological Sites
+
+Read in a csv file containing information for all of the archaeological sites in the database, including spatial location and number of rooms present from each time period. These will be the source of the the node-level data for the archaeological network. Because the precise locations of archaeological sites are sensitive information, most of this section is not run by default and the following sections use a preprocessed version of the **patches** object created below. To run this section, set *eval = TRUE* in the following code chunnks and acquire the site locations dataset (attributes_orig.csv) from the SWSN project directly.
 
 ```{r, message = FALSE}
+# define the SWSN coordinate reference system
+crs_utm <- '+proj=utm +zone=12 +datum=NAD27'
+# read in the csv and turn into a spatial object
 sites <- read_csv('data/attributes_orig.csv') %>%
   st_as_sf(coords = c('EASTING', 'NORTHING'), crs = crs_utm) %>%
   st_transform('+proj=longlat +datum=WGS84')
 ```
 
-Next we get the apportioned ceramic ware counts per site.
+Next aggregate the sites into 10km x 10km patches -- the rough limit of raw material extraction around a site. This serves a practical purpose for the analysis -- coarse-graining the data to make the results less sensitive to how exactly "sites" are defined in the field and removing data artifacts due to periods of small-scale settlement dispersal and aggregation -- as well as keeping the exact location of sensitive archaeological sites hidden. First import the SRTM DEM we'll use as a reference and aggregate it to ~10km resolution.
+
+```{r, echo = FALSE, eval = FALSE}
+# This chunk simply creates the cropped version of the SRTM 250m DEM included 
+# in the rest of the analysis. Download from http://gisweb.ciat.cgiar.org/TRMM/SRTM_Resampled_250m/
+# to reproduce the whole analysis, or just use the preprocessed SRTM_SWSN.tif
+# file included with this notebook.
+srtm <- raster('data/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
+  crop(bbox_swsn) # crop to study area
+writeRaster(srtm, 'data/SRTM_SWSN.tif')
+```
+
+```{r dem-aggregation}
+elev_patch <- raster('data/SRTM_SWSN.tif') %>%
+  aggregate(fact = 40) # aggregate to ~10km resolution
+```
+
+Use this elev_patch raster as a template for our 10km grid cells. Get a list of unique site IDs.
+```{r, eval = FALSE}
+patch_ids <- sites %>%
+  st_coordinates%>%
+  cellFromXY(elev_patch, .) %>%
+  as.character
+```
+
+Use these patch IDs to aggregate the site-level data. For each patch, get a list of all the sites contained therein and sum the room counts of all sites for each period.
+
+```{r, eval = FALSE}
+patches <- sites %>%
+  mutate(., patch_id = patch_ids) %>%
+  gather(period, rooms, P1room:P5room) %>%
+  mutate(time = parse_number(period) * 50 + 1150) %>%
+  group_by(patch_id, time) %>%
+  summarise(site = list(SWSN_Site),
+            rooms = sum(rooms)) %>%
+  ungroup %>%
+  spread(time, rooms) %>%
+  cbind(., xyFromCell(elev_patch, as.numeric(.$patch_id))) %>%
+  as.data.frame %>%
+  st_as_sf(coords = c('x','y'), crs = 4326, remove = FALSE)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+saveRDS(patches, 'data/patches.RDS')
+```
+
+```{r, echo = FALSE}
+patches <- readRDS('data/patches.RDS')
+```
+
+```{r, echo = FALSE, fig.cap = 'Total room counts for all periods from all archaeological sites within each 10km grid cell'}
+patches %>%
+  mutate(Rooms = X1200 + X1250 + X1300 + X1350 + X1400) %>%
+  arrange(Rooms) %>%
+  ggplot() +
+  geom_sf(aes(size = Rooms, color = Rooms), show.legend = 'point') + 
+  geom_sf(data = states_swsn, fill = NA, color = 'black') +
+  scale_size_area(limits = c(0, 3000), breaks = seq(0, 3000, by = 500)) +
+  scale_color_viridis(option = 'magma', limits = c(0, 3000), breaks = seq(0, 3000, by = 500), guide = 'legend') +
+  coord_sf(datum = NA) +
+  theme_void()  +
+  theme(legend.position = c(1, 0), legend.justification = c(2.6,-.3))
+```
+
+
+## Social Network Reconstruction
+
+Next we get the apportioned ceramic ware counts per site. These files are supplied by the SWSN project as a result from their internal apportioning scheme. Start by loading these preprocessed matrices, one for each time step, and combinding them into a single tibble.
+
 ```{r}
 load('ware_matrices')
 wares <- list(AD1200cer, AD1250cer, AD1300cer, 
@@ -572,61 +622,37 @@ wares <- list(AD1200cer, AD1250cer, AD1300cer,
   rename(site = rowname)
 ```
 
-```{r, fig.fullwidth = TRUE, echo = FALSE, fig.height = 4, fig.width = 6}
+Visualize the ware types, and how their relative frequencies vary over time across the entire study area.
+```{r, fig.fullwidth = FALSE, echo = FALSE, fig.height = 4, fig.width = 6, fig.cap = 'Changing proportions of each ware type over time.', warning = FALSE}
 wares %>%
   gather(ware, count, 3:38) %>%
   group_by(ware, time) %>%
   summarise(Proportion = sum(count)) %>%
 ggplot(aes(time, Proportion, fill = ware, group = ware)) +
   geom_bar(position='fill', stat = 'identity', color = 'black') +
-  theme_bw()
-```
-Next we aggregate the sites into 10x10km patches. This is because an area of about 10 km radius from a site is the limit of raw material resources for ceramics (TODO cite Arnold1985). So 5km is roughly the limit of day to day social interaction, 10km is raw material procurement for ceramics, and 18 km is for day's journey round trip (TODO cite varien). translated to square units in equivalent areas, that's 3km square cells for regular face-to-face interaction and intensive agriculture. 12km for food and non food resources, and 32km grids for day's trip there and back. So 12 is the most reasonable. First import and crop the raster we'll use as a reference.
-```{r}
-elev <- raster('~/gdrive/Data/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
-  crop(bbox_swsn) %>% # crop to study area
-  aggregate(fact = 40) # aggregate to 10km resolution
+  theme_bw()+
+  theme(legend.key.size = unit(.4, 'cm'), legend.text=element_text(size=rel(0.5)))
 ```
 
-```{r, echo = FALSE}
-#from https://stackoverflow.com/a/46846474
-calculate_mode <- function(x) {
-  uniqx <- unique(x)
-  uniqx[which.max(tabulate(match(x, uniqx)))]
-}
-```
+Define a function to calculate the modified Jensen-Shannon divergence between each pair of assemblages, and turn the result into a social network for visualization and analysis.^[Setting unit = "log" in the JSD command means we're measuring information in nats, change to "log2" to measure in bits.]
 
 ```{r}
-patches <- sites %>%
-  mutate(., patch_id = as.character(cellFromXY(elev, st_coordinates(.)))) %>%
-  gather(period, rooms, P1room:P5room) %>%
-  mutate(time = parse_number(period) * 50 + 1150) %>%
-  group_by(patch_id, time) %>%
-  summarise(Macro = calculate_mode(Macro),
-            site = list(SWSN_Site),
-            rooms = sum(rooms)) %>%
-  ungroup %>%
-  spread(time, rooms) %>%
-  cbind(., xyFromCell(elev, as.numeric(.$patch_id))) %>%
-  as.data.frame %>%
-  st_as_sf(coords = c('x','y'), crs = 4326, remove = FALSE)
-```
-
-```{r}
-theo_max <- -.5 * log(.5) - .5 * log(.5) # maximum theoretical divergence given equal weights
-```
-
-```{r}
+# maximum theoretical divergence given equal weights
+theo_max <- -.5 * log(.5) - .5 * log(.5)
+# function to calculate modified JSD
 getJSD <- function(data, time){
   patch_ids <- pull(data, patch_id)
   data %>%
     select(-patch_id) %>%
     select_if(~!all(. == 0)) %>%
     as.matrix %>%
-    philentropy::distance(method = 'jensen-shannon', est.prob = 'empirical') %>%
-    `/`(., theo_max) %>%
-    sqrt %>%
-    `-`(1,.) %>%
+    # jensen-shannon divergence calculated here
+    philentropy::distance(method = 'jensen-shannon', 
+                          unit = 'log',
+                          est.prob = 'empirical') %>%
+    `/`(., theo_max) %>% # divide by theoretical max so [0-1]
+    sqrt %>% # square root makes it a metric
+    `-`(1,.) %>% # invert so high values == more similar
     `rownames<-`(patch_ids) %>%
     `colnames<-`(patch_ids) %>%
     replace(. == 0, 999) %>% # replace 0 values with 999 temporarily
@@ -634,12 +660,14 @@ getJSD <- function(data, time){
     rename(JSD = weight) %>%
     mutate(JSD = if_else(JSD == 999, 0, JSD)) %>% # convert 999 values back to 0
     mutate(time = time) %>% # set the time period
-    filter(!edge_is_loop()) %>%
-  activate(nodes) 
+    filter(!edge_is_loop()) %>% # remove self loops
+    activate(nodes) 
 }
 ```
 
-```{r, message = FALSE}
+For each 10km grid cell and each time period, combine the apportioned ceramic wares from all archaeological sites. Then apply the getJSD function defined above to each pair of grid cells to calculate the cultural similarity/information flow between the pair. The result is a **ggraph** network object with the estimated tie strength between each grid cell for each time period.
+
+```{r, message = FALSE, warning = FALSE}
 swsn <- patches %>%
   gather(time, rooms, X1200:X1400) %>%
   mutate(time = parse_number(time)) %>%
@@ -658,22 +686,7 @@ swsn <- patches %>%
   left_join(patches, by = c('name' = 'patch_id'))
 ```
 
-```{r, echo = FALSE, fig.fullwidth = TRUE}
-swsn %N>%
-  mutate(Rooms = X1200 + X1250 + X1300 + X1350 + X1400) %>%
-  arrange(Rooms) %>%
-  ggraph('manual', x = x, y = y) +
-      geom_sf(data = states_swsn, fill = NA, color = 'black') +
-  geom_node_point(aes(size = Rooms, color = Rooms)) +
-  scale_size_area(limits = c(0, 3000), breaks = seq(0, 3000, by = 500)) +
-  scale_color_viridis(option = 'magma', limits = c(0, 3000), breaks = seq(0, 3000, by = 500), guide = 'legend') +
-  coord_sf(datum = NA) +
-  theme_void()  +
-  theme(legend.position = c(1, 0), legend.justification = c(2.6,-.3))
-```
-
-
-```{r fig.fullwidth = TRUE, fig.width = 9, fig.height = 6, echo = FALSE}
+```{r fig.fullwidth = TRUE, fig.width = 8, fig.height = 4, echo = FALSE, warning=FALSE, fig.cap='Reconstructed social network, estimated with the modified Jensen-Shannon divergence between the ceramic ware frequencies at each pair of 10km landscape patches. Higher values represent greater information flow, which implies greater cultural similarity and a higher probability of social interaction.'}
 swsn %E>% 
     filter(JSD > .001) %>%
     filter(from < to) %>%
@@ -689,25 +702,7 @@ ggraph('manual', x = x, y = y) +
   theme(legend.position = c(1, 0), legend.justification = c(2.5,0))
 ```
 
-```{r, echo=FALSE, fig.margin = TRUE, fig.width=4, fig.height = 8}
-swsn %E>% 
-    filter(JSD > .001) %>%
-    filter(from < to) %>%
-    mutate(JSD = qlogis(if_else(JSD > .999, .999, JSD))) %>%
-    arrange(JSD) %>% 
-ggraph('manual', x = x, y = y) +
-  geom_edge_fan(aes( color = JSD)) +
-  geom_sf(data = states_swsn, fill = NA, color = 'black') +
-  facet_edges(~time, ncol = 2) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(name = 'Similarity', option = 'magma') +
-  coord_sf(datum = NA) +
-  theme_void() +
-  theme(legend.position = c(1, 0), legend.justification = c(2.5,0))
-```
-
-
-```{r, fig.width= 10, fig.height = 5, fig.fullwidth = TRUE, echo = FALSE}
+```{r, fig.width= 10, fig.height = 5, fig.fullwidth = TRUE, echo = FALSE, warning = FALSE}
 a <- swsn %N>%
   mutate(Rooms = X1200 + X1250 + X1300 + X1350 + X1400) %>%
   arrange(Rooms) %>%
@@ -738,53 +733,21 @@ c <- a + b + plot_layout(heights = c(1, 1)) + plot_annotation(tag_levels = 'A')
 ggsave('swsn2.png', plot = c, height = 5, width = 10)
 ```
 
-Comparing the two approaches show that the using the coarse grained patches approach reduces the number of long distance strong connections. This is likely do to the fact htat we're removing the impact of small sites with only one or two ware types, which can introduce spurious high correlations.
+## Hiking Speeds and Least-cost distances
 
-# Terrain Analysis: Least Cost Distances
-
-Next we calculate the impact of rugged terrain on the potential flow of people and information between the sites in the SWSN database. For this we need to use the SRTM digital elevation model. From the height data in the DEM, we calculate slope, accounting for cognitive biases people have when assessing the steepness of high slopes (people tend to exaggerate slopes above a certain threshold). From this map of perceived slope, we calculate "perceived walking speeds", using Tobler's hiking function. We uses these perceived walking speeds as a measure of the perceived, symmetric costs of traveling between two locations on the landscape, and from these estimate the least cost paths from every site to every site. From there, we extract the 15 nearest neighbors of each site in each time period, and use this nearest neighbor network as a spatial network, from which to estimate new travel costs (limited to paths along this nearest neighbor network).
-
-We focus on the perceived time costs of travel. People will consistently overestimate slopes, so the perceived cognitive costs of moving across the landscape will be greater. In rugged, mountainous terrain, slope is the key factor in influencing ease of travel. We focus specifically on paths, or the physical routes that people traveled. A good path connecting two places has to optimize for ease of travel in both directions. The resulting least-cost network will be used as a proxy measure for the constraints on moving both people and bulk goods across the landscape, and thus the topographic affordances for social exchange.
-
-## Digital Elevation Model
-
-First import the elevation dataset, crop to the study area, and resample.
-
-```{r elevation}
-elev_lcp <- raster('~/gdrive/Data/SRTM_W_250m_TIF/SRTM_W_250m.tif') %>% # import the SRTM DEM
-  crop(bbox_swsn) %>% # crop to study area
+Next we calculate the impact of distance and terrain on the potential flow of people and information between the sites in the SWSN database. For this we need to use a higher-resolutio version of the SRTM digital elevation model used above to define the landscape patches. First import the elevation dataset and resample to 500m to cut down on computational time.
+```{r}
+elev_lcp <- raster('data/SRTM_SWSN.tif') %>%
   aggregate(fact = 2) # aggregate to ~500m resolution
 ```
 
-## Hiking Speeds
+Now we use the package *gdistance* to calculate the time it would take for a hiker to traverse this landscape on foot. This package uses a transition matrix approach, working with matrices that contain the "transmissiveness" (inverse costs) of travel from each cell to its immediate 16 neighbor cells. This allows for a sparse matrix representation, because there is no possible connection to non neighboring cells, which considerably reduces the computational burden. Calculate the absolute difference in elevation between each cell and its 16 neighbors, and use these values to create the sparse transition matrix.
 
-Now we use the package *gdistance* to calculate the time it would take for a hiker to traverse this landscape on foot. Tobler's hiking function allows us to convert terrain slope to expected walking speed. We modify this function to account for cognitive bias in the perception of slope, which causes people to overestimate the steepness of steeper slopes. 
-
-The maximum walking speed of 5 assumes on path movement.
-```{r}
-tobler_adjusted <- function(x){
-  4 * exp(-3.5 * 2.15 * x) / 3.6 # 3.6 turns km/h into m/s
-}
-```
-
-```{r, fig.margin = TRUE, echo = FALSE, fig.cap = "Tobler's hiking function"}
-slope <- seq(-1, 1, .01)
-qplot(slope, tobler_adjusted(abs(slope)) * 3.6, geom = 'line' ) +
-  geom_vline(xintercept = 0, linetype = 2) +
-  labs(x = 'Slope (rise over run)', y = 'Walking speed (km/h)') +
-  theme_classic()
-```
-
-This package uses a transition matrix approach, whereby we work with matrices that contain the costs or transmissiveness of travel from each cell to its immediate 16 neighbor cells. This allows for a sparse matrix representation, because there is no possible connection to non neighboring cells, which considerably reduces the computational burden.
-
-We're representing paths, not necessarily routes, and so focus on symmetric costs. This is an additional modification to tobler.
-
-Calculate the absolute difference in elevation between each cell and its 16 neighbors.
 ```{r, cache = TRUE}
 altDiff <- function(x){abs(x[2] - x[1])}
 hd <- transition(elev_lcp, altDiff, 16, symm = TRUE)
 ```
-Divide the height differences by the horizontal distances between cells, resulting in slopes.
+Divide the height differences by the horizontal distances between cells, resulting in slopes. In rugged, mountainous terrain, slope is the key factor in influencing ease of travel.
 ```{r, cache = TRUE}
 slope_c <- geoCorrection(hd, type = 'c')
 ```
@@ -792,7 +755,24 @@ Figure out which cells are adjacent to one another, queen's case.
 ```{r, cache = TRUE}
 adj <- adjacent(elev_lcp, cells = 1:ncell(elev_lcp), directions = 16)
 ```
-Use Tobler's hiking function to calculate walking speed from *cognitive* slope.
+
+Use Tobler's hiking function to convert the slope-based transition matrix to one of perceived hiking speeds. 
+
+```{r}
+tobler_adjusted <- function(x){
+  4 * exp(-3.5 * 2.15 * x) / 3.6 # 3.6 turns km/h into m/s
+}
+```
+
+```{r, fig.margin = TRUE, echo = FALSE, fig.cap = "This is a modified version of Tobler's traditional function in two ways. First, a steep slopes have an extra penalty to reflect cognitive biases in how people perceive terrain. People tend to overestimate the steepness of steeper slopes, thereby discouraging travel along such slopes even when it is physically possible. Second, the function is made symmetric (and thus isotropic) by averaging uphill and downhill walking speeds. The focus here is on the physical routes that people traveled, and a good path connecting two places has to optimize for ease of travel in both directions."}
+slope <- seq(-1, 1, .01)
+qplot(slope, tobler_adjusted(abs(slope)) * 3.6, geom = 'line' ) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(x = 'Slope (rise over run)', y = 'Walking speed (km/h)') +
+  theme_classic()
+```
+
+Use Tobler's hiking function to calculate walking speed from slope and update the transition matrix.
 ```{r, cache = TRUE}
 speed_c <- slope_c
 speed_c[adj] <- tobler_adjusted(slope_c[adj])
@@ -802,7 +782,7 @@ Divide by intercell distance again, resulting in the conductance matrix.
 conductance_c <- geoCorrection(speed_c, type = 'c')
 ```
 
-```{r, echo = FALSE, fig.height = 6, fig.width = 4, fig.fullwidth = FALSE, fig.cap = 'Conductance map.'}
+```{r, echo = FALSE, fig.fullwidth = FALSE, fig.cap = 'Map of the conductance surface used to calculate the least cost network. Values correspond to the potential hiking speed over each point in space.'}
 speed_c %>%
   raster %>%
   as.data.frame(xy = TRUE, na.rm = TRUE) %>%
@@ -818,10 +798,7 @@ ggplot(aes(x, y, fill = layer * 3.6)) + # convert back to km/h
 rm(altDiff, hd, slope_c, speed_c, adj);invisible(gc())
 ```
 
-## Least-cost Distances
-
-Using the conductance matrix, calculate the full pairwise least cost distance matrix.
-The points of sites are originally in utm zone 12, so reproject to latlong
+Using the conductance matrix, calculate the full pairwise least cost distance matrix. The resulting least-cost network will be used as a proxy measure for the constraints on moving both people and bulk goods across the landscape, and thus the topographic affordances for social exchange.
 
 ```{r least-cost-distances, cache = TRUE}
 distances <- swsn %>%
@@ -838,48 +815,49 @@ distances <- swsn %>%
 ```
 
 
-# Network analysis
+# Network Analysis
 
+With the climatic and archaeological data preprocessed, its time to fit the statistical network model.
+
+## Data Preparation
 
 Import the data produced in the other analyses to add to the sites data.
 ```{r}
 reof_resamp <- reof_raster %>%
   crop(bbox_swsn) %>%
-  resample(elev)
+  resample(elev_patch)
 ```
 
-```{r, fig.margin = TRUE, echo = FALSE}
+```{r, fig.margin = TRUE, eval = FALSE}
 plot(reof_resamp, )
-```
-
-```{r, fig.margin = TRUE, echo = FALSE}
 pairs(reof_resamp)
 ```
 
 
-## Data Preparation
-
 Now that we have all the data imported and preprocessed, let's put it all together into a data frame.
 
-Define a function to calculate the relative difference between two numbers. We use this becuase it is a measure of multiplicative distance, rather than additive such as euclidean distance, which makes the values more robust to deviations.
-
-```{r data_preparation, warning = FALSE}
+```{r data_preparation, warning = FALSE, message = FALSE}
 swsn2 <- swsn %N>%
+  # extract the reof data at the network node level
   mutate(reof1 = raster::extract(reof_resamp, st_coordinates(geometry))[,1],
          reof2 = raster::extract(reof_resamp, st_coordinates(geometry))[,2],
          reof3 = raster::extract(reof_resamp, st_coordinates(geometry))[,3],
          reof4 = raster::extract(reof_resamp, st_coordinates(geometry))[,4],
          reof5 = raster::extract(reof_resamp, st_coordinates(geometry))[,5],
          reof6 = raster::extract(reof_resamp, st_coordinates(geometry))[,6]) %E>%
+  # for each edge, get the name of the from and to nodes
   mutate(from_patch = .N()$name[from],
          to_patch = .N()$name[to]) %>%
+  # combine with the least-cost distances
   left_join(distances, by = c('from_patch', 'to_patch')) %>%
+  # calculate the absolute distance between the reofs along each edge
   mutate(reof1 = abs(.N()$reof1[from] - .N()$reof1[to]),
          reof2 = abs(.N()$reof2[from] - .N()$reof2[to]),
          reof3 = abs(.N()$reof3[from] - .N()$reof3[to]),
          reof4 = abs(.N()$reof4[from] - .N()$reof4[to]),
          reof5 = abs(.N()$reof5[from] - .N()$reof5[to]),
          reof6 = abs(.N()$reof6[from] - .N()$reof6[to])) %>%
+  # remove redundant edges
   mutate(from_tmp = pmin(from, to), to_tmp = pmax(from, to)) %>%
   group_by(from_tmp, to_tmp, time) %>%
   sample_n(1) %>%
@@ -888,6 +866,7 @@ swsn2 <- swsn %N>%
   convert(to_undirected)
 ```
 
+Convert the network edgelist into a tibble for modeling.
 ```{r}
 dat <- swsn2 %E>%
   as_tibble %>%
@@ -898,26 +877,9 @@ dat <- swsn2 %E>%
   filter(JSD >= .001)
 ```
 
-
-jensen inequality, E(logit(y)) >=logit(E(y)). this means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. Its a necessary evil here, becuase we do not yet have the computational abiliy to fit the corMLPE correlation structure and a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a much alrger source of bias then transforming the response variabble,so that's the tradeoffwe went with. The bias from transforming the respone leads to bias in the estimates of variance.
-
- allows the model to be estimated additively.
+## Spatial Interaction Modeling
  
-```{r, echo= FALSE}
-#this room plot shows a process of aggregation over time (mean room size increases)
-ggplot(dat, aes(JSD)) +
-  geom_histogram(bins = 30) + facet_wrap(~time)
-# look at the plot of ws_mul, basically its all the links with low productivity that die out and the ones with high that survive!
-```
-
-```{r, echo = FALSE, fig.margin = TRUE}
-ggplot(dat, aes(qlogis(JSD))) +
-  geom_histogram(bins = 30) + facet_wrap(~time)
-```
-
-
- 
- Pairwise data are high powered, which is makes goodness of fit estimates are preferable over statistical significance testing, and we must be careful to properly estimate confidence intervals,
+Fit a spatial interaction model to the data using a generalized additive mixed model. First define a function to fit a GAMM to the data, given an arbitrary model specification. We'll use this function to compare the AIC of models fit with EOFs + distance to those with distance alone as a predictor. Use the corMLPE correlation structure to model node-level correlation which may influence the edge data.^[Pairwise data are high powered, which is makes goodness-of-fit estimates preferable to significance testing. Thus set method = 'ML' here to ensure unbiased AIC estimates for model selection. Later use method = 'REML' when exploring the actual estimated functions. The corMLPE correlation structure also helpse here, as well as helping to properly estimate confidence intervals.]
 
 ```{r}
 fit_gam_JSD <- function(x){
@@ -927,6 +889,18 @@ fit_gam_JSD <- function(x){
       correlation = corMLPE(form = ~from + to|time_fact),
       data = dat)
 }
+```
+
+Now map this GAMM formulat to a list of model specifications, extracting the AIC from each model fit and ordering the result accordingly. Not that the Jensen-Shannon values are logit transformed before modeling (using qlogis()) to normalize the response data.^[Note the Jensen Inequality here, namely E(logit(y)) >= logit(E(y)). This means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. It would be preferable to run the model as a beta regression without logit-transformation, but it is not currently possible to fit the corMLPE correlation structure with a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a larger source of bias than transforming the response variabble, so this was a reasonable tradeoff.]
+ 
+```{r, echo= FALSE, fig.margin = TRUE, fig.cap = 'Distribution of network tie strengths over time.'}
+ggplot(dat, aes(JSD)) +
+  geom_histogram(bins = 30) + facet_wrap(~time)
+```
+
+```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Same as above, only with logit-transformed tie strengths.'}
+ggplot(dat, aes(qlogis(JSD))) +
+  geom_histogram(bins = 30) + facet_wrap(~time)
 ```
 
 
@@ -955,54 +929,27 @@ models <- c(
   arrange(aic)
 ```
 
-```{r}
-models
-```
-This may suggest areas of increased conflict, where the kind of social interaction through which pottery would have been exchanged would be rare, or other unmodeled costs of travel such as river crossings cultural taboos. 
-```{r, eval = FALSE}
-gam.check(models$gam[[1]])
+Examining the resulting models shows that the model including the REOFs as covariates results in a lower AIC.
+```{r, echo = FALSE}
+models %>%
+  select(formula_chr, aic) %>%
+  print
 ```
 
-We have moderate to strong concurvity
 ```{r, eval = FALSE}
+# additional GAM diagnostics, not run by default
+summary(models$gam[[1]])
+gam.check(models$gam[[1]])
 concurvity(models$gam[[1]])
 ```
 
-This represents that multiple transmission processes, with different relationships to distance, are acting together to generate the variation in the archaeological record. The two main inflection points in the decay curve are both consistent with previous work in the ecology of human mobility. Their is a plateau effect distance plays no appreciable role in interaction between sites within a day's walk of one another (johnson but cites olsson 1965 and crumley 1979, ariadne). This suggests that distance only becomes a deterring factor dealing in multiday trips. The second inflection point, at roughly 10 days is consistent with estimates of area needed to sustain the minimum viable breeding population for human groups (are they consistent with the figures of 50km-80km from rautman and drennen and others? johnson finds no marriages past 60km, maize to chaco papers also have distance).
-Plateau of social interaction with communities who have daily face-to-face contact.
-
-uses log transform
-The Mogollon Rim acts as a severe bottleneck for spatial flows, with paths generally constrained to one of the three river systems, the Verde, Salt, and Gila, act to channel flow across this boundary. 
-
+Now refit the above GAMMs using method = 'REML'. This is the preferred way to do so, but the 'ML' method had to be used above for the AIC model comparison. First fit the distance-only model and plot the resulting distance-decay function.
 ```{r dist-gam, cache = TRUE}
 m1 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) + time_fact,
            method = 'REML', 
            family = gaussian(),
            correlation = corMLPE(form = ~from + to|time_fact),
            data = dat)
-```
-
-```{r eof-gam, cache = TRUE}
-m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
-             s(reof1, by = time_fact, bs = 'cs', k = 6) +
-             s(reof2, by = time_fact, bs = 'cs', k = 6) +
-             s(reof3, by = time_fact, bs = 'cs', k = 6) +
-             s(reof4,  by = time_fact, bs = 'cs', k = 6) +
-             s(reof5, by = time_fact, bs = 'cs', k = 6) +
-             s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact,
-           method = 'REML', 
-           family = gaussian(),
-           correlation = corMLPE(form = ~from + to|time_fact),
-           data = dat)
-```
-
-```{r}
-summary(m2$gam)
-```
-
-```{r, eval = FALSE}
-gam.check(m2$gam)
-concurvity(m2$gam)
 ```
 
 ```{r, echo = FALSE}
@@ -1017,6 +964,22 @@ m1$gam %>%
 
 ggsave('../figures/distance_function.pdf', width = 6, height = 4)
 ```
+
+Now fit the reof + distance model, and plot the resulting functional forms.
+```{r eof-gam, cache = TRUE}
+m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+             s(reof1, by = time_fact, bs = 'cs', k = 6) +
+             s(reof2, by = time_fact, bs = 'cs', k = 6) +
+             s(reof3, by = time_fact, bs = 'cs', k = 6) +
+             s(reof4,  by = time_fact, bs = 'cs', k = 6) +
+             s(reof5, by = time_fact, bs = 'cs', k = 6) +
+             s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact,
+           method = 'REML', 
+           family = gaussian(),
+           correlation = corMLPE(form = ~from + to|time_fact),
+           data = dat)
+```
+
 
 
 ```{r fig.height = 6, fig.width = 6, echo = FALSE}
@@ -1061,7 +1024,15 @@ ggsave('../figures/smooths.pdf', width = 6, height = 6)
 ```
  
  
-```{r}
+```{r, eval = FALSE, echo = FALSE}
+# more diagnostics not run by default
+summary(m2$gam)
+gam.check(m2$gam)
+concurvity(m2$gam)
+```
+
+
+```{r, echo = FALSE}
 knitr::knit_exit()
 ```
 
