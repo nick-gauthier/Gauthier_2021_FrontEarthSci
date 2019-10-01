@@ -929,18 +929,61 @@ models <- c(
   arrange(aic)
 ```
 
-Examining the resulting models shows that the model including the REOFs as covariates results in a lower AIC.
-```{r, echo = FALSE}
-models %>%
-  select(formula_chr, aic) %>%
-  print
-```
+The best performing model includes distance and REOFs as predictors and had an AIC of `r models[[1,6]]`. In second is the model with distance alone, with an AIC of `r models[[2,6]]`. The REOF + distance model has an adjusted R-squared of `r summary(models[[1,5]])$r.sq`, and the distance only model has an adjusted R-squared of `r summary(models[[2,5]])$r.sq`.
 
 ```{r, eval = FALSE}
 # additional GAM diagnostics, not run by default
 summary(models$gam[[1]])
 gam.check(models$gam[[1]])
 concurvity(models$gam[[1]])
+```
+
+
+```{r, fig.margin = TRUE, cache = TRUE, fig.cap= 'How does the model performance change over time? Rerun the above analysis for each time period separately, and plot the adjusted R-squared for each model at each time period. We see that the REOF models most increase the variance explained over the distance-only model after the period of drought and migration.'}
+dat %>%
+  group_by(time) %>%
+  nest %>%
+  mutate(dist_mod = map(
+    data,
+    ~ gamm(
+      qlogis(JSD) ~ s(distance, bs = 'cr', k = 6),
+      method = 'ML',
+      family = gaussian(),
+      correlation = corMLPE(form = ~ from + to),
+      data = .
+    )
+  )) %>%
+  mutate(reof_mod = map(
+    data,
+    ~ gamm(
+      qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
+        s(reof1, bs = 'cs', k = 6) +
+        s(reof2, bs = 'cs', k = 6) +
+        s(reof3, bs = 'cs', k = 6) +
+        s(reof4, bs = 'cs', k = 6) +
+        s(reof5,  bs = 'cs', k = 6) +
+        s(reof6,  bs = 'cs', k = 6),
+      method = 'ML',
+      family = gaussian(),
+      correlation = corMLPE(form = ~ from + to),
+      data = .
+    )
+  )) %>%
+  mutate(
+    r2_dist = map_dbl(dist_mod, ~ summary(.$gam)$r.sq),
+    r2_reof = map_dbl(reof_mod, ~ summary(.$gam)$r.sq)
+  ) %>%
+  select(time, r2_dist, r2_reof) %>%
+  gather(Model, value, 2:3) %>%
+  ggplot(aes(time, value, color = Model)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  scale_color_viridis_d(labels = c('Distance', 'Distance + EOF')) +
+  scale_y_continuous(limits = c(.2, .5)) +
+  labs(x = 'Time', y = 'Adjusted R-Squared') +
+  theme_classic()
+
+ggsave('../figures/r2_time.png', width = 6, height = 4)
 ```
 
 Now refit the above GAMMs using method = 'REML'. This is the preferred way to do so, but the 'ML' method had to be used above for the AIC model comparison. First fit the distance-only model and plot the resulting distance-decay function.
@@ -965,7 +1008,7 @@ m1$gam %>%
 ggsave('../figures/distance_function.pdf', width = 6, height = 4)
 ```
 
-Now fit the reof + distance model, and plot the resulting functional forms.
+Now fit the REOF + distance model, and plot the resulting functional forms.
 ```{r eof-gam, cache = TRUE}
 m2 <- gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
              s(reof1, by = time_fact, bs = 'cs', k = 6) +
@@ -1032,237 +1075,3 @@ concurvity(m2$gam)
 ```
 
 
-```{r, echo = FALSE}
-knitr::knit_exit()
-```
-
-how do the fits change over time?
-```{r}
-fit_gam_JSD <- function(x){
-  gamm(x, method = 'ML', 
-            family = gaussian(),
-      correlation = corMLPE(form = ~from + to|time_fact),
-      data = dat)
-}
-plan(multicore, workers = 2)
-
-models <- c(
- "s(distance, bs = 'cr', k = 6) + time_fact",
-       "s(distance, bs = 'cr', k = 6) +
-          s(reof1, by = time_fact, bs = 'cs', k = 6) +
-          s(reof2, by = time_fact, bs = 'cs', k = 6) +
-       s(reof3, by = time_fact, bs = 'cs', k = 6) +
-       s(reof4,  by = time_fact, bs = 'cs', k = 6) +
-      s(reof5, by = time_fact, bs = 'cs', k = 6) +
-       s(reof6, by = time_fact, bs = 'cs', k = 6) + time_fact"
-   ) %>%
-  paste('qlogis(JSD) ~', .) %>%
-  tibble(formula_chr = .) %>%
-  mutate(formula = purrr::map(formula_chr, as.formula), 
-         model = future_map(formula, fit_gam_JSD)) %>%
-  mutate(lme = purrr::map(model, ~.$lme),
-         gam = purrr::map(model, ~.$gam),
-         aic = map_dbl(lme, AIC)) %>%
-  arrange(aic)
-
-
-t1 <- dat %>% group_by(time) %>% nest %>%
-  mutate(dist_mod = map(data, ~gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6), method = 'ML', 
-            family = gaussian(),
-      correlation = corMLPE(form = ~from + to),
-      data = .))) %>%
-  mutate(reof_mod = map(data, ~gamm(qlogis(JSD) ~ s(distance, bs = 'cr', k = 6) +
-          s(reof1, bs = 'cs', k = 6) +
-          s(reof2,bs = 'cs', k = 6) +
-       s(reof3, bs = 'cs', k = 6) +
-       s(reof4, bs = 'cs', k = 6) +
-      s(reof5,  bs = 'cs', k = 6) +
-       s(reof6,  bs = 'cs', k = 6), method = 'ML', 
-            family = gaussian(),
-      correlation = corMLPE(form = ~from + to),
-      data = .)))
-
-t1 %>% 
-  mutate(r2_dist = map_dbl(dist_mod, ~summary(.$gam)$r.sq),
-         r2_reof = map_dbl(reof_mod, ~summary(.$gam)$r.sq)) %>%
-  select(time, r2_dist, r2_reof) %>%
-  gather(Model, value, 2:3) %>%
-  ggplot(aes(time, value, color = Model)) +
-  geom_line(size = 1.2) + 
-  geom_point(size = 3) +
-  scale_color_viridis_d(labels = c('Distance','Distance + EOF')) +
-  scale_y_continuous(limits = c(.2, .5)) +
-  labs(x = 'Time', y = 'Adjusted R-Squared') +
-  theme_classic()
-
-ggsave('../figures/r2_time.png', width = 6, height = 4)
-```
-
-
-
-```{r fig.width = 6, fig.height = 4}
-#think about changing the residual plots back to magma so its easier to compare across them
-a <- plt_dat %>%
-arrange(JSD) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = JSD, color = JSD)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-   labs(subtitle = 'A') +
-  theme_void() +
-  coord_sf(datum = NA)
-
-b <- plt_dat %>%
-arrange(pred_null) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
-  scale_edge_alpha(guide = 'none') +
- scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-   labs(subtitle = 'B') +
-  theme_void() +
-  coord_sf(datum = NA)
-
-c <- plt_dat %>%
-arrange(res_null) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = res_null, color = res_null)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
-   labs(subtitle = '') +
-  theme_void() +
-  coord_sf(datum = NA)
-
-d <- plt_dat %>%
-arrange(-res_null) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
-  labs(subtitle = '') +
-  theme_void() +
-  coord_sf(datum = NA)
-
-e <- plt_dat %>%
-arrange(pred_mod) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-   labs(subtitle = 'C') +
-  theme_void() +
-  coord_sf(datum = NA)
-
-f <- plt_dat %>%
-arrange(res_mod) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
-   labs(subtitle = '') +
-  theme_void() +
-  coord_sf(datum = NA)
-
-g <- plt_dat %>%
-arrange(-res_mod) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
-  scale_edge_alpha(guide = 'none') +
-   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
-  labs(subtitle = '') +
-  theme_void() +
-  coord_sf(datum = NA)
-
-a+(b+c+d+ e+f+g + plot_layout(nrow = 2))
-plt_dat %E>% as_tibble() %>% summary
-ggsave('figures/residuals.png', width = 6, height = 4)
-```
-
-```{r fig.width = 6, fig.height = 6}
-plt_dat %E>% as_tibble %>% summary
-a <- plt_dat %>%
-arrange(JSD) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = JSD, color = JSD)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-   labs(subtitle = 'A') +
-  facet_wrap(~time, nrow = 1) +
-  theme_void() +
-  coord_sf(datum = NA)
-
-b <- plt_dat %>%
-arrange(pred_null) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = pred_null, color = pred_null)) +
-  scale_edge_alpha(guide = 'none') +
- scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-    facet_wrap(~time, nrow = 1) +
-   labs(subtitle = 'B') +
-  theme_void() +
-  coord_sf(datum = NA)
-
-c <- plt_dat %>%
-arrange(res_null) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = res_null, color = res_null)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
-   labs(subtitle = '') +
-        facet_wrap(~time, nrow = 1) +
-  theme_void() +
-  coord_sf(datum = NA)
-
-d <- plt_dat %>%
-arrange(-res_null) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = -1 * res_null, color = res_null)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
-  labs(subtitle = '') +
-        facet_wrap(~time, nrow = 1) +
-  theme_void() +
-  coord_sf(datum = NA)
-
-e <- plt_dat %>%
-arrange(pred_mod) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = pred_mod, color = pred_mod)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_viridis(option = 'magma', guide = 'none', limits = c(0,1)) +
-   labs(subtitle = 'C') +
-    facet_wrap(~time, nrow = 1) +
-  theme_void() +
-  coord_sf(datum = NA)
-
-f <- plt_dat %>%
-arrange(res_mod) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = res_mod, color = res_mod)) +
-  scale_edge_alpha(guide = 'none') +
-  scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) +
-   labs(subtitle = '') +
-      facet_wrap(~time, nrow = 1) +
-  theme_void() +
-  coord_sf(datum = NA)
-
-g <- plt_dat %>%
-arrange(-res_mod) %>%
-ggraph(x = x, y = y) +
-  geom_edge_fan(aes(alpha = -1 * res_mod, color = res_mod)) +
-  scale_edge_alpha(guide = 'none') +
-   scale_edge_color_distiller(palette = 'RdYlBu', guide = 'none', name = 'JSD', limits = c(-1,1)) + 
-  labs(subtitle = '') +
-      facet_wrap(~time, nrow = 1) +
-  theme_void() +
-  coord_sf(datum = NA)
-
-a+(b+c+d+ e+f+g + plot_layout(nrow = 2))
-a+ b + e + f + g + plot_layout(nrow = 5)
-ggsave('figures/residuals.png', width = 6, height = 4)
-```
-
-
-
-We fit 3 models to predict the prsence of an interaction tie between two sites. The best performing model including distance, size, and reofs as predictors, with an aic of `r logistic_models[[1,4]]`. In second is the model with distance, size, and reofs as predictors, with an aic of `r logistic_models[[2,4]]`. Third is the base geographic model with distance and size, with an AIC of `r logistic_models[[3,4]]`. That said, even the best fitting model only captures 30% of the variance in tie presence. This means we are still missing key variables that drive the presence or absence of social relations.
-
-# References {#references .unnumbered}
