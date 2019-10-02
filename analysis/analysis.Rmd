@@ -918,7 +918,7 @@ models <- c(
   arrange(aic)
 ```
 
-The best performing model includes distance and REOFs as predictors and had an AIC of `r models[[1,6]]`. In second is the model with distance alone, with an AIC of `r models[[2,6]]`. The REOF + distance model has an adjusted R-squared of `r summary(models[[1,5]])$r.sq`, and the distance only model has an adjusted R-squared of `r summary(models[[2,5]])$r.sq`.
+The best performing model includes distance and REOFs as predictors and had an AIC of `r models[[1,6]]`. In second is the model with distance alone, with an AIC of `r models[[2,6]]`. The REOF + distance model has an adjusted R-squared of `r round(summary(models[[1,5]])$r.sq, 3)`, and the distance only model has an adjusted R-squared of `r round(summary(models[[2,5]])$r.sq, 3)`. 
 
 ```{r, eval = FALSE}
 # additional GAM diagnostics, not run by default
