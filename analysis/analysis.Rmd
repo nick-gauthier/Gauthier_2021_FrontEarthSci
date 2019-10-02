@@ -891,18 +891,7 @@ fit_gam_JSD <- function(x){
 }
 ```
 
-Now map this GAMM formulat to a list of model specifications, extracting the AIC from each model fit and ordering the result accordingly. Not that the Jensen-Shannon values are logit transformed before modeling (using qlogis()) to normalize the response data.^[Note the Jensen Inequality here, namely E(logit(y)) >= logit(E(y)). This means we should interpret specific predictions and confidence intervals from this model with caution, and instead only focus on interpretaiton of the brod functional forms. It would be preferable to run the model as a beta regression without logit-transformation, but it is not currently possible to fit the corMLPE correlation structure with a beta family. Preliminary tests with the data suggested that the pairwise correlation structure was a larger source of bias than transforming the response variabble, so this was a reasonable tradeoff.]
- 
-```{r, echo= FALSE, fig.margin = TRUE, fig.cap = 'Distribution of network tie strengths over time.'}
-ggplot(dat, aes(JSD)) +
-  geom_histogram(bins = 30) + facet_wrap(~time)
-```
-
-```{r, echo = FALSE, fig.margin = TRUE, fig.cap='Same as above, only with logit-transformed tie strengths.'}
-ggplot(dat, aes(qlogis(JSD))) +
-  geom_histogram(bins = 30) + facet_wrap(~time)
-```
-
+Now map this GAMM formulat to a list of model specifications, extracting the AIC from each model fit and ordering the result accordingly. Not that the Jensen-Shannon values are logit transformed before modeling (using qlogis()) to normalize the response data.^[Note that E(logit(y)) >= logit(E(y)). It would be preferable to run the model as a beta regression without logit-transformation, but it is not currently possible to fit the corMLPE in a GAMM correlation structure with the beta family. Tests suggest that the pairwise correlation structure was a larger source of bias than transforming the response variable, so this was a necessary tradeoff.]
 
 ```{r gam-aic, cache = TRUE}
 models <- c(
@@ -939,7 +928,7 @@ concurvity(models$gam[[1]])
 ```
 
 
-```{r, fig.margin = TRUE, cache = TRUE, fig.cap= 'How does the model performance change over time? Rerun the above analysis for each time period separately, and plot the adjusted R-squared for each model at each time period. We see that the REOF models most increase the variance explained over the distance-only model after the period of drought and migration.'}
+```{r, fig.margin = TRUE, echo = FALSE, cache = TRUE, fig.cap= 'How does the model performance change over time? Rerun the above analysis for each time period separately, and plot the adjusted R-squared for each model at each time period. We see that the REOF models most increase the variance explained over the distance-only model after the period of drought and migration.'}
 dat %>%
   group_by(time) %>%
   nest %>%
