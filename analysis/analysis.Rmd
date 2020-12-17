@@ -5,14 +5,14 @@ author: "Nicolas Gauthier"
 date: "Last knit on: `r format(Sys.time(), '%d %B, %Y')`"
 #bibliography: bibliography.bibtex
 output:
-  tufte::tufte_handout:
-    citation_package: natbib
-    toc: true
-    #highlight: pygments
-    
   tufte::tufte_html:
     tufte_features: ["fonts", "italics"]
     toc: true
+  tufte::tufte_handout:
+    
+    citation_package: natbib
+    toc: true
+    #highlight: pygments
 link-citations: yes
 monofont: courier
 ---
@@ -50,7 +50,6 @@ Next import packages needed to reproduce the visualizations.
 ```{r, message = FALSE}
 library(ggraph) # network visualization
 library(mgcViz) # GAM plotting
-#devtools::install_github('thomasp85/patchwork') 
 library(patchwork)
 ```
 
@@ -162,7 +161,7 @@ Now run a principal components analysis on the observed SPEI data. Much of the c
 
 ```{r}
 obs_pca <- spei_obs %>%
-  area_weight %>% # reweight for latitudinal distoritions
+  area_weight %>% # reweight for latitudinal distortions
   as.data.frame(na.rm = TRUE) %>%
   t %>% # transpose space and time
   prcomp(scale. = FALSE) # FALSE because SPEI is already normalized
@@ -236,7 +235,7 @@ ggplot(aes(x = PC, y = percent * 100)) +
 recon_eigs %>%
   mutate(separated = if_else(is.na(lag(low)), TRUE, hi < lag(low)),
           test = cumsum(separated),
-         weights = if_else(PC < 3, 0, 1))%>%
+         weights = if_else(PC < 3, 0, 1)) %>%
   filter(PC <=12) %>%
 ggplot(aes(x = PC, y = percent * 100)) +
   geom_errorbar(aes(x = PC, ymin = low, ymax = hi), width = 0.4) +
@@ -269,30 +268,30 @@ get_EOFs <- function(pc_object, eigs, rast_template, n_modes){
   
   reofs <- unclass(varim$loadings) %>%
     as_tibble(rownames = 'column') %>%
-    pivot_longer(-column, names_to = 'PC', values_to = 'reof') %>%
+    pivot_longer(cols = -column, names_to = 'PC', values_to = 'reof') %>%
     right_join(eofs, by = c('column', 'PC'))
   
   eof_amps <- pc_object$x %>%
     .[,1:n_modes] %>%
     scale %>%
-    as_tibble(rownames = 'year', .name_repair = ~1:n_modes) %>%
-    gather(PC, eof_amp, -year) %>%
+    as_tibble(rownames = 'year') %>%
+    pivot_longer(-year, names_to = 'PC', values_to = 'eof_amp') %>%
     mutate(year = as.numeric(str_sub(year, 2)),
-           PC = as.factor(paste0('PC', PC)))
+           PC = as.factor(PC))
   
   reof_amps <- pc_object$x %>%
     .[,1:n_modes] %>%
     scale %>%
     `%*%`(rot_mat) %>%
-    as_tibble(rownames = 'year', .name_repair = ~1:n_modes) %>%
-    gather(PC, reof_amp, -year) %>%
+    as_tibble(rownames = 'year', .name_repair = ~paste0('PC', 1:n_modes)) %>%
+    pivot_longer(cols = -year, names_to = 'PC', values_to = 'reof_amp') %>%
     mutate(year = as.numeric(str_sub(year, 2)),
-           PC = as.factor(paste0('PC', PC)))
+           PC = as.factor(PC))
   
   reofs <- rast_template[[1]] %>%
     as.data.frame(xy = TRUE, na.rm = TRUE) %>% 
     .[1:2] %>%
-    slice(rep(1:n(), times = n_modes)) %>%
+    slice(rep(1:n(), each = n_modes)) %>%
     bind_cols(reofs, .) %>%
     select(-column) %>%
     mutate(PC = paste0('EOF', PC))
@@ -315,9 +314,9 @@ reof_recon <- get_EOFs(recon_pca, recon_eigs, spei_recon, n_modes)
 #Save the reof data as a raster, so we can crop it to the state boundaries
 reof_raster <- reof_obs$EOFs %>%
   select(-eof) %>%
-  spread(PC, reof)  %>%
+  pivot_wider(names_from = PC, values_from = reof) %>%
   rasterFromXYZ %>%
-  `crs<-`(value = '+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0')%>%
+  `crs<-`(value = '+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0') %>%
   crop(states_wus) %>%
   mask(states_wus)
 
@@ -610,7 +609,7 @@ patches %>%
 
 ## Social Network Reconstruction
 
-Next we get the apportioned ceramic ware counts per site. These files are supplied by the SWSN project as a result from their internal apportioning scheme. Start by loading these preprocessed matrices, one for each time step, and combinding them into a single tibble.
+Next we get the apportioned ceramic ware counts per site. These files are supplied by the SWSN project as a result from their internal apportioning scheme. Start by loading these preprocessed matrices, one for each time step, and combining them into a single tibble.
 
 ```{r}
 load('ware_matrices')
